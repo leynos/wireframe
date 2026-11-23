@@ -10,7 +10,7 @@ use tokio_util::{
 };
 use wireframe::{
     connection::{ConnectionActor, ConnectionChannels, FairnessConfig},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks, ProtocolHooks},
     push::{PushHandle, PushQueues},
 };
 
@@ -84,12 +84,13 @@ fn stream_terminator() -> StreamTestEnvelope {
 }
 
 fn hooks_with_stream_end() -> ProtocolHooks<StreamTestEnvelope, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
             Some(stream_terminator())
         })),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 struct PausedTimeGuard;

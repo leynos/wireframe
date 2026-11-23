@@ -6,11 +6,18 @@ use rstest::rstest;
 use tokio_util::codec::{Decoder, Encoder};
 
 use super::shared::{
+    MalformedLengthDelimitedInput,
     deterministic_runner,
     malformed_length_delimited_strategy,
     payload_sequence_strategy,
 };
-use crate::codec::{FrameCodec, LENGTH_HEADER_SIZE, LengthDelimitedFrameCodec};
+use crate::codec::{
+    EofError,
+    FrameCodec,
+    LENGTH_HEADER_SIZE,
+    LengthDelimitedFrameCodec,
+    eof_condition,
+};
 
 #[rstest]
 #[case(64, 96)]
@@ -68,12 +75,38 @@ fn generated_length_delimited_malformed_frames_are_rejected(
             let encoded = input.to_bytes();
             let mut buffer = BytesMut::from(encoded.as_slice());
 
-            match decoder.decode_eof(&mut buffer) {
-                Err(err) => prop_assert_eq!(err.kind(), input.expected_error_kind()),
+            let error = match decoder.decode_eof(&mut buffer) {
+                Err(err) => err,
                 Ok(frame) => {
                     return Err(TestCaseError::fail(format!(
                         "expected malformed input to fail, got {frame:?}"
                     )));
+                }
+            };
+            prop_assert_eq!(error.kind(), input.expected_error_kind());
+            // A truncation is also a structured condition carrying the counts
+            // the protocol hook reports; an oversized length is a framing
+            // error that must not be mistaken for one.
+            match &input {
+                MalformedLengthDelimitedInput::PartialHeader(bytes) => prop_assert_eq!(
+                    eof_condition(&error),
+                    Some(EofError::MidHeader {
+                        bytes_received: bytes.len(),
+                        header_size: LENGTH_HEADER_SIZE,
+                    })
+                ),
+                MalformedLengthDelimitedInput::TruncatedPayload {
+                    declared_len,
+                    payload,
+                } => prop_assert_eq!(
+                    eof_condition(&error),
+                    Some(EofError::MidFrame {
+                        bytes_received: payload.len(),
+                        expected: *declared_len,
+                    })
+                ),
+                MalformedLengthDelimitedInput::OversizedLength { .. } => {
+                    prop_assert!(eof_condition(&error).is_none());
                 }
             }
 

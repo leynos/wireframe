@@ -99,6 +99,68 @@ fn push_policy_behaviour(
     Ok(())
 }
 
+/// Whether a captured warning is the full-queue record this case expects.
+///
+/// Both markers must appear in one record: the warning text identifies the
+/// push-queue drop, and `expected` distinguishes the configured cases.
+fn is_full_queue_warning(level: log::Level, text: &str, expected: &str) -> bool {
+    level == log::Level::Warn && contains_all(text, &["push queue full", expected])
+}
+
+/// Whether `text` mentions every marker in `markers`.
+fn contains_all(text: &str, markers: &[&str]) -> bool {
+    markers.iter().all(|marker| text.contains(marker))
+}
+
+/// The full-queue warning reports whether a dead-letter queue is configured.
+///
+/// The `dlq=` field is the only place an operator can learn whether a dropped
+/// frame had a dead-letter queue to try, so its value must follow the
+/// configuration rather than default to either constant.
+#[rstest]
+#[case::configured(true, "dlq=true")]
+#[case::absent(false, "dlq=false")]
+#[serial(push_policies)]
+fn full_queue_warning_reports_dlq_configuration(
+    mut logger: LoggerHandle,
+    builder: PushQueuesBuilder<u8>,
+    #[case] is_configured: bool,
+    #[case] expected: &str,
+) -> TestResult {
+    let rt = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()?;
+    rt.block_on(async move {
+        let (dlq_tx, _dlq_rx) = mpsc::channel(1);
+        let (_queues, handle) = builder
+            .unlimited()
+            .dlq(is_configured.then_some(dlq_tx))
+            .build()
+            .map_err(|e| io::Error::other(format!("build queues failed: {e}")))?;
+        handle
+            .push_high_priority(1u8)
+            .await
+            .map_err(|e| io::Error::other(format!("push high priority failed: {e}")))?;
+        logger.clear();
+
+        handle
+            .try_push(2u8, PushPriority::High, PushPolicy::WarnAndDropIfFull)
+            .map_err(|e| io::Error::other(format!("try_push failed: {e}")))?;
+
+        let mut found = false;
+        while let Some(record) = logger.pop() {
+            if is_full_queue_warning(record.level(), record.args(), expected) {
+                found = true;
+            }
+        }
+        if !found {
+            return Err(io::Error::other(format!("full-queue warning missing {expected}")).into());
+        }
+        Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+    })?;
+    Ok(())
+}
+
 /// Dropped frames are forwarded to the dead letter queue.
 #[rstest]
 fn dropped_frame_goes_to_dlq(builder: PushQueuesBuilder<u8>) -> TestResult {

@@ -18,7 +18,7 @@ use super::test_actor;
 use crate::{
     app::Envelope,
     connection::{FrameSink, PushSink},
-    hooks::ProtocolHooks,
+    hooks::{CustomProtocolHooks, ProtocolHooks},
     response::{FrameStream, Response},
 };
 
@@ -67,7 +67,7 @@ impl PushSink<Envelope> for FailingSink {
 
 /// Hooks recording the completion hook alongside a supplied terminator.
 fn ordering_hooks(events: Arc<Mutex<Vec<&'static str>>>) -> ProtocolHooks<Envelope, ()> {
-    ProtocolHooks {
+    CustomProtocolHooks {
         on_command_end: Some(Box::new(move |_ctx| {
             events
                 .lock()
@@ -75,8 +75,9 @@ fn ordering_hooks(events: Arc<Mutex<Vec<&'static str>>>) -> ProtocolHooks<Envelo
                 .push("hook");
         })),
         stream_end: Some(Box::new(|_ctx| Some(Envelope::new(9, None, vec![])))),
-        ..ProtocolHooks::default()
+        ..CustomProtocolHooks::default()
     }
+    .into()
 }
 
 fn recorded_events(events: &Arc<Mutex<Vec<&'static str>>>) -> Vec<&'static str> {

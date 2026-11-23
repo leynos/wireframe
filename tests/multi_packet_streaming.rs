@@ -22,7 +22,7 @@ use tokio_util::sync::CancellationToken;
 use wireframe::{
     app::{Envelope, Packet, PacketParts},
     connection::{ConnectionActor, ConnectionChannels, FairnessConfig},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks},
     push::{PushHandle, PushQueues},
 };
 use wireframe_testing::{LoggerHandle, TestResult, logger};
@@ -52,7 +52,7 @@ impl ActorHarness {
         let duplicate_handle = Arc::new(AtomicBool::new(false));
         let handle_slot = Arc::clone(&shared_handle);
         let duplicate_flag = Arc::clone(&duplicate_handle);
-        let hooks = ProtocolHooks {
+        let hooks = CustomProtocolHooks {
             on_connection_setup: Some(Box::new(move |setup_handle, _ctx| {
                 if handle_slot.set(setup_handle).is_err() {
                     duplicate_flag.store(true, Ordering::Relaxed);
@@ -61,8 +61,9 @@ impl ActorHarness {
             stream_end: Some(Box::new(|_ctx: &mut ConnectionContext| {
                 Some(terminator_frame())
             })),
-            ..ProtocolHooks::default()
-        };
+            ..CustomProtocolHooks::default()
+        }
+        .into();
 
         let shutdown = CancellationToken::new();
         let actor = ConnectionActor::with_hooks(

@@ -2,9 +2,9 @@
 //!
 //! Producers share one `PushHandle` with the connection actor that drains it.
 //! Of everything on that shared path, two things are Loom primitives: the
-//! `dlq_drops` counter and the `dlq_last_log` mutex, both touched by
-//! `route_to_dlq` when a dropped frame cannot be sent to the dead-letter
-//! queue. Those are what these models schedule.
+//! `drops` counter and the `last_log` mutex on `DeadLetterState`, both touched
+//! by `DeadLetterState::route_or_count` when a dropped frame cannot be sent to
+//! the dead-letter queue. Those are what these models schedule.
 //!
 //! The queues themselves are Tokio channels, which Loom does not instrument.
 //! The models use them only to put the handle into the state under test, a
@@ -64,7 +64,8 @@ fn full_queue(priority: PushPriority, dlq_capacity: Option<usize>, log_every_n: 
 }
 
 /// Build a handle whose `priority` queue and one-frame dead-letter queue are
-/// both full, so every further drop takes `route_to_dlq`'s error branch.
+/// both full, so every further drop takes
+/// `DeadLetterState::route_or_count`'s error branch.
 fn full_queue_and_dlq(priority: PushPriority, log_every_n: usize) -> Fixture {
     let fixture = full_queue(priority, Some(1), log_every_n);
     fixture

@@ -205,7 +205,6 @@ where
             pipeline: handles.pipeline,
             codec: handles.ctx.codec,
             actor: handles.actor,
-            protocol: handles.ctx.protocol,
         },
     )
     .await
@@ -388,7 +387,6 @@ where
             pipeline: handles.pipeline,
             codec: handles.ctx.codec,
             actor: handles.actor,
-            protocol: handles.ctx.protocol,
         },
     )
     .await

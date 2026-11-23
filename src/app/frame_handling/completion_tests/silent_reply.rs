@@ -25,12 +25,14 @@ async fn forward_silent_reply() -> Result<(EventLog, io::Result<Dispatch>), Push
     };
     let codec = LengthDelimitedFrameCodec::new(1024);
     let serializer = BincodeSerializer;
-    let mut pipeline: FramePipeline<Bytes> =
-        FramePipeline::with_hooks(None, ProtocolHooks::default());
     let protocol: Arc<dyn WireframeProtocol<Frame = Bytes, ProtocolError = ()>> =
         Arc::new(RecordingProtocol {
             log: Arc::clone(&log),
         });
+    // The pipeline owns the connection's callbacks, so the completion hook the
+    // forwarded reply runs is the one installed here.
+    let mut pipeline: FramePipeline<Bytes> =
+        FramePipeline::with_hooks(None, ProtocolHooks::from_protocol(&protocol));
 
     let outcome = super::super::forward_service_response(
         7,
@@ -42,7 +44,6 @@ async fn forward_silent_reply() -> Result<(EventLog, io::Result<Dispatch>), Push
             pipeline: &mut pipeline,
             codec: &codec,
             actor: &mut actor,
-            protocol: Some(&protocol),
         },
     )
     .await;

@@ -11,6 +11,9 @@
 mod builder;
 mod builder_defaults;
 mod codec_driver;
+/// Adapter pairing codec halves for `Framed` now serves the test suites only;
+/// connection framing builds its read and write halves separately.
+#[cfg(test)]
 mod combined_codec;
 pub(crate) mod connection_runtime;
 mod envelope;

@@ -16,7 +16,7 @@ use serial_test::serial;
 use tokio_util::sync::CancellationToken;
 use wireframe::{
     connection::{ConnectionActor, ConnectionChannels},
-    hooks::{ConnectionContext, ProtocolHooks},
+    hooks::{ConnectionContext, CustomProtocolHooks},
     push::PushQueues,
     response::WireframeError,
 };
@@ -52,10 +52,11 @@ async fn before_send_hook_modifies_frames(
     push_expect!(handle.push_high_priority(1), "push high-priority")?;
 
     let stream = stream::iter(vec![Ok(2u8)]);
-    let hooks = ProtocolHooks {
+    let hooks = CustomProtocolHooks {
         before_send: Some(Box::new(|f: &mut u8, _ctx: &mut ConnectionContext| *f += 1)),
-        ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
-    };
+        ..CustomProtocolHooks::<u8, wireframe::NoProtocolError>::default()
+    }
+    .into();
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
         ConnectionChannels::new(push_queues, handle),
@@ -87,12 +88,13 @@ async fn on_command_end_hook_runs(
 
     let counter = Arc::new(AtomicUsize::new(0));
     let c = counter.clone();
-    let hooks = ProtocolHooks {
+    let hooks = CustomProtocolHooks {
         on_command_end: Some(Box::new(move |_ctx: &mut ConnectionContext| {
             c.fetch_add(1, Ordering::SeqCst);
         })),
-        ..ProtocolHooks::<u8, wireframe::NoProtocolError>::default()
-    };
+        ..CustomProtocolHooks::<u8, wireframe::NoProtocolError>::default()
+    }
+    .into();
 
     let mut actor: ConnectionActor<_, wireframe::NoProtocolError> = ConnectionActor::with_hooks(
         ConnectionChannels::new(push_queues, handle),
@@ -136,14 +138,15 @@ async fn error_propagation_from_stream(
     ]);
     let called = Arc::new(AtomicUsize::new(0));
     let c = called.clone();
-    let hooks = ProtocolHooks {
+    let hooks = CustomProtocolHooks {
         handle_error: Some(Box::new(
             move |_e: TestError, _ctx: &mut ConnectionContext| {
                 c.fetch_add(1, Ordering::SeqCst);
             },
         )),
-        ..ProtocolHooks::<u8, TestError>::default()
-    };
+        ..CustomProtocolHooks::<u8, TestError>::default()
+    }
+    .into();
     let mut actor: ConnectionActor<_, TestError> = ConnectionActor::with_hooks(
         ConnectionChannels::new(push_queues, handle),
         Some(Box::pin(stream)),

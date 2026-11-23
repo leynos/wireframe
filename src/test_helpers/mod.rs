@@ -35,9 +35,13 @@ pub mod frame_codec;
 // enough: the crate's self dev-dependency enables `pool` in every test build
 // through feature unification, so the Loom lane selects it without asking.
 #[cfg(all(feature = "pool", not(loom)))]
+pub mod pool_builders;
+
+#[cfg(all(feature = "pool", not(loom)))]
 pub mod pool_client;
 
 pub mod retained_bytes;
+
 pub mod teardown;
 
 pub use bad_codec::{BadCodec, BadDecoder, BadEncoder, BadFrame};
@@ -53,6 +57,15 @@ pub use connection_startup::{
 };
 pub use frame_codec::{CloneCountingCodec, TestAdapter, TestCodec, TestFrame};
 #[cfg(all(feature = "pool", not(loom)))]
+pub use pool_builders::{
+    LifecycleCounters,
+    LifecycleGeneration,
+    LifecycleTestClientPool,
+    build_lifecycle_pool,
+    build_pooled_client,
+    build_preamble_pool,
+};
+#[cfg(all(feature = "pool", not(loom)))]
 pub use pool_client::{
     ClientHello,
     Ping,
@@ -61,8 +74,6 @@ pub use pool_client::{
     PoolTestServer,
     TestClientPool,
     acquire_and_record,
-    build_pooled_client,
-    build_preamble_pool,
 };
 pub use teardown::{UnitFuture, counting_teardown};
 

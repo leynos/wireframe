@@ -426,25 +426,56 @@ actor remains packet-oriented and works with `Envelope` or another
 packet-shaped type; it does not become responsible for codec frame buffers.
 
 The codec driver owns the `packet -> bytes -> transport frame` transition,
-including serialization and `FrameCodec::wrap_payload`. Most protocol hooks
-remain packet-oriented and run on the connection actor's path before
-serialization. The exception is `before_send` for application handler responses:
-`FramePipeline` owns the per-connection `ProtocolHooks` and
-`ConnectionContext`, and runs `before_send` on the codec-wrapped frame after
-serialization and `wrap_payload`, immediately before `Framed::send`. Each
-connection constructs fresh `ProtocolHooks` and a fresh `ConnectionContext`, so
-per-connection context and callback instances are not shared. State held by a
-shared `WireframeProtocol` implementation is still shared by every connection
-that installs it.
+including serialization and `FrameCodec::wrap_payload`. Protocol hooks remain
+packet-oriented, and every packet-oriented outbound path runs `before_send`
+exactly once per emitted packet: handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators. For an
+application handler response, `FramePipeline` runs the hook on the
+codec-wrapped frame after serialization and `wrap_payload`, immediately before
+`Framed::send`.
+
+A `ConnectionProtocol` pairs one `ProtocolHooks` value with one
+`ConnectionContext`. On the prepared server path the frame pipeline's value is
+the connection's only hook owner: it carries the installed protocol and the
+context, and it dispatches every callback, including the protocol error and the
+completion hook that follow a response. The actor built for that path holds no
+`ConnectionProtocol` at all — it is built by a named prepared constructor that
+installs the actor's no-hook mode, and it receives only the identifier and peer
+address it logs with, so its dispatch points are compiled out. Setup is the one
+callback dispatched before the pipeline is told its context: it receives the
+connection's context value, and that same value is then installed in the
+pipeline, so only the pipeline's context reaches callbacks and anything setup
+leaves in it is what every later callback observes. Terminator correlation is
+the named `TerminatorCorrelation` policy (`ACTOR` stamps an envelope terminator,
+`PREPARED` preserves a codec frame), and the error, terminator and completion
+order a prepared response owes is derived by `CompletionSequence` and executed
+by `complete_response`. When a caller drives a `ConnectionActor` directly with
+`with_hooks`, the actor's own value is the single owner. Either way the owner
+is built once and its context reused for the connection's lifetime, so
+dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
+identifier and peer address and remains the designated place for
+connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
+strong reference to the installed protocol and dispatches every callback
+through it; the enum's `Custom` form holds handwritten callbacks instead. State
+held by a shared `WireframeProtocol` implementation is still shared by every
+connection that installs it, but a connection never clones the protocol per
+callback.
 
 The hook therefore receives the exact frame that will be written, and its
-mutation reaches the wire. Hook output must still fit the codec's
-`max_frame_length`. The pipeline does not check this limit: the default
-`LengthDelimitedFrameCodec` rejects an oversized frame, so the send fails and
-ends the connection, while a custom encoder must enforce `max_frame_length`
-itself. Only the direct response helpers, which write to a stream the caller
-supplies rather than through the prepared application, bypass `before_send`. The
-[users' guide](users-guide.md) states the user-facing contract.
+mutation reaches the wire. It is the pre-transport boundary, not a
+pre-serialization one: `before_send` takes `&mut F::Frame`, so it cannot see the
+`Envelope`, and moving it ahead of serialization would reopen
+[ADR 010](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md).
+The 2026-11-18 addendum to
+[ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+records that reading and the prepared path's lifecycle contract. Hook output
+must still fit the codec's `max_frame_length`. The pipeline does not check this
+limit: the default `LengthDelimitedFrameCodec` rejects an oversized frame, so
+the send fails and ends the connection, while a custom encoder must enforce
+`max_frame_length` itself. Only the direct response helpers, which write to a
+stream the caller supplies rather than through the prepared application, bypass
+`before_send`. The [users' guide](users-guide.md) states the user-facing
+contract.
 
 Every prepared server connection now owns an untracked `ConnectionActor` built
 by `src/app/inbound_handler/actor.rs`. Handler responses — including
@@ -456,14 +487,30 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-Only `handle_error` is forwarded from the protocol to that actor: the actor
-registers no completion or terminator hook, and `before_send` stays with the
-pipeline. The prepared path invokes `on_connection_setup` once, with the
-connection's `PushHandle`, after the registry entry is published and before the
-actor starts, so setup can address its own connection or any other live one. The
-`on_eof` callback remains unreached there. The application-level connection
-setup and teardown callbacks registered on `WireframeApp` are separate hooks.
-Without a protocol the actor uses default, no-op hooks.
+The prepared actor receives no protocol hooks at all. Its value is
+`ProtocolHooks::None`, so the error hook, the stream terminator, and the
+completion hook all run through the pipeline's single owner as part of
+`forward_response`; no callback is dispatched twice. The prepared path invokes
+`on_connection_setup` once, with the connection's `PushHandle`, after the
+registry entry is published and before the first inbound frame is read, so
+setup can address its own connection or any other live one and can queue a push
+ahead of the first request. `on_eof` runs once when the peer abandons a frame
+part-way through, and never for a clean close at a frame boundary. The
+application-level connection setup and teardown callbacks registered on
+`WireframeApp` are separate hooks.
+
+`on_eof` dispatch belongs to the connection loop in
+`src/app/inbound_handler/core.rs`; the actor never sees a read error. Framing
+is built per connection by `src/app/inbound_handler/framing.rs`, which keeps
+the read and write halves as separate `FramedRead` and `FramedWrite` values
+rather than two halves of one `Framed`, so the reader's leftover buffer stays
+reachable. When the read fails, `report_truncation` classifies the error through
+`eof_condition`: only `EofError::MidHeader` and `EofError::MidFrame` reach the
+protocol, with every byte the reader still held for the abandoned frame, length
+prefix included. A clean close, a decode failure, and any other read error
+reach no hook, because none of them describes a frame the peer abandoned. A
+custom decoder opts in by returning `CodecError::Eof` from `decode_eof` and
+leaving the incomplete bytes buffered.
 
 `forward_response` owns the rest of the command lifecycle. Once the actor
 reports a completed `Stream` or `MultiPacket` response, it calls
@@ -572,9 +619,14 @@ connection that stops with queued output would otherwise log one, so a shutdown
 abandonment is counted without a per-write alert. A push the rate limiter
 refuses increments the unlabelled `wireframe_push_rate_limited_total`, which is
 the only aggregate signal available when the producer discards the
-`PushError::RateLimited` it receives. Session-registry publication and removal
-are logged at `debug!` with the connection identifier, so a lookup that finds
-nothing can be told apart from a connection that never registered.
+`PushError::RateLimited` it receives. A frame a drop policy discards increments
+`wireframe_push_drops_total` at the loss site in `src/push/queues/dlq.rs`,
+labelled by the discarding policy and by the outcome `no_dlq`, `dlq_full`, or
+`dlq_closed`; a frame the dead-letter queue accepted is not a loss and is not
+counted, so the counter reports frames no consumer will ever see.
+Session-registry publication and removal are logged at `debug!` with the
+connection identifier, so a lookup that finds nothing can be told apart from a
+connection that never registered.
 
 ## Server push path
 
@@ -1538,6 +1590,50 @@ and its rationale). Key points for contributors:
   `wireframe_testing` are mostly false survivors because that crate's logic is
   exercised chiefly by the root crate's suite; treat its table as advisory.
 
+### Dead-letter drop accounting survivors
+
+The drop accounting moved from `PushHandle` into `src/push/queues/dlq.rs`, so a
+survivor reported against the old `handle.rs` line numbers maps to
+`DeadLetterState::route_or_count` and `DeadLetterState::log_if_due`. Ordinary
+captured-warning tests in `tests/push_dlq_cadence.rs` kill the cadence,
+arithmetic and interval mutants there: they set the count threshold and the
+interval explicitly and parse the `dropped=` field of each emitted warning.
+`tests/push_dlq_logging.rs` covers the warning's content, and
+`tests/push_policies.rs` covers the `dlq=` field of the full-queue warning.
+
+Two groups still show as survivors in the ordinary lane because they are
+compiled only under `cfg(loom)`, so no ordinary test can reach them:
+
+- `PushHandle::probe` in `src/push/queues/handle/mod.rs`, and
+  `PushHandleProbe::dlq_drop_count` and `PushHandleProbe::dlq_reported_count` in
+  `src/push/queues/probe.rs`.
+- `DeadLetterState::reported_count` and `DeadLetterState::pending_count` in
+  `src/push/queues/dlq.rs`.
+
+The `push_dlq` Loom models kill the count replacements: a probe returning a
+constant cannot satisfy the models' two-drop assertion or their
+reported-plus-remaining total. The four `probe` constructor replacements do not
+compile under `--cfg loom`, so that lane reports them as unviable rather than
+caught. Reproduce both lanes with:
+
+<!-- tested-example: developers-guide-015 -->
+```sh
+cargo mutants --in-place --file src/push/queues/dlq.rs
+RUSTFLAGS="--cfg loom" cargo mutants --in-place \
+  --file src/push/queues/dlq.rs \
+  --file src/push/queues/probe.rs \
+  --file src/push/queues/handle/mod.rs \
+  --re 'dlq_drop_count|dlq_reported_count|reported_count|pending_count|PushHandle<F>::probe' \
+  --test-package wireframe-loom
+```
+
+One survivor is accepted rather than annotated: replacing `>` with `>=` in the
+`elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Equality is
+possible in principle, but a real-clock test cannot reliably force an elapsed
+time exactly equal to the interval to nanosecond precision, so this test cannot
+distinguish the two operators. It is an accepted limitation of this test, not
+an equivalence.
+
 ### Workflow contract tests
 
 Because the caller is configuration rather than code, a contract test pins the
@@ -2341,15 +2437,15 @@ that depend on runtime facilities outside the model.
 
 What Loom schedules, and what it cannot, decides what the models may assert:
 
-| Field of `PushHandleInner`    | Type under `cfg(loom)`              | Scheduled by Loom |
-| ----------------------------- | ----------------------------------- | ----------------- |
-| `dlq_drops`                   | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `dlq_last_log`                | `loom::sync::Mutex<Instant>`        | yes               |
-| `dlq_reported` (Loom only)    | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `high_prio_tx`, `low_prio_tx` | `tokio::sync::mpsc::Sender`         | no                |
-| `dlq_tx`                      | `Option<tokio::sync::mpsc::Sender>` | no                |
-| `limiter`                     | `Option<leaky_bucket::RateLimiter>` | no                |
-| the handle's own `Arc`        | `std::sync::Arc`                    | no                |
+| Shared push-path state                  | Type under `cfg(loom)`              | Scheduled by Loom |
+| --------------------------------------- | ----------------------------------- | ----------------- |
+| `DeadLetterState::drops`                | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `DeadLetterState::last_log`             | `loom::sync::Mutex<Instant>`        | yes               |
+| `DeadLetterState::reported` (Loom only) | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `high_prio_tx`, `low_prio_tx`           | `tokio::sync::mpsc::Sender`         | no                |
+| `DeadLetterState::sink`                 | `Option<tokio::sync::mpsc::Sender>` | no                |
+| `limiter`                               | `Option<leaky_bucket::RateLimiter>` | no                |
+| the handle's own `Arc`                  | `std::sync::Arc`                    | no                |
 
 *Table 2: What the Loom models can observe on the push path.*
 
@@ -2389,12 +2485,13 @@ is covered by the deterministic ordering tests and the Stateright model;
 proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
-`route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
-replace a `fetch_add` or `fetch_sub` with a separate load and store; the models
-reject it, which is the evidence that Loom is exploring interleavings rather
-than running one schedule. `tests/workflow_contracts/loom_lane_test.py` holds
-the lane to `make test-loom` and the target to its command, read through
-`make --dry-run`. That command passes when it runs zero tests, so
+`DeadLetterState::route_or_count`, `DeadLetterState::log_if_due` or the gauge
+guard. The ones that matter most replace a `fetch_add` or `fetch_sub` with a
+separate load and store; the models reject it, which is the evidence that Loom
+is exploring interleavings rather than running one schedule.
+`tests/workflow_contracts/loom_lane_test.py` holds the lane to `make test-loom`
+and the target to its command, read through `make --dry-run`. That command
+passes when it runs zero tests, so
 `tests/workflow_contracts/loom_models_test.py` holds the package to having
 models to run: every file in `crates/wireframe-loom/tests/` carries
 `#![cfg(loom)]` as its only `cfg` attribute, declares a test, calls
@@ -2918,6 +3015,22 @@ a fresh handle without explicitly calling the constructor.
 `LoggerHandle::new()` tolerates a poisoned mutex: if a prior test panicked
 while holding the logger lock, `new()` recovers the guard via `into_inner()`
 and drains any buffered log records, so the next test starts from a clean state.
+
+### Metrics snapshots in tests
+
+`DebuggingRecorder` reports and resets in one step: a snapshot swaps every
+counter and gauge back to zero. A test that asserts a gauge must therefore take
+exactly one snapshot at the lifecycle point it describes. A second snapshot
+reports only the updates made since the first: increments and decrements apply
+to the drained zero, so an increment followed by a decrement reads as zero and
+no longer proves either happened. Where a later reading is unavoidable, treat
+it as a delta only when the intervening updates are increments or decrements;
+an absolute `set` reports its latest value instead.
+
+`ObservabilityHandle` wraps the same recorder but exposes assertions for
+counters and histograms only. A gauge assertion reads `DebugValue::Gauge` from
+a drained snapshot directly, as `tests/metrics.rs` does for the
+active-connection gauge and the handler-error counter.
 
 ## Roadmap editing with mapsplice
 

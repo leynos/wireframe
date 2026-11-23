@@ -9,7 +9,7 @@ use std::{
 };
 
 use bytes::Bytes;
-use futures::{FutureExt, SinkExt, StreamExt};
+use futures::{SinkExt, StreamExt};
 use tokio::{
     net::TcpListener,
     sync::{Mutex, Notify},
@@ -17,8 +17,12 @@ use tokio::{
 };
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 
+// The builder recipes now live in `pool_builders`, but external test-support
+// consumers address them through this module's original public path. Keep
+// that path working so the move stays source-compatible.
+pub use super::pool_builders::{build_pooled_client, build_preamble_pool};
 use crate::{
-    client::{ClientError, ClientPoolConfig, WireframeClient, WireframeClientPool},
+    client::{ClientError, WireframeClientPool},
     preamble::{read_preamble, write_preamble},
     serializer::BincodeSerializer,
 };
@@ -201,39 +205,6 @@ impl Drop for PoolTestServer {
     }
 }
 
-/// Build a pooled client configured for the shared test protocol.
-pub fn build_pooled_client(
-    addr: SocketAddr,
-    config: ClientPoolConfig,
-    preamble_callback_count: Arc<AtomicUsize>,
-) -> impl std::future::Future<Output = Result<TestClientPool, ClientError>> {
-    WireframeClient::builder()
-        .with_preamble(ClientHello { version: 1 })
-        .on_preamble_success(move |_preamble, stream| {
-            let callback_count = preamble_callback_count.clone();
-            async move {
-                callback_count.fetch_add(1, Ordering::SeqCst);
-                read_server_ack(stream).await
-            }
-            .boxed()
-        })
-        .connect_pool(addr, config)
-}
-
-/// Build a pooled client with a preamble counter for tracking warm reuse.
-///
-/// # Errors
-///
-/// Returns an error if the server cannot be started or the pool connection fails.
-pub async fn build_preamble_pool(
-    config: ClientPoolConfig,
-) -> Result<(PoolTestServer, TestClientPool, Arc<AtomicUsize>), ClientError> {
-    let preamble_callback_count = Arc::new(AtomicUsize::new(0));
-    let server = PoolTestServer::start().await?;
-    let pool = build_pooled_client(server.addr, config, preamble_callback_count.clone()).await?;
-    Ok((server, pool, preamble_callback_count))
-}
-
 /// Acquire and release a lease repeatedly, recording each grant in a shared log.
 ///
 /// # Errors
@@ -388,7 +359,9 @@ async fn send_pool_test_response(
 }
 
 /// Decode the fixture's handshake response and return any buffered bytes.
-async fn read_server_ack(stream: &mut tokio::net::TcpStream) -> std::io::Result<Vec<u8>> {
+pub(super) async fn read_server_ack(
+    stream: &mut tokio::net::TcpStream,
+) -> std::io::Result<Vec<u8>> {
     let (ack, leftover) = read_preamble::<_, ServerAck>(stream)
         .await
         .map_err(|error| std::io::Error::new(std::io::ErrorKind::InvalidData, error))?;

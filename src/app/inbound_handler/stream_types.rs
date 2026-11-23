@@ -23,7 +23,6 @@ use super::super::{
 use crate::{
     codec::FrameCodec,
     connection::PendingPushes,
-    hooks::WireframeProtocol,
     message_assembler::MessageAssembler,
     middleware::HandlerService,
     serializer::Serializer,
@@ -46,9 +45,6 @@ where
     pub(super) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
     pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
-    /// Protocol whose terminator and completion hooks follow a response.
-    pub(super) protocol:
-        Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Effective byte budgets for this connection.
     pub(super) effective_budgets: MemoryBudgets,
     /// Maximum interval to wait for the next inbound frame.

@@ -1,12 +1,11 @@
 //! Unit tests for outbound streaming send API (`send_streaming`).
 
-use std::{io, sync::atomic::Ordering, time::Duration};
+use std::{io, sync::atomic::Ordering};
 
 use rstest::rstest;
 
 use super::send_streaming_infra::{
     DEFAULT_MAX_FRAME,
-    blocking_reader,
     create_send_client,
     create_send_client_with_error_hook,
     create_send_client_with_max_frame,
@@ -214,7 +213,10 @@ async fn auto_derives_chunk_size_from_max_frame_length(protocol_header: Vec<u8>)
 
 /// Assert that a `send_streaming` result is an I/O error with the
 /// expected `ErrorKind`.
-fn assert_io_error(
+///
+/// Shared with [`super::send_streaming_timeout`], which asserts the same error
+/// contract on the deadline path.
+pub(super) fn assert_io_error(
     result: Result<SendStreamingOutcome, ClientError>,
     expected: io::ErrorKind,
 ) -> TestResult {
@@ -293,25 +295,6 @@ async fn clamps_chunk_size_to_available_capacity() -> TestResult {
 }
 
 // -----------------------------------------------------------------------
-// Timeout behaviour
-// -----------------------------------------------------------------------
-
-#[tokio::test]
-async fn timeout_returns_timed_out() -> TestResult {
-    let server = spawn_receiving_server().await?;
-    let mut client = create_send_client(server.addr).await?;
-
-    let (reader, _tx) = blocking_reader();
-
-    let config = SendStreamingConfig::default()
-        .with_chunk_size(10)
-        .with_timeout(Duration::from_millis(50));
-
-    let result = client.send_streaming(b"\x01", reader, config).await;
-    assert_io_error(result, io::ErrorKind::TimedOut)
-}
-
-// -----------------------------------------------------------------------
 // Error hook integration
 // -----------------------------------------------------------------------
 
@@ -334,29 +317,6 @@ async fn invokes_error_hook_on_transport_failure() -> TestResult {
     }
     if !hook_invoked.load(Ordering::SeqCst) {
         return Err("error hook should be invoked on transport failure".into());
-    }
-
-    Ok(())
-}
-
-#[tokio::test]
-async fn invokes_error_hook_on_timeout() -> TestResult {
-    let server = spawn_receiving_server().await?;
-    let (mut client, hook_invoked) = create_send_client_with_error_hook(server.addr).await?;
-
-    let (reader, _tx) = blocking_reader();
-
-    let config = SendStreamingConfig::default()
-        .with_chunk_size(10)
-        .with_timeout(Duration::from_millis(50));
-
-    let result = client.send_streaming(b"\x01", reader, config).await;
-
-    if result.is_ok() {
-        return Err("expected timeout error, got Ok".into());
-    }
-    if !hook_invoked.load(Ordering::SeqCst) {
-        return Err("error hook should be invoked on timeout".into());
     }
 
     Ok(())
