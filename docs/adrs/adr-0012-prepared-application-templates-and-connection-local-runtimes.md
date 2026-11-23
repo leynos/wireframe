@@ -505,19 +505,19 @@ one strong reference once setup has completed — during setup the caller's
 reference is still alive alongside the pipeline's — and `on_connection_setup`
 runs at most once per hooks value. The frame pipeline holds a crate-private
 `ConnectionProtocol` pairing that hooks value with the connection's single
-`ConnectionContext`; it is the only hook owner on the prepared path, so the
-connection actor built there is constructed with inert hooks and an empty
-context. The actor's own `ConnectionProtocol` field therefore holds no copy of
-the connection's context and no protocol reference; it receives only the
-connection identifier and peer address it logs with. The pipeline's context is
-the only one the prepared path dispatches against, and setup receives that same
-value before it is installed. An actor driven directly through `with_hooks` is
-the single owner instead. That pairing is the input the ownership collapse under
-[#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
-pipeline can be folded into one runtime without revisiting hook semantics.
-Every packet-oriented outbound path now runs `before_send` exactly once per
-emitted packet — handler responses, push frames, streamed responses,
-multi-packet channel frames, and stream-end terminators — and no
+`ConnectionContext`; it is the only hook owner on the prepared path. The
+connection actor built there uses the actor's no-hook mode: its
+`ConnectionProtocol` is absent, so it keeps neither a context nor a protocol
+reference and every dispatch point is skipped when that owner is missing; it
+receives only the connection identifier and peer address it logs with. The
+pipeline's context is the only one the prepared path dispatches against, and
+setup receives that same value before it is installed. An actor driven directly
+through `with_hooks` is the single owner instead. That pairing is the input the
+ownership collapse under [#648](https://github.com/leynos/wireframe/issues/648)
+needs: the actor and pipeline can be folded into one runtime without revisiting
+hook semantics. Every packet-oriented outbound path now runs `before_send`
+exactly once per emitted packet — handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators — and no
 transport-frame hook is introduced, so the
 [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 packet boundary is unchanged. Section 8 records that boundary against #644's
@@ -859,9 +859,9 @@ completion hook, so every callback that follows a frame shares one context and
 one strong reference to the installed protocol. The actor built for a prepared
 connection uses a named prepared constructor that installs the actor's no-hook
 mode: the actor holds no `ConnectionProtocol` at all, so its dispatch points
-are compiled out and it keeps neither a protocol reference nor any copy of the
-connection's context. An actor driven directly through `with_hooks` owns its
-own value instead.
+are skipped when that owner is missing and it keeps neither a protocol
+reference nor any copy of the connection's context. An actor driven directly
+through `with_hooks` owns its own value instead.
 
 Two further units make the remaining differences explicit. Terminator
 correlation is a named policy (`TerminatorCorrelation`): the directly driven

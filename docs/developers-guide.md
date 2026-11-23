@@ -441,25 +441,25 @@ context, and it dispatches every callback, including the protocol error and the
 completion hook that follow a response. The actor built for that path holds no
 `ConnectionProtocol` at all — it is built by a named prepared constructor that
 installs the actor's no-hook mode, and it receives only the identifier and peer
-address it logs with, so its dispatch points are compiled out. Setup is the one
-callback dispatched before the pipeline is told its context: it receives the
-connection's context value, and that same value is then installed in the
-pipeline, so only the pipeline's context reaches callbacks and anything setup
-leaves in it is what every later callback observes. Terminator correlation is
-the named `TerminatorCorrelation` policy (`ACTOR` stamps an envelope terminator,
-`PREPARED` preserves a codec frame), and the error, terminator and completion
-order a prepared response owes is derived by `CompletionSequence` and executed
-by `complete_response`. When a caller drives a `ConnectionActor` directly with
-`with_hooks`, the actor's own value is the single owner. Either way the owner
-is built once and its context reused for the connection's lifetime, so
-dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
-identifier and peer address and remains the designated place for
-connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
-strong reference to the installed protocol and dispatches every callback
-through it; the enum's `Custom` form holds handwritten callbacks instead. State
-held by a shared `WireframeProtocol` implementation is still shared by every
-connection that installs it, but a connection never clones the protocol per
-callback.
+address it logs with, so its dispatch points are skipped when that owner is
+missing. Setup is the one callback dispatched before the pipeline is told its
+context: it receives the connection's context value, and that same value is
+then installed in the pipeline, so only the pipeline's context reaches
+callbacks and anything setup leaves in it is what every later callback
+observes. Terminator correlation is the named `TerminatorCorrelation` policy
+(`ACTOR` stamps an envelope terminator, `PREPARED` preserves a codec frame),
+and the error, terminator and completion order a prepared response owes is
+derived by `CompletionSequence` and executed by `complete_response`. When a
+caller drives a `ConnectionActor` directly with `with_hooks`, the actor's own
+value is the single owner. Either way the owner is built once and its context
+reused for the connection's lifetime, so dispatching needs no `Arc<Mutex<_>>`;
+the context carries the connection identifier and peer address and remains the
+designated place for connection-local state. A `ProtocolHooks::Protocol` value
+owns exactly one strong reference to the installed protocol and dispatches
+every callback through it; the enum's `Custom` form holds handwritten callbacks
+instead. State held by a shared `WireframeProtocol` implementation is still
+shared by every connection that installs it, but a connection never clones the
+protocol per callback.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. It is the pre-transport boundary, not a
@@ -487,10 +487,11 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-The prepared actor receives no protocol hooks at all. Its value is
-`ProtocolHooks::None`, so the error hook, the stream terminator, and the
-completion hook all run through the pipeline's single owner as part of
-`forward_response`; no callback is dispatched twice. The prepared path invokes
+The prepared actor receives no protocol hooks at all: it is built in the
+actor's no-hook mode, so it holds no `ProtocolHooks` value and no
+`ConnectionProtocol`. The error hook, the stream terminator, and the completion
+hook all run through the pipeline's single owner as part of `forward_response`;
+no callback is dispatched twice. The prepared path invokes
 `on_connection_setup` once, with the connection's `PushHandle`, after the
 registry entry is published and before the first inbound frame is read, so
 setup can address its own connection or any other live one and can queue a push

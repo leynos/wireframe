@@ -198,10 +198,10 @@ where
         // The protocol terminator is a complete codec frame. Writing it
         // unchanged preserves metadata a custom codec adds outside the payload,
         // and running it through the sink's `before_send` hook matches
-        // application frames. `CompletionSequence::terminator_correlation`
-        // states that policy for this path.
+        // application frames. The pipeline's construction selected the
+        // preserving policy for this path.
         debug_assert_eq!(
-            CompletionSequence::terminator_correlation(),
+            ctx.pipeline.terminator_correlation(),
             TerminatorCorrelation::PREPARED,
             "a prepared connection never restamps a codec-frame terminator"
         );
@@ -289,9 +289,12 @@ where
     F: FrameCodec,
     Envelope: EncodeWith<S>,
 {
-    // A prepared connection's terminator is a complete codec frame, so the
-    // prepared policy applies: it is written unchanged and never restamped.
-    TerminatorCorrelation::PREPARED.apply_codec_frame(&mut frame);
+    // A prepared connection's terminator is a complete codec frame, so its
+    // pipeline's preserving policy applies: it is written unchanged and never
+    // restamped.
+    ctx.pipeline
+        .terminator_correlation()
+        .apply_codec_frame(&mut frame);
     let writing = send_native_frame::<K, F>(&mut *ctx.sink, &mut *ctx.pipeline, frame);
     // A terminator is one physical frame written straight to the transport, so
     // it has no finer progress to report than the write itself completing.
