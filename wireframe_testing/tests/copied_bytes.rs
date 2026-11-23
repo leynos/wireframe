@@ -192,6 +192,39 @@ fn inbound_decode_copies_the_payload_once(#[case] payload_class: PayloadClass) {
     );
 }
 
+/// A rejected frame records no deserialized bytes.
+///
+/// `parse_envelope` records the copy only after its trailing-bytes check, so a
+/// frame the decoder rejects must leave the counter at zero. Recording before
+/// the check would let an attacker-controlled trailing byte inflate the
+/// baseline, which is exactly the sort of copy the gate must not hide.
+#[rstest]
+#[serial]
+fn a_rejected_frame_records_no_deserialized_bytes() {
+    let mut frame_payload = BincodeSerializer
+        .serialize(&default_envelope(PayloadClass::Small))
+        .expect("the default serializer must encode its own envelope");
+    frame_payload.extend_from_slice(&[0xff]);
+
+    benchmark_counters::reset();
+    let result = benchmark_decode_envelope(&BincodeSerializer, &frame_payload);
+    let copied = benchmark_counters::snapshot();
+
+    assert!(
+        result.is_err(),
+        "the decoder must reject a frame with trailing bytes"
+    );
+    assert_eq!(
+        copied.deserialized, 0,
+        "a rejected frame must not record deserialized bytes"
+    );
+    assert_eq!(
+        copied.total(),
+        0,
+        "a rejected frame must not record any copied bytes"
+    );
+}
+
 /// The production serializer and its hand-off copy the payload exactly once.
 ///
 /// This is the assertion the harness-serializer case could not make: it uses
