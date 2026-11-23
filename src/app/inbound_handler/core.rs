@@ -32,7 +32,12 @@ use super::{
         memory_budgets::MemoryBudgets,
     },
     MAX_DESER_FAILURES,
-    actor::{ConnectionActorInit, build_connection_actor},
+    actor::{
+        CancellationGuard,
+        ConnectionActorInit,
+        ConnectionResponseActor,
+        build_connection_actor,
+    },
     dispatch::parse_envelope,
     frames::InboundFrames,
     framing::{prepare_connection_framing, report_truncation},
@@ -142,6 +147,58 @@ where
     }
 }
 
+/// Inputs the response actor is built from.
+struct ActorSetup<'a, F>
+where
+    F: FrameCodec,
+{
+    /// Protocol dispatching `on_connection_setup`, if one is installed.
+    protocol: Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
+    /// Connection-local stop token the actor observes.
+    shutdown: CancellationToken,
+    /// Registry the connection publishes its push handle to.
+    registry: &'a Arc<SessionRegistry<F::Frame>>,
+    /// Template cloned to build this connection's push queues.
+    push_queues: &'a PushQueuesBuilder<F::Frame>,
+    /// Peer address of the accepted socket, when the server reported one.
+    peer_addr: Option<SocketAddr>,
+}
+
+/// Build the response actor and install the context setup observed.
+///
+/// The cancellation guard is returned rather than bound here: it cancels the
+/// connection's shutdown token when dropped, so it must live for as long as the
+/// connection does.
+fn build_actor<F>(
+    setup: ActorSetup<'_, F>,
+    pipeline: &mut FramePipeline<F::Frame>,
+) -> io::Result<(ConnectionResponseActor<F>, CancellationGuard)>
+where
+    F: FrameCodec,
+{
+    let ActorSetup {
+        protocol,
+        shutdown,
+        registry,
+        push_queues,
+        peer_addr,
+    } = setup;
+    let (actor, cancel_on_exit, connection_context) =
+        build_connection_actor::<F>(ConnectionActorInit {
+            protocol,
+            shutdown,
+            registry,
+            push_queues,
+            context: ConnectionContext::default().with_peer_addr(peer_addr),
+        })?;
+    // Installing the value setup observed — rather than rebuilding an equal
+    // one — means state setup leaves in the context carries into every later
+    // callback. The sink-owned pipeline runs `before_send` too, so it must
+    // know which connection the callback is running for.
+    pipeline.set_context(connection_context);
+    Ok((actor, cancel_on_exit))
+}
+
 /// Read and process frames until the stream closes or an I/O error occurs.
 pub(crate) async fn process_stream<S, E, F, W>(
     stream: W,
@@ -154,67 +211,52 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    // Take the context apart rather than keeping it alive across the loop: its
-    // protocol reference is only needed to dispatch `on_connection_setup`, and
-    // the pipeline's hook owner must end up as the connection's single strong
+    // The protocol reference is only needed to dispatch `on_connection_setup`,
+    // so it is taken out of the context and dropped once setup has run: the
+    // pipeline's hook owner must end up as the connection's single strong
     // reference.
-    let StreamProcessingContext {
-        routes,
-        streaming_routes,
-        serializer,
-        codec,
-        message_assembler,
-        fragmentation,
-        protocol_hooks,
-        protocol,
-        memory_budgets,
-        read_timeout_ms,
-        shutdown,
-        push_queues,
-        session_registry,
-        peer_addr,
-    } = context;
+    let mut connection = context;
+    let protocol = connection.protocol.take();
     let (mut sink, mut reader, connection_codec) =
-        prepare_connection_framing(stream, codec).split();
+        prepare_connection_framing(stream, connection.codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
-    let effective_budgets =
-        frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
+    let effective_budgets = frame_handling::resolve_effective_budgets(
+        connection.memory_budgets,
+        requested_frame_length,
+    );
     let mut inbound = build_inbound_frames::<F>(BoundState {
-        fragmentation,
-        protocol_hooks,
-        message_assembler,
+        fragmentation: connection.fragmentation,
+        protocol_hooks: connection.protocol_hooks,
+        message_assembler: connection.message_assembler,
         requested_frame_length,
         effective_budgets,
     });
     // A child token so the guard below cancels only this connection, while a
     // server shutdown still reaches it through the parent.
-    let connection_shutdown = shutdown.child_token();
+    let connection_shutdown = connection.shutdown.child_token();
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit, connection_context) =
-        build_connection_actor::<F>(ConnectionActorInit {
+    let (mut response_actor, _cancel_on_exit) = build_actor::<F>(
+        ActorSetup {
             protocol: protocol.as_ref(),
             shutdown: connection_shutdown,
-            registry: &session_registry,
-            push_queues: &push_queues,
-            context: ConnectionContext::default().with_peer_addr(peer_addr),
-        })?;
+            registry: &connection.session_registry,
+            push_queues: &connection.push_queues,
+            peer_addr: connection.peer_addr,
+        },
+        &mut inbound.pipeline,
+    )?;
     // Setup has run, and the pipeline's hook owner holds the connection's one
     // strong reference from here on.
     drop(protocol);
-    // Installing the value setup observed — rather than rebuilding an equal
-    // one — means state setup leaves in the context carries into every later
-    // callback. The sink-owned pipeline runs `before_send` too, so it must
-    // know which connection the callback is running for.
-    inbound.pipeline.set_context(connection_context);
     let dispatch = DispatchContext {
-        routes,
-        streaming_routes,
-        serializer: serializer.as_ref(),
+        routes: connection.routes,
+        streaming_routes: connection.streaming_routes,
+        serializer: connection.serializer.as_ref(),
         codec: &connection_codec,
-        message_assembler,
+        message_assembler: connection.message_assembler,
         effective_budgets,
-        read_timeout_ms,
+        read_timeout_ms: connection.read_timeout_ms,
     };
     let outcome = stream_dispatch::run(stream_dispatch::Connection {
         reader: &mut reader,
@@ -222,9 +264,9 @@ where
         inbound: &mut inbound,
         actor: &mut response_actor.actor,
         ctx: &dispatch,
-        shutdown,
+        shutdown: connection.shutdown,
         peer_eof: &peer_eof,
-        wait: Duration::from_millis(read_timeout_ms),
+        wait: Duration::from_millis(connection.read_timeout_ms),
     })
     .await;
     if let Err(error) = &outcome {
