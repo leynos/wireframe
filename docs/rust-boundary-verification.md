@@ -2,8 +2,8 @@
 
 This document records what the workspace's `unsafe_code` prohibition
 establishes, how each check works, and what it does not establish. The decision
-itself is [ADR 016](adr-016-unsafe-code-boundary.md); this page is the evidence
-contract.
+itself is [ADR 016](adrs/adr-0016-unsafe-code-boundary.md); this page is the
+evidence contract.
 
 ## The boundary in one paragraph
 
@@ -200,6 +200,6 @@ run could be scheduled.
 
 ## References
 
-- [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
+- [ADR 016: forbid unsafe code workspace-wide](adrs/adr-0016-unsafe-code-boundary.md)
 - [The `unsafe_code` lint](https://doc.rust-lang.org/rustc/lints/listing/allowed-by-default.html#unsafe-code)
 - [Cargo: lint configuration](https://doc.rust-lang.org/cargo/reference/manifest.html#the-lints-section)
