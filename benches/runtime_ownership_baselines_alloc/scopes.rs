@@ -17,6 +17,8 @@ use wireframe_testing::{
         AcquisitionMode,
         ActorWorkload,
         CancellationMode,
+        ConfiguredPhase,
+        ConfiguredStartupWorkload,
         POOL_SIZES,
         PoolWorkload,
         PushScenario,
@@ -24,6 +26,7 @@ use wireframe_testing::{
         StartupPath,
         StartupWorkload,
         measure_actor_drain,
+        measure_configured_startup,
         measure_push,
         measure_startup,
     },
@@ -157,6 +160,10 @@ pub(crate) struct AllocationWorkloads {
     startup_prepared: StartupWorkload,
     /// The per-connection factory path, which prepares once per connection.
     startup_per_connection: StartupWorkload,
+    /// The configured root: one preparation serving every connection.
+    configured_startup: ConfiguredStartupWorkload,
+    /// The configured application built, prepared, and dropped, serving none.
+    configured_preparation: ConfiguredStartupWorkload,
     /// Uncontended acquire/release at the named baseline pool sizes.
     pool_workloads: [PoolWorkload; POOL_SIZES.len()],
 }
@@ -190,6 +197,21 @@ impl AllocationWorkloads {
             startup_per_connection: StartupWorkload {
                 path: StartupPath::PerConnectionFactory,
                 ..StartupWorkload::default()
+            },
+            configured_startup: ConfiguredStartupWorkload {
+                base: StartupWorkload {
+                    path: StartupPath::PreparedRoot,
+                    ..StartupWorkload::default()
+                },
+                phase: ConfiguredPhase::PreparedThenServe,
+            },
+            configured_preparation: ConfiguredStartupWorkload {
+                base: StartupWorkload {
+                    path: StartupPath::PreparedRoot,
+                    connections: 0,
+                    ..StartupWorkload::default()
+                },
+                phase: ConfiguredPhase::PreparationOnly,
             },
             pool_workloads: POOL_SIZES.map(|pool_size| PoolWorkload {
                 pool_size,
@@ -229,6 +251,18 @@ pub(crate) fn allocation_scopes(runtime: &Runtime) -> Vec<AllocationScope<'_>> {
             run_measurement(
                 runtime,
                 measure_startup(workloads.startup_per_connection, iterations),
+            )
+        }),
+        AllocationScope::windowed(workloads.configured_startup.label(), move || {
+            run_measurement(
+                runtime,
+                measure_configured_startup(workloads.configured_startup, iterations),
+            )
+        }),
+        AllocationScope::windowed(workloads.configured_preparation.label(), move || {
+            run_measurement(
+                runtime,
+                measure_configured_startup(workloads.configured_preparation, iterations),
             )
         }),
     ];

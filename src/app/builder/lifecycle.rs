@@ -1,6 +1,6 @@
 //! Connection lifecycle hook configuration for `WireframeApp`.
 
-use std::{future::Future, sync::Arc};
+use std::future::Future;
 
 use super::WireframeApp;
 use crate::{
@@ -45,7 +45,7 @@ where
         Fut: Future<Output = C2> + Send + 'static,
         C2: Send + 'static,
     {
-        Ok(self.rebuild_with_connection_state(Some(Arc::new(move || Box::pin(f())))))
+        Ok(self.rebuild_with_connection_state(Some(Box::new(move || Box::pin(f())))))
     }
 
     /// Register a callback invoked when a connection is closed.
@@ -81,7 +81,7 @@ where
         TeardownFn: Fn(C) -> Fut + Send + Sync + 'static,
         Fut: Future<Output = ()> + Send + 'static,
     {
-        self.on_disconnect = Some(Arc::new(move |c| Box::pin(f(c))));
+        self.on_disconnect = Some(Box::new(move |c| Box::pin(f(c))));
         Ok(self)
     }
 }

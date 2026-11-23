@@ -39,7 +39,7 @@ fn process_assembly_frame(
     envelope: Envelope,
 ) -> io::Result<Option<Envelope>> {
     assemble_if_needed(
-        AssemblyRuntime::new(Some(assembler), state),
+        AssemblyRuntime::new(Some(assembler.as_ref()), state),
         deser_failures,
         envelope,
         10,

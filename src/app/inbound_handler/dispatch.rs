@@ -5,7 +5,7 @@
 //! connection's malformed-input budget, which is why the failure counter is
 //! threaded through every stage rather than owned by any one of them.
 
-use std::{collections::HashMap, io, sync::Arc};
+use std::{collections::HashMap, io};
 
 use futures::Sink;
 use log::warn;
@@ -47,7 +47,7 @@ where
     /// Codec configuration used by the response path.
     pub(super) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(super) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Outbound processing state for fragmenting, hooking, and counting
     /// responses.
     pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
@@ -136,7 +136,7 @@ where
 /// Build a dispatchable envelope through decode, reassembly, and assembly.
 fn build_dispatchable_envelope<S, F>(
     serializer: &S,
-    message_assembler: Option<&Arc<dyn MessageAssembler>>,
+    message_assembler: Option<&dyn MessageAssembler>,
     context: DispatchBuildContext<'_, F>,
 ) -> io::Result<Option<Envelope>>
 where
