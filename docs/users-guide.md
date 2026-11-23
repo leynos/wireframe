@@ -3870,9 +3870,11 @@ benchmark harness's own pipeline, so a benchmark and a test measure the same
 scenario. `middleware_payload_handoff` and `hook_payload_handoff` return a
 `StageOutcome` holding the payload's arrival and departure addresses, the
 returned bytes, and `is_payload_preserved`, which reports whether the stage
-moved the buffer or copied it. `measure_middleware_passthrough_buffer` times a
-chain over a buffer the caller built, which keeps the buffer's own allocation
-outside an allocation window.
+returned the buffer it was given at the same address. A copy the stage returns
+in a new buffer reports `false`; a copy it discards goes undetected by this
+method. `measure_middleware_passthrough_buffer` times a chain over a buffer the
+caller built, which keeps the buffer's own allocation outside an allocation
+window.
 
 These helpers select access through `AccessMode`: `ReadOnly` inspects the
 payload, `Mutating` rewrites it, and `Copying` is a seeded fault that must

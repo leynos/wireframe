@@ -258,6 +258,11 @@ pub(super) fn read_only_hooks_hold_across_payload_sizes() {
             departure, arrival,
             "a read-only hook relocated the {payload_bytes}-byte payload: {arrival} -> {departure}"
         );
+        assert_eq!(
+            payload.len(),
+            payload_bytes,
+            "a read-only hook changed the length of the {payload_bytes}-byte payload"
+        );
         assert!(
             payload.iter().all(|byte| *byte == 0x5a),
             "a read-only hook rewrote the {payload_bytes}-byte payload"
