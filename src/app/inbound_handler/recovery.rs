@@ -178,14 +178,21 @@ impl<'a> RecoveryCoordinator<'a> {
     /// have selected. Reporting that selection would claim a drop or a
     /// quarantine that never happened, so the failure is reported as the
     /// disconnect it actually is. The hook is not consulted.
-    pub(super) fn report_terminal(&self, failure: DecodeFailure) {
+    pub(super) fn report_terminal(&self, failure: DecodeFailure) -> io::Error {
         let (error, ..) = failure.into_parts();
         let policies = ReportedPolicies::terminal();
 
         match codec_error_in(&error) {
             Some(codec_error) => self.publish(codec_error, policies),
-            None => self.publish(&CodecError::Io(error), policies),
+            // `publish` reports an owned `CodecError`, so a plain I/O error is
+            // described for the callback and counter while the decoder's own
+            // error is returned unchanged, keeping its kind and source chain.
+            None => {
+                let described = CodecError::Io(io::Error::new(error.kind(), error.to_string()));
+                self.publish(&described, policies);
+            }
         }
+        error
     }
 
     /// Ask the hook what to do with one classified failure.

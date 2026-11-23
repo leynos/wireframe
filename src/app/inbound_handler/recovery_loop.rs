@@ -11,12 +11,9 @@ use std::io;
 use tokio_util::sync::CancellationToken;
 
 use super::{super::frames::InboundFrames, RecoveryCoordinator, RecoveryState};
-use crate::{
-    app::{
-        frame_handling::Dispatch,
-        recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
-    },
-    codec::{CodecError, eof_condition},
+use crate::app::{
+    frame_handling::Dispatch,
+    recovery_codec::{DecodeOrigin, DecodedItem},
 };
 
 /// Resolve one read item into the frame the loop must dispatch.
@@ -65,17 +62,10 @@ pub(in crate::app::inbound_handler) fn hold_or_end<T>(
 ) -> io::Result<DecodedItem<T>> {
     match item {
         DecodedItem::Failure(failure) if failure.origin() == DecodeOrigin::DecodeEof => {
-            // `report_terminal` consumes the failure, and `CodecError` is not
-            // `Clone`, so the error the caller receives is rebuilt from the
-            // copyable EOF condition the original carries. Everything else
-            // about a decoder error is terminal for this connection anyway.
-            let (error, origin, consumed) = failure.into_parts();
-            let rebuilt = eof_condition(&error).map_or_else(
-                || io::Error::new(error.kind(), error.to_string()),
-                |eof| CodecError::Eof(eof).into(),
-            );
-            recovery.report_terminal(DecodeFailure::new(error, origin, consumed));
-            Err(rebuilt)
+            // The reporter hands the decoder's own error back rather than a
+            // rebuilt copy, so a terminal failure keeps its kind and source
+            // chain. The failure is reported exactly once through it.
+            Err(recovery.report_terminal(failure))
         }
         other => Ok(other),
     }
