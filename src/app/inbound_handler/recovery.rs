@@ -182,15 +182,14 @@ impl<'a> RecoveryCoordinator<'a> {
         let (error, ..) = failure.into_parts();
         let policies = ReportedPolicies::terminal();
 
-        match codec_error_in(&error) {
-            Some(codec_error) => self.publish(codec_error, policies),
+        if let Some(codec_error) = codec_error_in(&error) {
+            self.publish(codec_error, policies);
+        } else {
             // `publish` reports an owned `CodecError`, so a plain I/O error is
             // described for the callback and counter while the decoder's own
             // error is returned unchanged, keeping its kind and source chain.
-            None => {
-                let described = CodecError::Io(io::Error::new(error.kind(), error.to_string()));
-                self.publish(&described, policies);
-            }
+            let described = CodecError::Io(io::Error::new(error.kind(), error.to_string()));
+            self.publish(&described, policies);
         }
         error
     }
