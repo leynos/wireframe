@@ -847,6 +847,16 @@ for the roadmap edit.
   itself and predated the pre-built-buffer change. The tolerance figures are
   reconciled to GitHub's comparison, and the literal `make bench-codec` run is
   recorded as the EP-M1 evidence.
+- [x] (2026-11-23) EP-M11 (rebase onto main). Main advanced eleven commits and
+  the branch conflicted. The rebase auto-resolved four production files
+  cleanly; the four changed regions were inspected and the branch's seams
+  (`record_deserialized`, `benchmark_decode_envelope`,
+  `benchmark_encode_message_frame`, `bytes_from_vec`) are intact. Main had
+  independently claimed the documentation-example identifiers this branch used,
+  so the loader gate failed on the rebased tree; the branch's markers moved to
+  `users-guide-068` and `migration-guide-025`/`-026`. On the rebased tree, all
+  nine gates pass: `make test` 2,366 tests in 110 suites, 0 failed;
+  `make test-bdd` 237 passed.
 
 ## Surprises and discoveries
 
