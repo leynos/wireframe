@@ -138,8 +138,8 @@ impl<T> FramePipeline<T> {
     /// observed, so state setup leaves in it is visible to every later
     /// callback. The response actor holds no copy: it is built in the
     /// no-hook mode, receives only the identity it logs with, and its
-    /// dispatch points are compiled out, so the pipeline's context is the
-    /// connection's one hook context.
+    /// dispatch points are skipped because that owner is absent, so the
+    /// pipeline's context is the connection's one hook context.
     pub(crate) const fn set_context(&mut self, context: ConnectionContext) {
         self.protocol.set_context(context);
     }

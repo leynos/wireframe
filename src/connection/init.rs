@@ -9,7 +9,7 @@
 //! Hook ownership is part of those inputs. A caller that drives the actor
 //! itself supplies [`ProtocolHooks`]; a prepared connection supplies `None`,
 //! because its `FramePipeline` owns every callback. The actor's own dispatch
-//! points are then compiled out rather than skipped at runtime.
+//! points then find no owner and are skipped.
 
 use tokio_util::sync::CancellationToken;
 

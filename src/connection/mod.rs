@@ -300,8 +300,8 @@ where
     /// The prepared path dispatches every protocol callback through the
     /// connection's `FramePipeline`, so this constructor installs the
     /// no-hook mode: the actor holds no hook owner at all, every dispatch
-    /// point is compiled out, and the pipeline's context is the connection's
-    /// only hook context. It receives the connection's logging identity
+    /// point is skipped because that owner is absent, and the pipeline's
+    /// context is the connection's only hook context. It receives the connection's logging identity
     /// explicitly, so it needs no context of its own.
     #[must_use]
     pub(crate) fn new_prepared_untracked(
