@@ -144,7 +144,7 @@ same vector. Nothing enforces either statement.
 `Cargo.toml:203-205` sets `unsafe_code = "forbid"` for every workspace package,
 and every target root repeats `#![forbid(unsafe_code)]`.
 `tests/workspace_unsafe_boundary.rs` and `make unsafe-boundary` enforce it.
-`docs/adr-016-unsafe-code-boundary.md` records the decision and why the
+`docs/adrs/adr-0016-unsafe-code-boundary.md` records the decision and why the
 workspace needs no audited unsafe crate today: the only code that ever needed
 `unsafe`, a handwritten `GlobalAlloc`, was replaced by `stats_alloc`'s safe
 wrapper.
@@ -255,7 +255,7 @@ artefacts, as at `origin/main` commit `7ddba322`, are:
   and
   `docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`,
   all Accepted.
-- `docs/adr-016-unsafe-code-boundary.md` (Proposed, enforcement live) and
+- `docs/adrs/adr-0016-unsafe-code-boundary.md` (Proposed, enforcement live) and
   `docs/rust-boundary-verification.md`.
 
 Trace links:
@@ -772,8 +772,9 @@ like the counters it observes:
 ## Relevant documentation and skills
 
 Read before starting: `AGENTS.md`; `docs/zero-copy-benchmark-plan.md`;
-`docs/zero-copy-benchmark-baselines.md`; `docs/adr-016-unsafe-code-boundary.md`
-and `docs/rust-boundary-verification.md`; ADRs 0008, 0009, and 0010 under
+`docs/zero-copy-benchmark-baselines.md`;
+`docs/adrs/adr-0016-unsafe-code-boundary.md` and
+`docs/rust-boundary-verification.md`; ADRs 0008, 0009, and 0010 under
 `docs/adrs/`; `docs/frame-vec-u8-inventory.md`; and
 `docs/documentation-style-guide.md`.
 
@@ -847,16 +848,18 @@ for the roadmap edit.
   itself and predated the pre-built-buffer change. The tolerance figures are
   reconciled to GitHub's comparison, and the literal `make bench-codec` run is
   recorded as the EP-M1 evidence.
-- [x] (2026-11-23) EP-M11 (rebase onto main). Main advanced eleven commits and
-  the branch conflicted. The rebase auto-resolved four production files
-  cleanly; the four changed regions were inspected and the branch's seams
-  (`record_deserialized`, `benchmark_decode_envelope`,
-  `benchmark_encode_message_frame`, `bytes_from_vec`) are intact. Main had
-  independently claimed the documentation-example identifiers this branch used,
-  so the loader gate failed on the rebased tree; the branch's markers moved to
-  `users-guide-068` and `migration-guide-025`/`-026`. On the rebased tree, all
-  nine gates pass: `make test` 2,366 tests in 110 suites, 0 failed;
-  `make test-bdd` 237 passed.
+- [x] (2026-11-23) EP-M11 (rebases onto main). Main advanced fifteen commits
+  in two waves and the branch conflicted at the first. Both rebases
+  auto-resolved four production files cleanly; the changed regions were
+  inspected each time and the branch's seams (`record_deserialized`,
+  `benchmark_decode_envelope`, `benchmark_encode_message_frame`,
+  `bytes_from_vec`) are intact. Main had independently claimed the
+  documentation-example identifiers this branch used, so the loader gate
+  failed; the branch's markers moved to `users-guide-068` and
+  `migration-guide-025`/`-026`. The second wave renamed ADR 016 into
+  `docs/adrs/`, so the plan's four references were updated to the new path. On
+  the final rebased tree (base `b869c55a`), all nine gates pass: `make test`
+  2,366 tests in 110 suites, 0 failed; `make test-bdd` 237 passed.
 
 ## Surprises and discoveries
 
@@ -865,11 +868,11 @@ for the roadmap edit.
   838). Impact: revision 3 adopts that instrument and plans only its gaps.
 
 - Observation: the workspace forbids unsafe code outright.
-  Evidence: `Cargo.toml:203-205`; `docs/adr-016-unsafe-code-boundary.md`; commit
-  `96399574`. Impact: the handwritten allocator in revisions 1 and 2 cannot
-  compile. Allocation is observed through `stats_alloc`, whose `Stats` also
-  exposes byte totals, which is what makes obligation V-4's byte bound possible
-  without unsafe code.
+  Evidence: `Cargo.toml:203-205`; `docs/adrs/adr-0016-unsafe-code-boundary.md`;
+  commit `96399574`. Impact: the handwritten allocator in revisions 1 and 2
+  cannot compile. Allocation is observed through `stats_alloc`, whose `Stats`
+  also exposes byte totals, which is what makes obligation V-4's byte bound
+  possible without unsafe code.
 
 - Observation: revisions 1 and 2 were wrong about the `Bytes` control block.
   Evidence: `bincode-2.0.1/src/features/impl_alloc.rs:54-64` sizes the output
@@ -1194,10 +1197,10 @@ notes" once the final gates have run.
   (`/tmp/test-wireframe-10-2-1-capture-baselines-epm8b.out`). The targeted
   `copied_bytes` and `pipeline_allocation_invariants` runs report 21 passing
   tests and 20 passing checks (`/tmp/test-epm8-targeted.out`).
-- Tolerance accounting at EP-M10 against base
-  `7ddba3224b58a60b127fcc13990e3858ed87ecd0`, recomputed with
-  `git diff --numstat` and ExecPlans excluded: code and tests 2,686 across 37
-  files (limit 900 across 16); documentation 375 (limit 300); configuration 14
+- Tolerance accounting at EP-M11 against base
+  `b869c55ad3e149d853cade40a41069116d9f510b`, recomputed with
+  `git diff --numstat` and ExecPlans excluded: code and tests 2,725 across 37
+  files (limit 900 across 16); documentation 377 (limit 300); configuration 14
   (limit 40); the feature-gate script adds 19 lines, outside the three named
   categories. The interface category also escalates: besides the three
   permitted public changes, `benchmark_counters::handoff_seam_calls` is a new
