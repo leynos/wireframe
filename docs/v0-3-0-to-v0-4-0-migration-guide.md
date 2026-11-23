@@ -489,7 +489,7 @@ the inbound copy that roadmap item `11.1.1` removes.
 Code that reads fields from a `benchmark_counters::snapshot` needs no change. A
 build that constructs `CopiedBytes` by naming every field must add the new one:
 
-<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-022 -->
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-025 -->
 ```rust,ignore
 // Before
 let copied = CopiedBytes {
@@ -499,7 +499,7 @@ let copied = CopiedBytes {
 };
 ```
 
-<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-023 -->
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-026 -->
 ```rust
 // After
 use wireframe::benchmark_counters::CopiedBytes;

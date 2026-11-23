@@ -3785,7 +3785,7 @@ total matters as well — a test bounding a stage by its payload size, for
 instance — `count_allocation_traffic` runs the same window and returns an
 `AllocationTraffic` with both readings:
 
-<!-- tested-example: users-guide-067 -->
+<!-- tested-example: users-guide-068 -->
 ```rust
 use wireframe_testing::benchmark_alloc_support::count_allocation_traffic;
 
