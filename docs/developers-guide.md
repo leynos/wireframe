@@ -322,15 +322,8 @@ every push to `main`, a third push replaces a pending second run, and those
 runs write the warm cache. The cancellation is conditioned on the event rather
 than set to `true`, so it cannot reach a run that has no successor.
 
-`tests/workflow_contracts/pr_concurrency_test.py` holds every workflow that a
-`pull_request` starts to both values exactly, with whitespace collapsed. It
-reads workflows through `workflow_loader` and triggers through
-`workflow_reading.triggers`, so a duplicated key or an unreadable `on:` is
-refused rather than dropped from the sweep. `pull_request_target` is out of
-scope: the workflows on it push commits and merge, and cancelling one mid-write
-saves nothing. The synthetic cases refuse a ref fallback, a group keyed on the
-run id alone or ahead of the number, a group shared by every pull request, and
-a literal or quoted `true`.
+`pull_request_target` is out of scope: the workflows on it push commits and
+merge, and cancelling one mid-write saves nothing.
 
 ### The build-test checkout is shallow
 
