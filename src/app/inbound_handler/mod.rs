@@ -74,7 +74,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -113,15 +113,6 @@ where
 {
     dispatch::parse_envelope(serializer, payload)
 }
-
-
-
-use super::{
-};
-use crate::{
-    hooks::ProtocolHooks,
-};
-
 
 /// Maximum consecutive deserialization failures before closing a connection.
 pub(super) const MAX_DESER_FAILURES: u32 = 10;
