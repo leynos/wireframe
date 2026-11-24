@@ -170,7 +170,29 @@ Three execution paths matter, and the tiers do not all bound the same one:
   reviewed deadline. The override is written as 60 s × 8 rather than 480 s × 1
   because nextest prints a SLOW notice at each period, so an overrun reports
   the elapsed time and then terminates the test with a timeout result rather
-  than arriving as a whole-run kill.
+  than arriving as a whole-run kill. Nextest setup scripts in the same file run
+  `compile_tests`
+  (`cargo test --frozen --all-features --test compile_error -- --exact
+  compile_tests`)
+  once before any test of that binary starts, so the generated `trybuild`
+  projects are built under the script's allowance and not the test's; the loom
+  API-surface check and the `cargo metadata --no-deps` readers have scripts
+  too. The scripts take the caller's environment. Their feature selections
+  differ: the compile-error script uses `--all-features`, as `make test` does,
+  the loom script `runtime-benchmarks`, as `make test-loom` does, and the
+  metadata script none. A nextest run that selects `compile_error` with other
+  features gets no benefit from the compile-error script and still pays for its
+  all-features build, and a failure in that build fails the run. A run that
+  selects only another test of the `compile_error` binary still runs the
+  `compile_tests` fixtures in setup, for the same reason. The file opts in to
+  `experimental = ["setup-scripts"]` because the coverage action may install a
+  nextest that still gates them. The allowances are 480 s (compile-error, 60 s
+  × 8, equal to the test's override), 120 s (loom, selected only when a run sets
+  `--cfg loom`) and 60 s (metadata). They sum to 660 s, above the 600 s
+  `global-timeout`: setup and tests together can exceed the global limit even
+  when no single script reaches its allowance, and nextest then ends the run
+  and reports it, which is the intended failure. `make test` and `make test-ui`
+  run plain `cargo test`, which has no setup scripts.
 - The **coverage invocation** runs `cargo llvm-cov nextest` in `build-test`,
   and `cargo llvm-cov` sets `cfg(coverage)`. `tests/compile_error.rs` and
   `wireframe_testing/tests/loom_api_surface.rs` carry `#![cfg(not(coverage))]`,
