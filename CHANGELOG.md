@@ -16,7 +16,6 @@ All notable changes to this project will be documented in this file.
   [users' guide](docs/users-guide.md#streaming-request-body-consumption).
   ([#876](https://github.com/leynos/wireframe/issues/876))
 
-
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
   `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving
   the structured `EofError` and every byte the framed reader still held for the
@@ -281,18 +280,6 @@ All notable changes to this project will be documented in this file.
       // ...
   }
   ```
-- Complete `WireframeProtocol` hook dispatch on prepared server connections.
-  `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving
-  the structured `EofError` and every byte the framed reader still held for the
-  abandoned frame, length prefix included; a clean close at a frame boundary, a
-  malformed frame, and a transport error reach no hook. A decoder opts in by
-  returning `CodecError::Eof` from `decode_eof`; the bundled
-  `LengthDelimitedFrameCodec` already does. A frame a push policy discards is
-  counted by the new `wireframe_push_drops_total` counter, labelled by policy
-  and by whether a dead-letter queue was absent, full, or closed, so a loss its
-  producer was told had succeeded stays observable. An end-to-end suite now
-  proves each hook's firing and order through a real `WireframeServer`.
-  ([#879](https://github.com/leynos/wireframe/issues/879))
 
 - **Breaking:** Remove the `wireframe::extractor` module, `AppDataStore`, and
   `WireframeApp::app_data`. No dispatch path invoked the extractor traits, so
