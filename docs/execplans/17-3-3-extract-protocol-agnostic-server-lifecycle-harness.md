@@ -13,7 +13,8 @@ D18 and D20 rest on a false premise and delegating the pair would regress it.
 The branch is stacked on [#962](https://github.com/leynos/wireframe/pull/962),
 which pins `ServerShutdown`'s auto traits for
 [#956](https://github.com/leynos/wireframe/issues/956). Line citations are to
-`a4d2218b`, that pull request's head.
+`10809b0d`, that pull request's head; the measurements ran on its
+patch-identical predecessor `a4d2218b`, with the same `src/server/`.
 
 This revision replaces the 2026-08-23 design wholesale. That design wrapped a
 raw `JoinHandle` and a `oneshot` shutdown sender, ran a detached cleanup task
@@ -1197,7 +1198,7 @@ produced them — a `JoinHandle`, a pending-server guard, the `Option` from
    harness for tests, the `ready_signal` reservation, and the fact that the
    harness's `Drop` is a synchronous shutdown request.
 3. Add a subsection to `docs/developers-guide.md` under
-   `## Test infrastructure and framework` (line 2340) recording the async
+   `## Test infrastructure and framework` (line 2356) recording the async
    proptest idiom with a citation to `tests/server_shutdown.rs:144`, the
    pure-outcome-function pattern, and the rule that a test lifecycle helper
    wraps `ServerShutdown` rather than spawning `run_with_shutdown` itself.
@@ -1232,8 +1233,8 @@ produced them — a `JoinHandle`, a pending-server guard, the `Option` from
 5. Add no ADR. RFC 0001 is the governing design for this feature, and ADR
    0014 already anticipates a harness-owned wrapper. If a reviewer requires
    one, the next free number at `a7eecaff` is 0018 (`docs/adrs/adr-0018-…`),
-   named and structured per `docs/documentation-style-guide.md` (lines
-   515-620); recheck before writing.
+   named and structured per `docs/documentation-style-guide.md` (from line
+   520); recheck before writing.
 6. Tick roadmap 17.3.3 with `mapsplice`, preserving its inline links verbatim.
 7. Add an entry under `## Unreleased` in `CHANGELOG.md` (line 5), following
    the existing `wireframe_testing` entries at lines 131-151.
@@ -1423,7 +1424,7 @@ measured or historical.
   `make test-wireframe-testing`, and the root package's tests inside the shared
   coverage action on pull requests. Jobs and test steps carry `timeout-minutes`
   (`.github/workflows/ci.yml:61`, `:87`, `:93`, `:98`), and
-  `.config/nextest.toml:9-10` terminates slow tests. Impact: the previous D11
+  `.config/nextest.toml:14-15` terminates slow tests. Impact: the previous D11
   is superseded; documentation must not call `make test` the CI gate.
 
 - Observation: `crates/wireframe-verification` still depends only on
