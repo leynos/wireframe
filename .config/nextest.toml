@@ -46,10 +46,12 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 #
 # The compile-error warm-up carries the same allowance as the test's override,
 # so a cold build ends at the same deadline whichever of the two meets it. The
-# allowances below sum to 660 s (480, 120 and 60), above the 600 s `global-timeout`, which is
-# pinned by the tier-chain contract below the 900 s Cargo watchdog; that is
-# acceptable because a warm-up that spends its whole allowance is already a
-# failed run, and `global-timeout` then reports it rather than a job kill.
+# allowances below sum to 660 s (480, 120 and 60), above the 600 s
+# `global-timeout`, which the tier-chain contract pins below the 900 s Cargo
+# watchdog. Setup and tests together can therefore exceed the global limit even
+# when no single script reaches its allowance (a slow warm-up followed by slow
+# tests); nextest then ends the run and reports it, rather than a job kill
+# doing so without a log, which is the intended failure.
 [scripts.setup.warm-compile-error]
 command = "cargo test --frozen --all-features --test compile_error -- --exact compile_tests"
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
