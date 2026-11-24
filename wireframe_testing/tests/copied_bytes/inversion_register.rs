@@ -89,6 +89,10 @@ fn register_entries(register: &str) -> Result<Vec<Inversion>, String> {
 
 /// Report every register entry whose test is missing from its named file.
 ///
+/// The same path may appear more than once, because a target split into modules
+/// still registers its tests under the target root. Every source at the named
+/// path is searched, so a split does not silently drop an entry.
+///
 /// # Errors
 ///
 /// Returns the parse failure from [`register_entries`] rather than reporting an
@@ -100,10 +104,11 @@ fn missing_register_entries(
     let missing = register_entries(register)?
         .into_iter()
         .filter(|entry| {
+            let test = format!("fn {}(", entry.test);
             let defines_test = sources
                 .iter()
-                .find(|(path, _)| *path == entry.file)
-                .is_some_and(|(_, source)| source.contains(&format!("fn {}(", entry.test)));
+                .filter(|(path, _)| *path == entry.file)
+                .any(|(_, source)| source.contains(&test));
             !defines_test
         })
         .map(|entry| format!("{} in {}", entry.test, entry.file))
@@ -118,13 +123,21 @@ const BASELINES_DOC: &str = include_str!("../../../docs/zero-copy-benchmark-base
 /// The copied-byte test file, as the register names it.
 const THIS_SOURCE: &str = include_str!("../copied_bytes.rs");
 
+/// The generated properties' module, which the register reaches through the
+/// copied-byte target.
+const PROPERTIES_SOURCE: &str = include_str!("properties.rs");
+
 /// The allocation target's hand-off checks, as the register names them.
 const HANDOFF_SOURCE: &str = include_str!("../pipeline_allocation_invariants/checks/handoff.rs");
 
 #[test]
 fn inversion_register_names_real_tests() {
+    // The generated property lives in the `properties` module now, but the
+    // register still names the target's root path, so both sources are searched
+    // under that entry.
     let sources = [
         ("wireframe_testing/tests/copied_bytes.rs", THIS_SOURCE),
+        ("wireframe_testing/tests/copied_bytes.rs", PROPERTIES_SOURCE),
         (
             "wireframe_testing/tests/pipeline_allocation_invariants/checks/handoff.rs",
             HANDOFF_SOURCE,

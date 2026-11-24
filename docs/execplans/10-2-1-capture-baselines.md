@@ -262,7 +262,9 @@ Trace links:
 
 ```plaintext
 ROADMAP-10.2.1 (inbound copied bytes) -> G-1 -> EP-M2 -> copied_bytes::inbound_decode_copies_the_payload_once
-BASELINES-T5 (read-only stages)       -> G-2, G-3 -> EP-M3 -> pipeline_allocation_invariants, forward_response pointer test
+BASELINES-T5 (read-only stages)       -> G-2, G-3 -> EP-M3 -> pipeline_allocation_invariants,
+                                                         production seam test (ServiceRequest::new,
+                                                         HandlerService::call)
 BASELINES-T4, T6 (outbound total)     -> G-4, G-5, G-7 -> EP-M2, EP-M4 -> copied_bytes production cases, inversion register
 BENCH-PLAN copied-byte seam 2         -> G-6 -> EP-M2 -> client hand-off through bytes_from_vec
 BENCH-PLAN allocation window          -> G-8 -> EP-M1 -> count_allocations unwind test, harness self-check
@@ -1206,9 +1208,11 @@ notes" once the final gates have run.
   permitted public changes, `benchmark_counters::handoff_seam_calls` is a new
   `#[doc(hidden)]` accessor, used by `tests/client_send_counters.rs` to prove
   the client send path reaches `bytes_from_vec`; later splits add no public
-  item. The plan requires a recorded owner decision for both overages. The
-  decision is pending and is not self-approved; GitHub's own numstat comparison
-  at this head agrees with these figures.
+  item. Three categories therefore exceed their limits independently — code and
+  tests, documentation, and the interface — and the plan requires a recorded
+  owner decision for each. The decision is pending for all three and is not
+  self-approved; GitHub's own numstat comparison at this head agrees with these
+  figures.
 
 ## Revision note
 
