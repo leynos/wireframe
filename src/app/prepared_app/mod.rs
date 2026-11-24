@@ -51,6 +51,7 @@ use crate::{
 };
 
 mod accessors;
+mod compat;
 
 /// An immutable application template with fully transformed route services.
 ///
@@ -366,34 +367,6 @@ where
             u64::try_from(clock.now().duration_since(started_at).as_millis()).unwrap_or(u64::MAX);
         span.record("elapsed_ms", elapsed_ms);
         result
-    }
-
-    /// Handle an accepted connection and log any processing failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::duplex;
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let (client, server) = duplex(64);
-    /// drop(client);
-    /// prepared.handle_connection(server).await;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn handle_connection<W>(&self, stream: W)
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        if let Err(error) = self.handle_connection_result(stream).await {
-            log::warn!(
-                "connection handling completed with error: correlation_id={:?}, error={error:?}",
-                None::<u64>
-            );
-        }
     }
 }
 
