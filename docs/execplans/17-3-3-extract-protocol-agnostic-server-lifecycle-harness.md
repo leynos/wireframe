@@ -6,9 +6,9 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Conformance basis`, and `Verification plan` must be kept up to date as work
 proceeds.
 
-Status: BLOCKED — decision D23 needs a choice. Measurement on 2026-11-24 showed
-that `ServerShutdown` holds the listener open while a request is in flight, so
-D18 and D20 rest on a false premise and delegating the pair would regress it.
+Status: DRAFT — every decision accepted, including D23 option 1 on 2026-11-24.
+Implementation is not authorized. EP-M1 also waits for PRE-1, the server change
+D23 selects, to land beneath this branch; see `Upstream prerequisite`.
 
 The branch is stacked on [#962](https://github.com/leynos/wireframe/pull/962),
 which pins `ServerShutdown`'s auto traits for
@@ -114,9 +114,10 @@ Hard invariants. Violating one requires escalation, not a workaround.
 ## Tolerances (exception triggers)
 
 Stop and escalate when any of these is reached. Counts exclude this ExecPlan
-file. The comparison base is `origin/main`; count net lines with
-`git diff --numstat origin/main...HEAD` and file counts with
-`git diff --name-only origin/main...HEAD`.
+file. The comparison base is the branch directly beneath this one in its stack,
+so the prerequisite layers do not count; with that branch as `BASE`, count net
+lines with `git diff --numstat BASE...HEAD` and file counts with
+`git diff --name-only BASE...HEAD`.
 
 - **Code** (Rust sources and tests, including BDD feature files): more than
   1 500 net added lines. The estimate in `Plan of work` is about 1 250.
@@ -151,10 +152,13 @@ touches this surface, so there is no further history to draw on.
 
 - [x] (2026-11-22) Plan re-derived against `a7eecaff`.
 - [x] (2026-11-22) Decisions D1 to D22 accepted. D18 and D20 were reopened on
-      2026-11-24.
+      2026-11-24 and accepted again with D23.
 - [x] (2026-11-24) Rebased onto #962 and stacked; auto-trait probe compiled;
       in-flight listener behaviour measured. D23 raised.
-- [ ] D23 decided.
+- [x] (2026-11-24) D23 accepted: option 1. D18 and D20 stand again, subject to
+      PRE-1.
+- [ ] PRE-1 raised as an issue, reviewed, and landed beneath this branch.
+- [ ] Implementation authorized.
 - [ ] EP-M0 Green baseline recorded.
 - [ ] EP-M1 Harness, options, spawn helpers, rstest and BDD coverage.
 - [ ] EP-M2 Exhaustive and property tests.
@@ -163,18 +167,24 @@ touches this surface, so there is no further history to draw on.
 
 ## Risks
 
-- Risk: a server request that never finishes keeps the listener bound after
-  shutdown is requested and after the handle is dropped (fact 13). Severity:
-  high. Likelihood: certain while such a request exists. Mitigation: none
-  within this plan's constraints; see D23.
+- Risk: PRE-1 is delayed, or lands in a form that does not release the listener
+  while a request is in flight (fact 13). Severity: high. Likelihood: low.
+  Mitigation: EP-M0 gates on PRE-1's own in-flight tests; the harness's
+  in-flight cases fail without it, so a partial fix cannot pass unnoticed. Do
+  not substitute a harness-owned abort; that is D23's rejected option 2.
+
+- Risk: PRE-1 has been measured by five probes only, and the full suite has not
+  been run with it. The listener field is shared by `spawn()` and
+  `run_with_shutdown`, so both are affected. Severity: medium. Likelihood: low.
+  Mitigation: PRE-1's acceptance requires the full suite.
 
 - Risk: `wait_for_listener_release` has a fixed one-second budget
   (`wireframe_testing/src/integration_helpers.rs:79-80`). On a heavily loaded
   host the drop-path tests could time out. Severity: medium. Likelihood: low.
-  Mitigation: with no request in flight, one second is generous;
-  `tests/server_shutdown.rs:47` already relies on the same helper for the same
-  mechanism. If the flakiness tolerance trips, escalate rather than adding a
-  second helper with a longer budget.
+  Mitigation: once PRE-1 lands, release needs only the accept loops to exit, so
+  one second is generous; `tests/server_shutdown.rs:47` already relies on the
+  same helper for the same mechanism. If the flakiness tolerance trips,
+  escalate rather than adding a second helper with a longer budget.
 
 - Risk: `drained()` waits for in-flight connection tasks as well as accept
   loops (`src/server/runtime/server/mod.rs:157-165`;
@@ -344,7 +354,8 @@ measured.
     own `Arc` to the listener for the whole of `run_with_shutdown`, including
     the final `tracker.wait()`
     (`src/server/runtime/server/mod.rs:71`, `:125-165`), so the accept loops
-    exiting is not enough to release it. See Table 5 for the measurement.
+    exiting is not enough to release it. See Table 5 for the measurement. PRE-1
+    removes that handle; re-read this fact when it lands.
 14. **The pair still uses the pre-#657 machinery.** `client_pair.rs` spawns
     `run_with_shutdown` in a task with a `oneshot` shutdown sender
     (`:302-312`), awaits readiness without a bound (`:318`), joins without a
@@ -408,6 +419,30 @@ Upstream artefacts at `a7eecaff`:
   application over a duplex stream and does not overlap this harness.
 - `AGENTS.md` and `docs/documentation-style-guide.md`.
 
+### Upstream prerequisite
+
+PRE-1 is the server change accepted in D23. It is not part of this plan, whose
+Constraint 6 still forbids touching `src/`. It needs its own issue, which has
+not been raised, and its own pull request beneath this branch in the stack.
+
+- Change: in `PreparedServerRuntime::run_with_shutdown`
+  (`src/server/runtime/server/mod.rs`), drop the supervisor's own listener
+  handle once every accept loop holds its clone. The measured form was
+  `drop(self.listener)` before the startup duration is recorded at line 148.
+  Correct the field's comment at line 70, and the description of `drained()`
+  and drop behaviour in `docs/users-guide.md` and `docs/developers-guide.md`.
+- Acceptance: with a request held in flight, the listener refuses connections
+  after `stop()`, after the last control is dropped, and after a
+  `run_with_shutdown` future is asked to stop, each before the request finishes;
+  `drained()` still waits for the request; these tests fail without the
+  change; and the full suite passes.
+
+```plaintext
+#962 (auto traits) -> EP-M3 [pins the traits the pair inherits]
+PRE-1              -> EP-M1 [hard block: INV-4 in-flight cases, D18, D20]
+PRE-1              -> EP-M3 [hard block: INV-8 drop with a request in flight]
+```
+
 The RFC predates `ServerShutdown`. Several of its sentences describe a
 `JoinHandle`-and-`abort` mechanism this plan does not use; each is a recorded
 deviation (D17 to D21) with a Stage E amendment. Trace links:
@@ -457,12 +492,16 @@ RFC sections deliberately not discharged here:
   Evidence: ADR 0014 and `tests/server_shutdown.rs:34`, `:47`, `:88`, `:144`.
   This plan does not re-verify the server; it verifies that the harness relies
   on these properties correctly. It does **not** include prompt listener
-  release while a request is in flight (fact 13).
+  release while a request is in flight (fact 13); that is AXIOM-7.
 - **AXIOM-4**: binding `"localhost:0"` yields a free ephemeral loopback port,
   and `bind_existing_listener` keeps the same socket.
 - **AXIOM-5**: `spawn()` requires an entered Tokio runtime because it calls
   `tokio::spawn`; the spawn helpers are `async` and therefore always run inside
   one.
+- **AXIOM-7** (supplied by PRE-1, not true at `10809b0d`): once shutdown is
+  requested, the listener is released when the accept loops exit, whether or
+  not a request is still in flight. Evidence: PRE-1's tests, to be named here
+  when it lands; until then, the last column of Table 5.
 
 ### The design decision that makes verification tractable
 
@@ -551,8 +590,9 @@ configured bound otherwise.
 **INV-4 — no handle leaves a server running.** Each `RunningWireframeServer`
 owns exactly one `ServerShutdown`, never clones it, and never exposes it, so
 dropping the handle drops the last control and requests shutdown (AXIOM-3).
-This guarantees that shutdown is requested. Whether the listener is released
-while a request is still in flight depends on D23.
+With AXIOM-7, the listener is then released even while a request is in flight.
+The connection task serving that request is not cancelled; if its handler never
+returns, the task lives until the runtime ends.
 
 - Method: structural — the `control` field is private and the module contains
   no `.clone()` of it, checked in review with
@@ -567,7 +607,8 @@ while a request is still in flight depends on D23.
 - Non-vacuity: seeded fault — in a scratch commit, leak a clone with
   `std::mem::forget(control.clone())` in the spawn helper; every drop test must
   then fail with `wait_for_listener_release`'s "remained bound for one second"
-  error. Record the transcript and discard the commit.
+  error. Record the transcript and discard the commit. Second control: run the
+  in-flight cases against a base without PRE-1; each must fail the same way.
 
 **INV-5 — shutdown traces converge.** Any generated trace of completed and
 cancelled `shutdown()` calls, followed by either a final `shutdown()` or
@@ -621,8 +662,11 @@ every other handle accepting connections.
 **INV-8 — pair compatibility.** Every reachable cell of Table 1 holds after
 EP-M3.
 
-- Method: the existing pair suites unchanged, plus exhaustive unit tests of the
-  two extracted mapping functions.
+- Method: the existing pair cases unchanged, exhaustive unit tests of the two
+  extracted mapping functions, and one new characterization case,
+  `drop_with_request_in_flight_releases_listener`, in
+  `tests/client_pair_harness.rs`. Add that case before delegating and see it
+  pass against today's pair; it must still pass afterwards.
 - Artefact: `#[cfg(test)]` module in `wireframe_testing/src/client_pair.rs`;
   `tests/client_pair_harness.rs`; `tests/features/client_pair_harness.feature`.
 - Evidence: `make test-wireframe-testing` and `make test`.
@@ -753,7 +797,7 @@ impl Debug for RunningWireframeServer { /* local_addr and outcome only */ }
 ```
 
 There is deliberately no `impl Drop`: dropping the `control` field is the whole
-of the cleanup (D20, reopened by D23).
+of the cleanup (D20).
 
 ```rust
 // lifecycle.rs — the where clause is the verbatim block quoted in
@@ -828,9 +872,10 @@ text (D19):
 ### EP-M0 — re-derived plan, accepted decisions, green baseline
 
 - Outcome: this plan re-derived against `a7eecaff` (done 2026-11-22); every
-  decision accepted, including D23; `make check-fmt`, `make lint`, and
-  `make test` recorded green on an unmodified tree; the Stage A auto-trait
-  probe recorded (done 2026-11-24).
+  decision accepted (done 2026-11-24); PRE-1 landed beneath this branch, with
+  fact 13 and AXIOM-7 re-read against it; implementation authorized;
+  `make check-fmt`, `make lint`, and `make test` recorded green on an
+  unmodified tree; the Stage A auto-trait probe recorded (done 2026-11-24).
 - Acceptance evidence: gate transcripts under `/tmp`; the probe's outcome in
   `Surprises & discoveries`.
 - Conformance check: confirm RFC 0001, ADR 0014, and the cited server API are
@@ -969,24 +1014,29 @@ tests fail on their own assertions rather than all sharing one
 5. `cancelled_shutdown_then_shutdown_completes` — pin a `shutdown()` future,
    poll it once with `futures::poll!`, drop it, then call `shutdown()` again
    and assert `Ok(())` and a refused connect.
-6. `drop_inside_runtime_releases_listener` — record the address, drop the
-   handle, assert the drop returned without awaiting, then
-   `wait_for_listener_release`.
-7. `drop_outside_runtime_releases_listener` — a plain `#[test]` that builds a
-   runtime, spawns inside it, moves the handle to a `std::thread::spawn` with
-   no runtime, drops it there, joins the thread, then calls
-   `wait_for_listener_release` inside the runtime.
+6. `drop_inside_runtime_releases_listener` — two `#[case]`s, idle and with a
+   request held in flight by a handler waiting on a `Notify`. Record the
+   address, drop the handle, assert the drop returned without awaiting, then
+   `wait_for_listener_release`. Release the handler only after that assertion.
+7. `drop_outside_runtime_releases_listener` — a plain `#[test]`, with the same
+   idle and in-flight cases as case 6, that builds a runtime, spawns inside it,
+   moves the handle to a `std::thread::spawn` with no runtime, drops it there,
+   joins the thread, then calls `wait_for_listener_release` inside the runtime.
 8. `shutdown_bound_is_reported` — one `#[rstest]` with two `#[case]`s, using a
    test app whose handler waits on a `Notify`. Send one request and wait until
    the handler has started. With a 1 ms bound: expect `TestError::Timeout(_)`
    and `TimedOut`; call `shutdown()` again at once and assert it returns
-   `TestError::Timeout(_)` within 50 ms (INV-3); release the handler, then
-   repeat `shutdown()` under a one-second deadline until it returns `Ok(())`
-   with `Completed`. A single call there would race the supervisor's drain.
-   With a 5 s bound: release the handler from a second task and expect `Ok(())`
-   and `Completed`.
+   `TestError::Timeout(_)` within 50 ms (INV-3); assert
+   `wait_for_listener_release` succeeds while the request is still held (D18);
+   release the handler, then repeat `shutdown()` under a one-second deadline
+   until it returns `Ok(())` with `Completed`. A single call there would race
+   the supervisor's drain. With a 5 s bound: release the handler from a second
+   task and expect `Ok(())` and `Completed`.
 9. `parallel_handles_use_distinct_listeners` — spawn three handles, assert
     distinct addresses, shut one down, and assert the other two still accept.
+
+If the in-flight cases push this file towards 400 lines, move them to
+`tests/server_harness_in_flight.rs`; the file tolerance allows for it.
 
 Two in-crate `#[tokio::test]` cases in `lifecycle.rs` cover the readiness arms.
 A zero-duration readiness timeout cannot: Tokio rounds timer deadlines up to
@@ -1176,15 +1226,15 @@ Re-derived from `wireframe_testing/src/client_pair.rs` at `a7eecaff`.
 | readiness: guard already taken | `:320-322` `Msg`                                   | no        | removed with `PendingServer`                   |
 | client connect                 | `:337-338` `TestError::Client`                     | yes       | `TestError::Client` (unchanged)                |
 | shutdown: server error         | `:156` `Msg("server error: …")`                    | no        | `Msg("server error: …")` (same text)           |
-| drop with a request in flight  | `:167-210` listener released in about 200 ms       | yes       | **regresses** until D23 is decided             |
+| drop with a request in flight  | `:167-210` listener released in about 200 ms       | yes       | released promptly, given PRE-1                 |
 | shutdown: join error           | `:153-155` `Msg("server task join error: …")`      | no        | `Msg("server task join error: …")` (same text) |
 
 <!-- markdownlint-enable MD013 -->
 
-Every reachable cell is unchanged except the last-but-one, which blocks EP-M3
-(D23). The unreachable cells that change do so because the machinery that
-produced them — a `JoinHandle`, a pending-server guard, the `Option` from
-`Bound::local_addr` — no longer exists (D21).
+Every reachable cell is unchanged. The drop cell holds only with PRE-1, which
+is why EP-M3 depends on it. The unreachable cells that change do so because the
+machinery that produced them — a `JoinHandle`, a pending-server guard, the
+`Option` from `Bound::local_addr` — no longer exists (D21).
 
 ### Stage E — documentation
 
@@ -1465,25 +1515,28 @@ measured or historical.
 
 D1 to D22 were accepted by leynos on 2026-11-22, by instruction to mark all
 outstanding decisions accepted; D17 to D22 were introduced by that day's
-re-derivation. D18 and D20 were accepted on a premise since disproved, so their
-acceptance no longer stands. D23 is not accepted.
+re-derivation. D18 and D20 were reopened on 2026-11-24, when their premise was
+disproved, and accepted again the same day with D23, which makes that premise
+true.
 
-- Decision (D23): **NOT ACCEPTED, BLOCKING.** Choose how the listener is
-  released while a request is in flight. With `ServerShutdown` as it stands, it
-  stays bound until that request finishes (Table 5). That contradicts D18 and
-  D20, and makes EP-M3 regress a reachable behaviour of `WireframePair`,
-  breaching Constraint 1. Affected: RFC-5.3, RFC-5.5, INV-4, D17, D18, D20,
-  EP-M3.
-  - Option 1, recommended: change the server to drop its own listener handle
+- Decision (D23): release the listener while a request is in flight by changing
+  the server (option 1), delivered as PRE-1 beneath this branch. Accepted by
+  leynos on 2026-11-24; options 2 and 3 are rejected. Without that change the
+  listener stays bound until the request finishes (Table 5). That contradicts
+  D18 and D20, and makes EP-M3 regress a reachable behaviour of
+  `WireframePair`, breaching Constraint 1. Affected: RFC-5.3, RFC-5.5, INV-4,
+  D17, D18, D20, EP-M3.
+  - Option 1, accepted: change the server to drop its own listener handle
     once the accept loops are spawned. One line, and every probe in Table 5
     then passes. It lies in `src/`, outwith Constraint 6, so it needs its own
     issue and pull request beneath this branch. `drained()` still waits for the
     request, so D18 and D20 become true as written.
-  - Option 2: drive `run_with_shutdown` in a harness-owned task and abort it
-    after a grace period, as the pair does today. No server change, but it
-    abandons D17 and restores the detached cleanup the re-derivation removed.
-  - Option 3: accept the weaker guarantee, amend RFC 0001 and Constraint 1, and
-    document that a stuck request keeps the port bound until the runtime ends.
+  - Option 2, rejected: drive `run_with_shutdown` in a harness-owned task and
+    abort it after a grace period, as the pair does today. No server change, but
+    it abandons D17 and restores the detached cleanup the re-derivation removed.
+  - Option 3, rejected: accept the weaker guarantee, amend RFC 0001 and
+    Constraint 1, and document that a stuck request keeps the port bound until
+    the runtime ends.
   Date/Author: 2026-11-24, planning agent.
 
 - Decision (D1): scope to RFC §5.2, §5.3, §5.5, §5.6, §6, §7.1 except its
@@ -1572,13 +1625,13 @@ acceptance no longer stands. D23 is not accepted.
 
 - Decision (D18): on an elapsed drain bound the harness does not abort
   anything, and a later call re-checks with a zero bound. Rationale: there is
-  no task handle to abort. The original rationale also said the listener is
-  released promptly; that is false while a request is in flight (Table 5). A
-  zero-bound re-check satisfies RFC §5.3's "rather than blocking again", and
+  no task handle to abort. The listener is released when the accept loops exit,
+  given PRE-1 (AXIOM-7); only in-flight connection tasks may outlive the bound.
+  A zero-bound re-check satisfies RFC §5.3's "rather than blocking again", and
   reports the real outcome if the drain has since finished, which is more
   accurate than replaying a stale timeout. Affected: RFC §5.3 bullets 4 and 6,
-  §5.3's repeated-call list. Date/Author: 2026-11-22. **Reopened 2026-11-24 by
-  D23.**
+  §5.3's repeated-call list. Date/Author: 2026-11-22. Accepted 2026-11-22;
+  reopened and accepted again 2026-11-24, subject to PRE-1.
 
 - Decision (D19): identify the failing stage by operation and variant (Table
   3) rather than by error text. Rationale: `TestError` has no field for
@@ -1593,9 +1646,10 @@ acceptance no longer stands. D23 is not accepted.
   `ServerShutdown` cancels the server synchronously through the control's own
   drop guard, so `Drop` needs no runtime, no detached task, no grace period,
   and no abort, and behaves identically inside and outside a runtime. Affected:
-  RFC §5.2's grace period, §5.3's `Drop` paragraph, §7.1's drop bullet. It
-  requests shutdown as described, but does not release the listener while a
-  request is in flight. Date/Author: 2026-11-22. **Reopened 2026-11-24 by D23.**
+  RFC §5.2's grace period, §5.3's `Drop` paragraph, §7.1's drop bullet. Given
+  PRE-1, the listener is released even while a request is in flight.
+  Date/Author: 2026-11-22. Accepted 2026-11-22; reopened and accepted again
+  2026-11-24, subject to PRE-1.
 
 - Decision (D21): accept the type changes on unreachable paths that follow
   from D17. A supervisor panic now surfaces as
@@ -1675,3 +1729,9 @@ Reserved for transcripts. At minimum, capture:
   D23; restored `Progress`; moved the readiness cases in-crate; removed a race
   from the bound test; reconciled EP-M3 with Stage D; refreshed shifted
   citations. Effect on remaining work: blocked on D23.
+- 2026-11-24: D23 option 1 accepted. Added PRE-1 as an upstream prerequisite of
+  EP-M1 and EP-M3, with its scope and acceptance; added AXIOM-7 as what PRE-1
+  supplies; restored D18 and D20 subject to it; added in-flight cases to the
+  drop and shutdown-bound tests and a pair characterization case; moved the
+  tolerance base to the branch beneath. Effect on remaining work: no open
+  decision; EP-M1 waits for PRE-1 and for authorization to implement.
