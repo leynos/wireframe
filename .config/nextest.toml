@@ -34,10 +34,12 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 # different feature set gets no benefit from it and still pays for its build,
 # and a failure there fails that run. The loom script selects
 # `runtime-benchmarks`, as `make test-loom` does, and the metadata script
-# selects none. The compile-error script runs only `compile_tests`, so a run that
-# selects another test of the binary alone pays for that test's build and no
-# more; the selector cannot be narrowed to the test, because the reader that
-# credits a setup script understands unions of binary selectors only. A failing
+# selects none. The compile-error script runs only `compile_tests`, but it is
+# selected by the whole binary, so a run that selects only another test of the
+# binary (`rstest_bdd_v06_contracts`) still runs the `compile_tests` fixtures
+# during setup, and a fixture failure there stops the selected test. The
+# selector cannot be narrowed to the test, because the reader that credits a
+# setup script understands unions of binary selectors only. A failing
 # test in a warm-up fails the script, and nextest then reports that test's own
 # output. Every command is `--frozen` (locked and offline); `make test` fetches
 # first.
