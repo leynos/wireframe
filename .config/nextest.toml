@@ -63,8 +63,9 @@ slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
 command = "cargo test --frozen -p wireframe_testing --test loom_api_surface --features runtime-benchmarks"
 slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }
 
-# The manifest and unsafe-boundary tests query `cargo metadata` and `cargo
-# pkgid`; they compile nothing, but the first query loads the workspace. The
+# The manifest and unsafe-boundary tests, and the `bdd` binary's workspace
+# manifest scenarios (it includes the same support module), query `cargo
+# metadata` and `cargo pkgid`; they compile nothing, but the first query loads the workspace. The
 # warm-up is `--no-deps`, as the tests' own queries are, so a cache holding only
 # the host target's dependencies does not fail it.
 [scripts.setup.warm-workspace-metadata]
@@ -80,5 +81,5 @@ filter = 'binary_id(=wireframe_testing::loom_api_surface)'
 setup = "warm-loom-api-surface"
 
 [[profile.default.scripts]]
-filter = 'binary_id(=wireframe::workspace_manifest) | binary_id(=wireframe::workspace_unsafe_boundary)'
+filter = 'binary_id(=wireframe::workspace_manifest) | binary_id(=wireframe::workspace_unsafe_boundary) | binary_id(=wireframe::bdd)'
 setup = "warm-workspace-metadata"
