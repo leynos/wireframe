@@ -135,6 +135,13 @@ pub struct ConnectionActor<F, E = NoProtocolError, P = F> {
     /// that connection is dispatched by its `FramePipeline`, so this actor
     /// holds no hook owner and every dispatch point below is skipped.
     protocol: Option<ConnectionProtocol<F, E>>,
+    /// Correlation policy this actor applies to the terminators it dispatches.
+    ///
+    /// Selected with the hook mode at construction: a directly driven actor
+    /// stamps the response correlation onto its terminator envelope, while an
+    /// actor in no-hook mode leaves terminators to the pipeline, which
+    /// preserves complete codec frames.
+    terminator_correlation: TerminatorCorrelation,
     /// Scheduler state preventing high-priority traffic from starving low traffic.
     fairness: FairnessTracker,
     /// Optional fragmenter applied immediately before outbound emission.
@@ -293,8 +300,8 @@ where
     /// The prepared path dispatches every protocol callback through the
     /// connection's `FramePipeline`, so this constructor installs the
     /// no-hook mode: the actor holds no hook owner at all, every dispatch
-    /// point is compiled out, and the pipeline's context is the connection's
-    /// only hook context. It receives the connection's logging identity
+    /// point is skipped because that owner is absent, and the pipeline's
+    /// context is the connection's only hook context. It receives the connection's logging identity
     /// explicitly, so it needs no context of its own.
     #[must_use]
     pub(crate) fn new_prepared_untracked(
@@ -339,6 +346,11 @@ where
             active_output,
             shutdown,
             counter,
+            terminator_correlation: if hooks.is_some() {
+                TerminatorCorrelation::ACTOR
+            } else {
+                TerminatorCorrelation::PREPARED
+            },
             protocol: hooks.map(|installed| ConnectionProtocol::with_context(installed, ctx)),
             fairness: FairnessTracker::new(FairnessConfig::default()),
             fragmenter: None,

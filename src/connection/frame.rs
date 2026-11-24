@@ -43,6 +43,11 @@ where
         let Some(correlation_id) = ctx.correlation_id() else {
             return;
         };
+        // Multi-packet frames inherit the channel's correlation on both
+        // connection paths: the prepared actor stamps them before its sink
+        // serializes them, exactly as a directly driven actor does. Only the
+        // stream terminator's policy differs between the paths, which is what
+        // `TerminatorCorrelation` names.
         frame.set_correlation_id(Some(correlation_id));
 
         debug_assert!(

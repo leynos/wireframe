@@ -83,16 +83,22 @@ impl Recorder {
     }
 
     /// Record that setup created a token.
-    fn record_created(&self, id: u64) { self.observe(|log| log.created.push(id)); }
+    pub(super) fn record_created(&self, id: u64) { self.observe(|log| log.created.push(id)); }
 
     /// Record that teardown received a token.
-    fn record_receipt(&self, id: u64) { self.observe(|log| log.receipts.push(id)); }
+    pub(super) fn record_receipt(&self, id: u64) { self.observe(|log| log.receipts.push(id)); }
 
     /// Record that a token was dropped.
-    fn record_drop(&self, id: u64) { self.observe(|log| log.dropped.push(id)); }
+    pub(super) fn record_drop(&self, id: u64) { self.observe(|log| log.dropped.push(id)); }
 
     /// Return a snapshot of the log.
     fn snapshot(&self) -> TokenLog { self.observe(|log| log.clone()) }
+
+    /// Identities setup has created, in creation order.
+    pub(super) fn created_ids(&self) -> Vec<u64> { self.observe(|log| log.created.clone()) }
+
+    /// Identities whose `Drop` has run, in drop order.
+    pub(super) fn dropped_ids(&self) -> Vec<u64> { self.observe(|log| log.dropped.clone()) }
 }
 
 /// Non-`Clone`, non-`Copy` setup value whose identity is observable.
@@ -103,10 +109,13 @@ pub(super) struct OwnedToken {
 
 impl OwnedToken {
     /// Create a token and record its identity.
-    fn create(recorder: Recorder, id: u64) -> Self {
+    pub(super) fn create(recorder: Recorder, id: u64) -> Self {
         recorder.record_created(id);
         Self { id, recorder }
     }
+
+    /// Return the identity assigned when the token was created.
+    pub(super) const fn id(&self) -> u64 { self.id }
 }
 
 impl Drop for OwnedToken {

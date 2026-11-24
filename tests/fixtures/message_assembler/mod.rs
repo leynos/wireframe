@@ -284,10 +284,7 @@ impl MessageAssemblerWorld {
         let payload = self.payload.as_deref().ok_or("payload not set")?;
         let fallback = TestAssembler;
         let assembler: &dyn MessageAssembler = match self.app.as_ref() {
-            Some(app) => app
-                .message_assembler()
-                .ok_or("message assembler not set")?
-                .as_ref(),
+            Some(app) => app.message_assembler().ok_or("message assembler not set")?,
             None => &fallback,
         };
         match assembler.parse_frame_header(payload) {

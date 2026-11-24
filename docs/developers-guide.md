@@ -170,7 +170,29 @@ Three execution paths matter, and the tiers do not all bound the same one:
   reviewed deadline. The override is written as 60 s × 8 rather than 480 s × 1
   because nextest prints a SLOW notice at each period, so an overrun reports
   the elapsed time and then terminates the test with a timeout result rather
-  than arriving as a whole-run kill.
+  than arriving as a whole-run kill. Nextest setup scripts in the same file run
+  `compile_tests`
+  (`cargo test --frozen --all-features --test compile_error -- --exact
+  compile_tests`)
+  once before any test of that binary starts, so the generated `trybuild`
+  projects are built under the script's allowance and not the test's; the loom
+  API-surface check and the `cargo metadata --no-deps` readers have scripts
+  too. The scripts take the caller's environment. Their feature selections
+  differ: the compile-error script uses `--all-features`, as `make test` does,
+  the loom script `runtime-benchmarks`, as `make test-loom` does, and the
+  metadata script none. A nextest run that selects `compile_error` with other
+  features gets no benefit from the compile-error script and still pays for its
+  all-features build, and a failure in that build fails the run. A run that
+  selects only another test of the `compile_error` binary still runs the
+  `compile_tests` fixtures in setup, for the same reason. The file opts in to
+  `experimental = ["setup-scripts"]` because the coverage action may install a
+  nextest that still gates them. The allowances are 480 s (compile-error, 60 s
+  × 8, equal to the test's override), 120 s (loom, selected only when a run sets
+  `--cfg loom`) and 60 s (metadata). They sum to 660 s, above the 600 s
+  `global-timeout`: setup and tests together can exceed the global limit even
+  when no single script reaches its allowance, and nextest then ends the run
+  and reports it, which is the intended failure. `make test` and `make test-ui`
+  run plain `cargo test`, which has no setup scripts.
 - The **coverage invocation** runs `cargo llvm-cov nextest` in `build-test`,
   and `cargo llvm-cov` sets `cfg(coverage)`. `tests/compile_error.rs` and
   `wireframe_testing/tests/loom_api_surface.rs` carry `#![cfg(not(coverage))]`,
@@ -322,15 +344,8 @@ every push to `main`, a third push replaces a pending second run, and those
 runs write the warm cache. The cancellation is conditioned on the event rather
 than set to `true`, so it cannot reach a run that has no successor.
 
-`tests/workflow_contracts/pr_concurrency_test.py` holds every workflow that a
-`pull_request` starts to both values exactly, with whitespace collapsed. It
-reads workflows through `workflow_loader` and triggers through
-`workflow_reading.triggers`, so a duplicated key or an unreadable `on:` is
-refused rather than dropped from the sweep. `pull_request_target` is out of
-scope: the workflows on it push commits and merge, and cancelling one mid-write
-saves nothing. The synthetic cases refuse a ref fallback, a group keyed on the
-run id alone or ahead of the number, a group shared by every pull request, and
-a literal or quoted `true`.
+`pull_request_target` is out of scope: the workflows on it push commits and
+merge, and cancelling one mid-write saves nothing.
 
 ### The build-test checkout is shallow
 
@@ -441,25 +456,25 @@ context, and it dispatches every callback, including the protocol error and the
 completion hook that follow a response. The actor built for that path holds no
 `ConnectionProtocol` at all — it is built by a named prepared constructor that
 installs the actor's no-hook mode, and it receives only the identifier and peer
-address it logs with, so its dispatch points are compiled out. Setup is the one
-callback dispatched before the pipeline is told its context: it receives the
-connection's context value, and that same value is then installed in the
-pipeline, so only the pipeline's context reaches callbacks and anything setup
-leaves in it is what every later callback observes. Terminator correlation is
-the named `TerminatorCorrelation` policy (`ACTOR` stamps an envelope terminator,
-`PREPARED` preserves a codec frame), and the error, terminator and completion
-order a prepared response owes is derived by `CompletionSequence` and executed
-by `complete_response`. When a caller drives a `ConnectionActor` directly with
-`with_hooks`, the actor's own value is the single owner. Either way the owner
-is built once and its context reused for the connection's lifetime, so
-dispatching needs no `Arc<Mutex<_>>`; the context carries the connection
-identifier and peer address and remains the designated place for
-connection-local state. A `ProtocolHooks::Protocol` value owns exactly one
-strong reference to the installed protocol and dispatches every callback
-through it; the enum's `Custom` form holds handwritten callbacks instead. State
-held by a shared `WireframeProtocol` implementation is still shared by every
-connection that installs it, but a connection never clones the protocol per
-callback.
+address it logs with, so its dispatch points are skipped when that owner is
+missing. Setup is the one callback dispatched before the pipeline is told its
+context: it receives the connection's context value, and that same value is
+then installed in the pipeline, so only the pipeline's context reaches
+callbacks and anything setup leaves in it is what every later callback
+observes. Terminator correlation is the named `TerminatorCorrelation` policy
+(`ACTOR` stamps an envelope terminator, `PREPARED` preserves a codec frame),
+and the error, terminator and completion order a prepared response owes is
+derived by `CompletionSequence` and executed by `complete_response`. When a
+caller drives a `ConnectionActor` directly with `with_hooks`, the actor's own
+value is the single owner. Either way the owner is built once and its context
+reused for the connection's lifetime, so dispatching needs no `Arc<Mutex<_>>`;
+the context carries the connection identifier and peer address and remains the
+designated place for connection-local state. A `ProtocolHooks::Protocol` value
+owns exactly one strong reference to the installed protocol and dispatches
+every callback through it; the enum's `Custom` form holds handwritten callbacks
+instead. State held by a shared `WireframeProtocol` implementation is still
+shared by every connection that installs it, but a connection never clones the
+protocol per callback.
 
 The hook therefore receives the exact frame that will be written, and its
 mutation reaches the wire. It is the pre-transport boundary, not a
@@ -487,10 +502,11 @@ fragmentation, outbound metrics, serialization, `wrap_payload`, and
 receives no fragmenter and no `before_send` hook, so application frames are
 never serialized or hooked twice.
 
-The prepared actor receives no protocol hooks at all. Its value is
-`ProtocolHooks::None`, so the error hook, the stream terminator, and the
-completion hook all run through the pipeline's single owner as part of
-`forward_response`; no callback is dispatched twice. The prepared path invokes
+The prepared actor receives no protocol hooks at all: it is built in the
+actor's no-hook mode, so it holds no `ProtocolHooks` value and no
+`ConnectionProtocol`. The error hook, the stream terminator, and the completion
+hook all run through the pipeline's single owner as part of `forward_response`;
+no callback is dispatched twice. The prepared path invokes
 `on_connection_setup` once, with the connection's `PushHandle`, after the
 registry entry is published and before the first inbound frame is read, so
 setup can address its own connection or any other live one and can queue a push
@@ -909,6 +925,38 @@ compatibility entrypoint. It delegates to the private
 callers that still own an unprepared builder. Server connection tasks use
 `PreparedApp::handle_connection_with_shutdown` instead, preserving the
 once-per-run preparation boundary.
+
+### Application-owned values beneath `PreparedApp`
+
+`Arc<PreparedApp>` is the deliberate shared root: it outlives every connection
+task, so a value that cannot escape with an independent lifetime needs no
+reference count of its own
+([#648](https://github.com/leynos/wireframe/issues/648)). The rule is ADR
+011's "one owner, borrow the rest" applied inside the template. This table is
+the inventory that rule implies; a new field belongs in it before it is added.
+
+| Value                                              | Representation                                                                                  | Why                                                                                                                                                                                                                               |
+| -------------------------------------------------- | ----------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Route chains                                       | `HashMap<u32, HandlerService<E>>`, one entry per route id                                       | Built once by preparation from the consumed builder. Duplicate route ids share one handler allocation.                                                                                                                            |
+| Handler                                            | `Arc<dyn Fn>` inside `HandlerService` (the public alias)                                        | The alias is public and a caller may retain a clone, so the `Arc` is part of the API. Preparation *moves* the existing `Arc` out of the consumed builder (`HandlerService::from_owned_route`) instead of cloning it.              |
+| Serializer                                         | `Box<S>`, borrowed as `&S`                                                                      | Owned outright by the root; connections borrow it for their own lifetime. Requires `Send + Sync + 'static`, not `Clone` or `Default`.                                                                                             |
+| Codec                                              | `F` by value, cloned per connection                                                             | A connection's framed transport needs its own codec state, so this is a genuine `Clone` template rather than a shared handle.                                                                                                     |
+| Setup and teardown callbacks                       | `Option<Box<ConnectionSetup<C>>>` / `Option<Box<ConnectionTeardown<C>>>`, borrowed as `&dyn Fn` | Registered once, invoked per connection by reference. Never cloned per connection.                                                                                                                                                |
+| Protocol                                           | `Option<Arc<dyn WireframeProtocol<..>>>`                                                        | `PreparedApp::protocol` hands out a cloneable handle, and [#644](https://github.com/leynos/wireframe/issues/644) gives each connection exactly one strong reference through `ProtocolHooks`. The `Arc` is therefore load-bearing. |
+| Message assembler                                  | `Option<Box<dyn MessageAssembler>>`, borrowed as `Option<&dyn MessageAssembler>`                | The assembler parses frame headers only; each connection keeps its own assembly state. The public accessors return a borrow, not a cloneable handle ([#598](https://github.com/leynos/wireframe/issues/598), 0.4.0).              |
+| Fragmentation config, read timeout, memory budgets | Plain `Copy` values                                                                             | Template configuration, copied per connection.                                                                                                                                                                                    |
+| Push dead-letter queue                             | `Option<mpsc::Sender<Vec<u8>>>`                                                                 | A Tokio channel sender is already a cheap cloneable handle, and [#643](https://github.com/leynos/wireframe/issues/643) keeps it template-owned until the connection runtime consumes it.                                          |
+
+Two former sources of nested sharing are gone rather than boxed:
+
+- **`AppDataStore` and the shared-state slot.** ADR 017 removed route
+  extractors and application data, so there is no per-application store and no
+  `SharedState<T>` to nest an `Arc` around. Insertion-order and shared-value
+  expectations no longer exist to preserve.
+- **A mutex around callbacks or the assembler.** Both are immutable after
+  preparation and shared only by reference, so neither needs interior
+  mutability. A future callback that requires mutable state must own that state
+  per connection, in `C`, rather than lock the template.
 
 ### Preamble handshake boundary
 
@@ -1414,6 +1462,50 @@ and its rationale). Key points for contributors:
   equivalent mutations (false survivors) before writing tests. Mutants in
   `wireframe_testing` are mostly false survivors because that crate's logic is
   exercised chiefly by the root crate's suite; treat its table as advisory.
+
+### Dead-letter drop accounting survivors
+
+The drop accounting moved from `PushHandle` into `src/push/queues/dlq.rs`, so a
+survivor reported against the old `handle.rs` line numbers maps to
+`DeadLetterState::route_or_count` and `DeadLetterState::log_if_due`. Ordinary
+captured-warning tests in `tests/push_dlq_cadence.rs` kill the cadence,
+arithmetic and interval mutants there: they set the count threshold and the
+interval explicitly and parse the `dropped=` field of each emitted warning.
+`tests/push_dlq_logging.rs` covers the warning's content, and
+`tests/push_policies.rs` covers the `dlq=` field of the full-queue warning.
+
+Two groups still show as survivors in the ordinary lane because they are
+compiled only under `cfg(loom)`, so no ordinary test can reach them:
+
+- `PushHandle::probe` in `src/push/queues/handle/mod.rs`, and
+  `PushHandleProbe::dlq_drop_count` and `PushHandleProbe::dlq_reported_count` in
+  `src/push/queues/probe.rs`.
+- `DeadLetterState::reported_count` and `DeadLetterState::pending_count` in
+  `src/push/queues/dlq.rs`.
+
+The `push_dlq` Loom models kill the count replacements: a probe returning a
+constant cannot satisfy the models' two-drop assertion or their
+reported-plus-remaining total. The four `probe` constructor replacements do not
+compile under `--cfg loom`, so that lane reports them as unviable rather than
+caught. Reproduce both lanes with:
+
+<!-- tested-example: developers-guide-015 -->
+```sh
+cargo mutants --in-place --file src/push/queues/dlq.rs
+RUSTFLAGS="--cfg loom" cargo mutants --in-place \
+  --file src/push/queues/dlq.rs \
+  --file src/push/queues/probe.rs \
+  --file src/push/queues/handle/mod.rs \
+  --re 'dlq_drop_count|dlq_reported_count|reported_count|pending_count|PushHandle<F>::probe' \
+  --test-package wireframe-loom
+```
+
+One survivor is accepted rather than annotated: replacing `>` with `>=` in the
+`elapsed() > log_interval` test of `DeadLetterState::log_if_due`. Equality is
+possible in principle, but a real-clock test cannot reliably force an elapsed
+time exactly equal to the interval to nanosecond precision, so this test cannot
+distinguish the two operators. It is an accepted limitation of this test, not
+an equivalence.
 
 ### Workflow contract tests
 
@@ -2218,15 +2310,15 @@ that depend on runtime facilities outside the model.
 
 What Loom schedules, and what it cannot, decides what the models may assert:
 
-| Field of `PushHandleInner`    | Type under `cfg(loom)`              | Scheduled by Loom |
-| ----------------------------- | ----------------------------------- | ----------------- |
-| `dlq_drops`                   | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `dlq_last_log`                | `loom::sync::Mutex<Instant>`        | yes               |
-| `dlq_reported` (Loom only)    | `loom::sync::atomic::AtomicUsize`   | yes               |
-| `high_prio_tx`, `low_prio_tx` | `tokio::sync::mpsc::Sender`         | no                |
-| `dlq_tx`                      | `Option<tokio::sync::mpsc::Sender>` | no                |
-| `limiter`                     | `Option<leaky_bucket::RateLimiter>` | no                |
-| the handle's own `Arc`        | `std::sync::Arc`                    | no                |
+| Shared push-path state                  | Type under `cfg(loom)`              | Scheduled by Loom |
+| --------------------------------------- | ----------------------------------- | ----------------- |
+| `DeadLetterState::drops`                | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `DeadLetterState::last_log`             | `loom::sync::Mutex<Instant>`        | yes               |
+| `DeadLetterState::reported` (Loom only) | `loom::sync::atomic::AtomicUsize`   | yes               |
+| `high_prio_tx`, `low_prio_tx`           | `tokio::sync::mpsc::Sender`         | no                |
+| `DeadLetterState::sink`                 | `Option<tokio::sync::mpsc::Sender>` | no                |
+| `limiter`                               | `Option<leaky_bucket::RateLimiter>` | no                |
+| the handle's own `Arc`                  | `std::sync::Arc`                    | no                |
 
 *Table 2: What the Loom models can observe on the push path.*
 
@@ -2266,12 +2358,13 @@ is covered by the deterministic ordering tests and the Stateright model;
 proposes the rest.
 
 Every assertion in the models was shown able to fail by a mutation of
-`route_to_dlq`, `log_dlq_drop` or the gauge guard. The ones that matter most
-replace a `fetch_add` or `fetch_sub` with a separate load and store; the models
-reject it, which is the evidence that Loom is exploring interleavings rather
-than running one schedule. `tests/workflow_contracts/loom_lane_test.py` holds
-the lane to `make test-loom` and the target to its command, read through
-`make --dry-run`. That command passes when it runs zero tests, so
+`DeadLetterState::route_or_count`, `DeadLetterState::log_if_due` or the gauge
+guard. The ones that matter most replace a `fetch_add` or `fetch_sub` with a
+separate load and store; the models reject it, which is the evidence that Loom
+is exploring interleavings rather than running one schedule.
+`tests/workflow_contracts/loom_lane_test.py` holds the lane to `make test-loom`
+and the target to its command, read through `make --dry-run`. That command
+passes when it runs zero tests, so
 `tests/workflow_contracts/loom_models_test.py` holds the package to having
 models to run: every file in `crates/wireframe-loom/tests/` carries
 `#![cfg(loom)]` as its only `cfg` attribute, declares a test, calls

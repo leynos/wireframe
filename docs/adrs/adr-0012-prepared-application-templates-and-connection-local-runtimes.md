@@ -505,19 +505,19 @@ one strong reference once setup has completed — during setup the caller's
 reference is still alive alongside the pipeline's — and `on_connection_setup`
 runs at most once per hooks value. The frame pipeline holds a crate-private
 `ConnectionProtocol` pairing that hooks value with the connection's single
-`ConnectionContext`; it is the only hook owner on the prepared path, so the
-connection actor built there is constructed with inert hooks and an empty
-context. The actor's own `ConnectionProtocol` field therefore holds no copy of
-the connection's context and no protocol reference; it receives only the
-connection identifier and peer address it logs with. The pipeline's context is
-the only one the prepared path dispatches against, and setup receives that same
-value before it is installed. An actor driven directly through `with_hooks` is
-the single owner instead. That pairing is the input the ownership collapse under
-[#648](https://github.com/leynos/wireframe/issues/648) needs: the actor and
-pipeline can be folded into one runtime without revisiting hook semantics.
-Every packet-oriented outbound path now runs `before_send` exactly once per
-emitted packet — handler responses, push frames, streamed responses,
-multi-packet channel frames, and stream-end terminators — and no
+`ConnectionContext`; it is the only hook owner on the prepared path. The
+connection actor built there uses the actor's no-hook mode: its
+`ConnectionProtocol` is absent, so it keeps neither a context nor a protocol
+reference and every dispatch point is skipped when that owner is missing; it
+receives only the connection identifier and peer address it logs with. The
+pipeline's context is the only one the prepared path dispatches against, and
+setup receives that same value before it is installed. An actor driven directly
+through `with_hooks` is the single owner instead. That pairing is the input the
+ownership collapse under [#648](https://github.com/leynos/wireframe/issues/648)
+needs: the actor and pipeline can be folded into one runtime without revisiting
+hook semantics. Every packet-oriented outbound path now runs `before_send`
+exactly once per emitted packet — handler responses, push frames, streamed
+responses, multi-packet channel frames, and stream-end terminators — and no
 transport-frame hook is introduced, so the
 [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
 packet boundary is unchanged. Section 8 records that boundary against #644's
@@ -574,6 +574,56 @@ end-of-file callback remains available only to callers that drive a
 `ConnectionActor` directly.
 `prepared_connection_dispatches_setup_once_and_no_eof_hook` pins that contract
 through a prepared connection, including a mid-frame end-of-file.
+
+### 9. Nested ownership collapse addendum — 2026-11-20
+
+Issue [#648](https://github.com/leynos/wireframe/issues/648) completes Phase 4
+and records the resulting ownership. It does not revise sections 1-8; where a
+statement above implies a different representation, this addendum supersedes it.
+
+- **Serializer.** `PreparedApp` owns `Box<S>` and lends `&S` to each connection.
+  The connection boundary requires `Send + Sync + 'static` only: neither
+  `Clone` nor `Default` is needed, and a `!Unpin` serializer is accepted.
+- **Lifecycle callbacks.** Setup and teardown are
+  `Box<ConnectionSetup<C>>` and `Box<ConnectionTeardown<C>>`, borrowed as
+  `&dyn Fn` for the connection's lifetime. They are never cloned per connection.
+- **Message assembler.** `PreparedApp` owns `Option<Box<dyn MessageAssembler>>`
+  and lends `Option<&dyn MessageAssembler>`. Both the builder and prepared
+  accessors therefore return a borrow, which is the disposition recorded for
+  [#598](https://github.com/leynos/wireframe/issues/598) in the pending 0.4.0
+  breaking release. No supported caller clones an assembler out of the
+  application; the only independent ownership is the caller's own value before
+  `with_message_assembler` consumes it.
+- **Handler.** The public `Handler` and `ResponseHandler` aliases remain
+  `Arc<dyn Fn>`, because a caller may legitimately retain a clone. Preparation
+  _moves_ the existing `Arc` out of the consumed builder instead of cloning it,
+  so two route ids registered with the same handler share one allocation and a
+  prepared root leaves no extra strong reference behind.
+- **Protocol.** The `Arc` stays. `PreparedApp::protocol` hands out a cloneable
+  handle, and section 6's
+  [#644](https://github.com/leynos/wireframe/issues/644) pairing already gives
+  every connection exactly one strong reference through `ProtocolHooks`.
+  Removing it would break a public accessor to satisfy a field-list aesthetic.
+- **Application data.** ADR 017 removed `AppDataStore` and the shared-state
+  slot, so there is no per-application store whose shared-value semantics need
+  preserving, and no nested `Arc` left to collapse there.
+- **Drop timing.** The boxed components — serializer, lifecycle callbacks, and
+  message assembler — are released when the last `Arc<PreparedApp>` drops. A
+  connection future borrows them and holds no independent reference, so
+  dropping a connection releases only its own state. The shared `Arc`s follow
+  their own strong counts: a handler stays alive while a caller-retained clone
+  exists, and the protocol stays alive while a `PreparedApp::protocol` handle
+  or a live connection's `ProtocolHooks` reference exists. Each connection's
+  protocol reference is released when that connection drops.
+
+Verification lives in `tests/prepared_app/ownership.rs`: a live connection and
+a lingering root clone keep every probe alive; the final root drop releases
+each probe exactly once; a protocol handle outlives the root that produced it;
+one handler allocation serves two route ids; and two connections interleave
+fragments through one assembler and one serializer. Trybuild fixtures pin the
+relaxed serializer bounds and the borrowed accessor types. The developers'
+guide carries the resulting inventory table under "Application-owned values
+beneath `PreparedApp`".
 
 ## Consequences
 
@@ -738,6 +788,7 @@ through `Arc<PreparedApp>`.
 - [#547](https://github.com/leynos/wireframe/issues/547)
 - [#549](https://github.com/leynos/wireframe/issues/549)
 - [#598](https://github.com/leynos/wireframe/issues/598)
+- [#648](https://github.com/leynos/wireframe/issues/648)
 - [tower `MakeService`](https://docs.rs/tower/latest/tower/trait.MakeService.html)
 - [hyper 1.x server guide](https://hyper.rs/guides/1/server/hello-world/)
 - [actix-web server model](https://actix.rs/docs/server/)
@@ -808,9 +859,9 @@ completion hook, so every callback that follows a frame shares one context and
 one strong reference to the installed protocol. The actor built for a prepared
 connection uses a named prepared constructor that installs the actor's no-hook
 mode: the actor holds no `ConnectionProtocol` at all, so its dispatch points
-are compiled out and it keeps neither a protocol reference nor any copy of the
-connection's context. An actor driven directly through `with_hooks` owns its
-own value instead.
+are skipped when that owner is missing and it keeps neither a protocol
+reference nor any copy of the connection's context. An actor driven directly
+through `with_hooks` owns its own value instead.
 
 Two further units make the remaining differences explicit. Terminator
 correlation is a named policy (`TerminatorCorrelation`): the directly driven

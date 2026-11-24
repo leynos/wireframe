@@ -15,15 +15,25 @@ describe the implementation as it stands, not a target.
 
 ## Scope
 
-Four scopes, one measurement module each, all under
+Five scopes across four measurement modules, all under
 `wireframe_testing::runtime_ownership_benchmarks`:
 
-| Scope                             | Module                                 | Entry point                |
-| --------------------------------- | -------------------------------------- | -------------------------- |
-| Connection actor event processing | `connection_actor_benchmark_support`   | `measure_actor_drain`      |
-| Push handle send path             | `push_benchmark_support`               | `measure_push`             |
-| Application connection startup    | `connection_startup_benchmark_support` | `measure_startup`          |
-| Client pool acquisition           | `client_pool_benchmark_support`        | `measure_pool_acquisition` |
+| Scope                             | Module                                 | Entry point                  |
+| --------------------------------- | -------------------------------------- | ---------------------------- |
+| Connection actor event processing | `connection_actor_benchmark_support`   | `measure_actor_drain`        |
+| Push handle send path             | `push_benchmark_support`               | `measure_push`               |
+| Application connection startup    | `connection_startup_benchmark_support` | `measure_startup`            |
+| Configured application startup    | `connection_startup_benchmark_support` | `measure_configured_startup` |
+| Client pool acquisition           | `client_pool_benchmark_support`        | `measure_pool_acquisition`   |
+
+The startup module carries two entry points because
+[#648](https://github.com/leynos/wireframe/issues/648) needed a workload whose
+application installs a serializer, a message assembler, both lifecycle
+callbacks, and a protocol. The plain startup workload measures the route and
+middleware topology; the configured one measures the same topology plus every
+application-owned component the ownership work touched, and adds a
+preparation-only phase that serves no connection and therefore isolates the
+prepared root's preparation from connection start.
 
 Each module keeps its scenarios as data — a workload enum or struct carrying
 every parameter a baseline must state — with a single `measure_*` entry point
@@ -111,15 +121,52 @@ reports a point estimate with confidence-interval bounds; those bounds do not
 represent the observed spread between runs.
 
 A baseline without its revision is not reproducible, so each capture is named
-with the commit that produced it. Two captures are recorded here, and a table
+with the commit that produced it. Four captures are recorded here, and a table
 belongs to whichever one its section names.
 
 ### Captures
 
-| Capture   | Revision                                                | Date       | Covers                          |
-| --------- | ------------------------------------------------------- | ---------- | ------------------------------- |
-| Original  | `d28b54e`                                               | 2026-10-11 | Every table except those noted  |
-| Corrected | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool |
+| Capture              | Revision                                                | Date       | Covers                                   |
+| -------------------- | ------------------------------------------------------- | ---------- | ---------------------------------------- |
+| Original             | `d28b54e`                                               | 2026-10-11 | Every table except those noted           |
+| Corrected            | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool          |
+| Prepared ownership   | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation |
+| Configured dispatch  | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only             |
+| Controlled #648 pair | `3376f734` / `cfc7d2a7`                                 | 2026-11-22 | Startup allocations, before and after    |
+
+The third capture was taken for
+[#648](https://github.com/leynos/wireframe/issues/648), on the branch that
+boxes the prepared application's serializer, callbacks, and message assembler.
+It also re-measures the pre-existing startup rows, because the scope is the one
+the change could move, but it is not a like-for-like replacement for the
+corrected capture: the toolchain had advanced from `nightly-2026-03-26` to
+`nightly-2026-11-17` (`rustc 1.102.0-nightly 5df8c02af`), the branch carries
+the #644 and #879 connection-path changes, and the run happened at a load
+average of 24–30 on 24 hardware threads. Every figure in it is therefore only
+comparable with another figure from the same capture; see
+[Issue #648: prepared ownership](#issue-648-prepared-ownership).
+
+The fourth capture re-measures only the configured startup scope. In the
+prepared-ownership capture the configured workload ignored its base path, so
+every configured row — including the `per_connection_factory` rows — was
+measured through the shared prepared root. Those earlier per-connection timings
+are therefore not comparable with the corrected table, and Criterion's change
+percentages against them describe the shared path rather than a regression in
+the per-connection topology. The correction was taken at a load average near 30
+on the same 24 hardware threads, so the within-capture rule still applies.
+
+Both #648 captures predate the restack onto the rewritten parent branch. Their
+revisions are the commits the runs measured; the equivalent restacked commits
+are `62c28fc1` and `72f0a9e2`. The restack changed merge resolution and the
+inherited parent work beneath the benchmark harness, not the harness itself, so
+the figures were not re-measured and remain historical within-capture evidence.
+
+The controlled #648 pair supersedes both of them for the allocation question.
+It ran this branch's harness unchanged on the parent tree (`3376f734`) and on
+the branch (`cfc7d2a7`), on the same host, sequentially, so the only difference
+between the two runs is the ownership change under test. Its counts, and the
+deltas between them, appear in
+[Issue #648: prepared ownership](#issue-648-prepared-ownership).
 
 The original capture is the first published set, taken before the review of
 [#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
@@ -964,6 +1011,158 @@ replaced by that assertion. The recorded contended timing tables above predate
 this change and have not been re-captured; compare a future capture against
 them as a different scheduler, not as the same code under a different load.
 
+## Issue #648: prepared ownership
+
+`PreparedApp` is now the one shared root for application-owned values that
+cannot outlive it. The serializer, the connection setup and teardown callbacks,
+and the message assembler are boxed and borrowed per connection instead of
+wrapped in their own `Arc`, and a handler's `Arc` moves out of the consumed
+builder rather than being cloned during preparation. The installed protocol
+keeps its `Arc`, because #644 already gives each connection exactly one strong
+reference through `ProtocolHooks`. Setup dispatches through that same hooks
+value, so the one-reference guarantee holds while setup is pending rather than
+only during handler dispatch.
+
+Three kinds of evidence exist for a change like this, and only one of them is a
+benchmark number.
+
+The ownership itself is proved by drop probes, not by timings:
+`tests/prepared_app/ownership.rs` asserts that nothing drops while the root or
+a live connection survives, that every probe drops exactly once on the final
+root drop, that one handler allocation serves two route ids, and that two
+connections interleaving fragments reach one assembler and one serializer
+allocation. Those are exact properties and they run in the ordinary suite.
+
+The reference-counting cost of a shared handle is invisible to the allocation
+counter: as the [allocation harness](#allocation-harness) control records,
+cloning a shared `Arc` costs an atomic increment and no allocation. What the
+counter does see is the *construction* of each `Arc`, and that is where this
+change is measurable. The values the configured workload installs are
+zero-sized — `BincodeSerializer`, `TestAssembler`, and the two non-capturing
+lifecycle closures — so `Arc::new(value)` allocated a control block for a value
+with no bytes of its own, while `Box::new(value)` allocates nothing at all.
+Preparation therefore loses one allocation for each of the four values, and the
+per-connection clones, which were already free, stay free.
+
+A controlled before-and-after confirms exactly that. Both runs used this
+branch's harness, copied unchanged onto the parent tree, on the same host,
+sequentially on 2026-11-22; the parent tree is `3376f734` and this branch's
+head at capture is `cfc7d2a7`. Counts are over four iterations:
+
+| Scope                                                                                    | Parent | This branch | Delta |
+| ---------------------------------------------------------------------------------------- | ------ | ----------- | ----- |
+| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 116    | 100         | −16   |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 500    | 483         | −17   |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 424    | 420         | −4    |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 696    | 680         | −16   |
+
+The preparation-only scope loses four allocations per iteration, and the
+per-connection factory prepares four applications per iteration, which is why
+it moves by 16 rather than by 4. The plain prepared root installs only the
+serializer, so it moves by one per iteration. The prepared-root scope's −17
+rather than −16 is the harness's own ±1 run-to-run variance: 484 and 483 were
+observed for that row across two runs of this same pair, while the other three
+rows reproduced exactly. The control rows did not move: the actor workload
+allocated 3101 in every run, the push rows stayed at 43 and 56, and the
+uncontended pool rows stayed at 2053. That is the harness showing it did not
+drift underneath the comparison, and it separates this change from the
+connection-path work beneath it.
+
+The pair's revisions are the ones the runs measured. The parent has since
+gained connection-runtime commits that do not touch preparation, the builder,
+or the benchmark harness, so the preparation rows remain the evidence for the
+four-allocation claim; the prepared-root serving row is reported for the pair's
+revisions, where both ends were measured.
+
+The figures below state what the configured workload allocates on this branch.
+Their within-capture comparison with the plain prepared root shows what the
+four installed components add.
+
+The configured startup scope, first. Every row installs a serializer, a message
+assembler, both lifecycle callbacks, and a protocol on top of the workload's
+route and middleware topology; `served_connections` is the connection count.
+Configured startup capture, re-run on the corrected dispatch (`0221dfa5`):
+
+| Workload                                                                                          | Lower     | Estimate  | Upper     |
+| ------------------------------------------------------------------------------------------------- | --------- | --------- | --------- |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_1_factory_1_transforms_2`    | 4.2108 µs | 4.6384 µs | 5.1534 µs |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_4_factory_4_transforms_8`    | 15.817 µs | 16.976 µs | 18.113 µs |
+| `configured_..._per_connection_factory_routes_1_layers_2_connections_16_factory_16_transforms_32` | 61.798 µs | 62.766 µs | 63.893 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_1_factory_1_transforms_4`    | 4.3194 µs | 4.4361 µs | 4.5238 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`   | 16.502 µs | 17.456 µs | 18.948 µs |
+| `configured_..._per_connection_factory_routes_2_layers_2_connections_16_factory_16_transforms_64` | 69.406 µs | 71.168 µs | 72.836 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_1_factory_1_transforms_2`             | 5.2375 µs | 5.3980 µs | 5.5392 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_4_factory_1_transforms_2`             | 14.572 µs | 14.818 µs | 15.128 µs |
+| `configured_..._prepared_root_routes_1_layers_2_connections_16_factory_1_transforms_2`            | 52.863 µs | 56.462 µs | 59.419 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_1_factory_1_transforms_4`             | 4.2886 µs | 4.3866 µs | 4.4894 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`             | 13.372 µs | 13.982 µs | 14.787 µs |
+| `configured_..._prepared_root_routes_2_layers_2_connections_16_factory_1_transforms_4`            | 70.843 µs | 79.379 µs | 89.551 µs |
+
+The labels are abbreviated here for width: `configured_...` stands for
+`configured_serializer_1_assembler_1_callbacks_2_protocol_1_`. The full id is
+`label()`'s output and embeds every parameter, so no two rows collide;
+Criterion truncates it in its own progress lines, which is why the run's log
+shows the same rows as `..._per_connection_factory... #1` onward.
+
+The counts behind those rows are the part to trust. The prepared-root topology
+evaluates its factory once and runs its middleware transforms once regardless
+of connection count — 1 factory call and 4 transforms for the two-route
+workload — whereas the per-connection topology evaluates a factory per
+connection and runs 4 transforms for each. Those equalities are asserted for
+the bare workload in `tests/runtime_ownership_benchmark_helpers/startup.rs` and
+for the configured workload in the support crate's
+`configured_serving_records_the_topology_accounting` cases, so the configured
+workload's accounting is a test result rather than an inference from the
+timings. The timings themselves carry the load confound stated for the other
+tables: this run also took place at a load average near 30 on 24 threads, and
+the per-connection rows now scale with connection count as the topology implies
+— 4.6384 µs at one connection, 16.976 µs at four, and 62.766 µs at sixteen for
+the one-route workload. Treat the columns as order-of-magnitude, and the counts
+as exact.
+
+The preparation-only phase removes connections from the window entirely, so it
+times `prepare()` and the drop of the prepared root:
+
+| Workload                                                                                 | Lower     | Estimate  | Upper     |
+| ---------------------------------------------------------------------------------------- | --------- | --------- | --------- |
+| `configured_..._preparation_only_prepared_root_routes_1_layers_2_factory_1_transforms_2` | 816.66 ns | 838.12 ns | 869.40 ns |
+| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 1.0499 µs | 1.0728 µs | 1.1012 µs |
+
+Preparation of the fully configured application is under 1.1 µs for one or two
+routes with two middleware layers, which is the quantity a per-connection
+factory path pays once per connection instead of once per application. The
+loading, drop of the prepared root included, is inside the window on purpose: a
+prepared application that is expensive to release would otherwise be invisible
+to the scope.
+
+Allocation counts for the same capture, over four iterations:
+
+| Scope                                                                                    | Iterations | Allocations |
+| ---------------------------------------------------------------------------------------- | ---------- | ----------- |
+| `configured_..._prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`    | 4          | 484         |
+| `configured_..._preparation_only_prepared_root_routes_2_layers_2_factory_1_transforms_4` | 4          | 100         |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`                   | 4          | 420         |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16`         | 4          | 680         |
+| `frames_256_capacity_128_cancel_disabled`                                                | 4          | 3101        |
+| `drained_high_capacity_64_sends_256`                                                     | 4          | 43          |
+| `overflow_drop_capacity_8_sends_256`                                                     | 4          | 56          |
+| `uncontended_pool_1_acquisitions_256_contenders_1`                                       | 4          | 2053        |
+| `uncontended_pool_4_acquisitions_256_contenders_1`                                       | 4          | 2053        |
+| `uncontended_pool_16_acquisitions_256_contenders_1`                                      | 4          | 2053        |
+
+Installing the four extra application-owned components costs 64 allocations
+over the plain prepared root across four iterations — one preparation plus four
+connections each. The preparation-only phase records 100 allocations for four
+preparations and drops, but the two scopes do not partition the total: the
+plain prepared root's own preparation allocates too, so the 64 is the
+difference between two sums rather than the cost of the components. Do not
+subtract one from the other. The pool rows were 2053 in both runs of the
+controlled pair and are included only to show the harness did not drift
+underneath it. The actor row is also identical in both runs (3101), which is
+the clearest evidence that the 16-allocation movement belongs to preparation
+and not to the connection loop: #648 does not touch the actor's drain loop at
+all.
+
 ## Instrumentation sensitivity
 
 A baseline is worthless if the counter behind it cannot move. Three controls
@@ -1132,6 +1331,12 @@ thresholds, and they belong in the suite.
   defects recorded here lived on the path it reworks; the
   spurious-`disconnected` defect is retired by it, as recorded in
   [Issue #647: persistent scheduler actor](#issue-647-persistent-scheduler-actor).
+- [#648](https://github.com/leynos/wireframe/issues/648) — collapses the nested
+  application-owned `Arc` layers beneath `PreparedApp`; its capture and the
+  configured startup scope are recorded in
+  [Issue #648: prepared ownership](#issue-648-prepared-ownership).
+- [#598](https://github.com/leynos/wireframe/issues/598) — the borrowed
+  `message_assembler()` accessor, implemented as part of #648.
 - [#535](https://github.com/leynos/wireframe/issues/535) — the waiter
   state-transition rework whose arrival prompted the re-test in
   [What re-testing found](#what-re-testing-found).

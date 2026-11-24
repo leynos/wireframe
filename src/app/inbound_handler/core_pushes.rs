@@ -52,7 +52,7 @@ where
     ) -> io::Result<bool> {
         let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
+            serializer: self.serializer,
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,
@@ -84,7 +84,7 @@ where
     pub(super) async fn drain_pushes(&mut self) -> io::Result<()> {
         let diagnostics = self.response_actor.push_diagnostics();
         let mut transport = PushTransport {
-            serializer: self.serializer.as_ref(),
+            serializer: self.serializer,
             codec: &self.codec,
             sink: &mut self.sink,
             pipeline: &mut self.inbound.pipeline,

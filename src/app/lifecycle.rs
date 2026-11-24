@@ -7,11 +7,9 @@ use std::{future::Future, pin::Pin};
 /// # Examples
 ///
 /// ```rust,no_run
-/// use std::sync::Arc;
-///
 /// use wireframe::app::ConnectionSetup;
-/// let setup: Arc<ConnectionSetup<String>> =
-///     Arc::new(|| Box::pin(async { String::from("hello") }));
+/// let setup: Box<ConnectionSetup<String>> =
+///     Box::new(|| Box::pin(async { String::from("hello") }));
 /// ```
 pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>> + Send + Sync;
 
@@ -37,10 +35,8 @@ pub type ConnectionSetup<C> = dyn Fn() -> Pin<Box<dyn Future<Output = C> + Send>
 /// # Examples
 ///
 /// ```rust,no_run
-/// use std::sync::Arc;
-///
 /// use wireframe::app::ConnectionTeardown;
-/// let teardown: Arc<ConnectionTeardown<String>> = Arc::new(|state| {
+/// let teardown: Box<ConnectionTeardown<String>> = Box::new(|state| {
 ///     Box::pin(async move {
 ///         println!("Dropping {state}");
 ///     })

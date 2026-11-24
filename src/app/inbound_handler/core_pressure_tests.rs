@@ -131,17 +131,19 @@ fn over_cap_assembly() -> MessageAssemblyState {
 fn drive_pressure_exit(hook: &RecordingHook) -> (io::Result<bool>, io::Result<bool>) {
     let shutdown = CancellationToken::new();
     let codec = ProbeCodec;
+    let serializer = BincodeSerializer;
     let routes: HashMap<u32, HandlerService<Envelope>> = HashMap::new();
     // The read half is never polled: every step aborts before it waits.
     let (_client, server) = tokio::io::duplex(64);
     let context = StreamProcessingContext {
         routes: &routes,
-        serializer: Arc::new(BincodeSerializer),
+        // The context borrows the prepared root's serializer, so it must
+        // outlive the loop; the loop never serializes anything here.
+        serializer: &serializer,
         codec: &codec,
         message_assembler: None,
         fragmentation: None,
         protocol_hooks: ProtocolHooks::default(),
-        protocol: None,
         memory_budgets: Some(pressure_budgets()),
         read_timeout_ms: 50,
         shutdown: &shutdown,

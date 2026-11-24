@@ -24,7 +24,7 @@ use crate::{
 /// concise.
 pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Serializer to carry into the rebuilt application type.
-    pub(super) serializer: Arc<S2>,
+    pub(super) serializer: Box<S2>,
     /// Codec to carry into the rebuilt application type.
     pub(super) codec: F2,
     /// Protocol hook whose frame type matches the replacement codec.
@@ -36,7 +36,7 @@ pub(super) struct RebuildParams<S2, F2: FrameCodec> {
     /// Fragmentation settings retained across a type transition.
     pub(super) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Message assembler retained across a type transition.
-    pub(super) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    pub(super) message_assembler: Option<Box<dyn MessageAssembler>>,
     /// Memory limits retained across a type transition.
     pub(super) memory_budgets: Option<MemoryBudgets>,
 }
@@ -91,7 +91,7 @@ where
     /// `on_connection_setup` when both hooks are needed for the same state.
     pub(super) fn rebuild_with_connection_state<C2>(
         self,
-        on_connect: Option<Arc<ConnectionSetup<C2>>>,
+        on_connect: Option<Box<ConnectionSetup<C2>>>,
     ) -> WireframeApp<S, C2, E, F>
     where
         C2: Send + 'static,

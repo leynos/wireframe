@@ -29,6 +29,8 @@ fn compile_tests() {
     t.compile_fail("tests/ui/removed_extractor_and_app_data.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_route_response.rs");
     t.pass("tests/ui/codec_without_default_serializer.rs");
+    t.pass("tests/ui/prepared_app_owns_non_clone_serializer.rs");
+    t.pass("tests/ui/prepared_app_borrows_message_assembler.rs");
     t.compile_fail("tests/ui/prepared_app_rejects_borrowed_serializer.rs");
     t.pass("tests/ui/response_handler_borrows_request.rs");
     t.compile_fail("tests/ui/zero_test_budget.rs");

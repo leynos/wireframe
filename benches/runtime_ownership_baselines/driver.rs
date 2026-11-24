@@ -13,10 +13,12 @@ use criterion::{BenchmarkGroup, BenchmarkId, Criterion, Throughput, measurement:
 use tokio::runtime::Runtime;
 use wireframe_testing::runtime_ownership_benchmarks::{
     ActorWorkload,
+    ConfiguredStartupWorkload,
     PoolWorkload,
     PushWorkload,
     StartupWorkload,
     measure_actor_drain,
+    measure_configured_startup,
     measure_pool_acquisition,
     measure_push,
     measure_startup,
@@ -26,6 +28,8 @@ use crate::scenarios::{
     MEASUREMENT_TIME,
     SAMPLE_SIZE,
     actor_workloads,
+    configured_preparation_workloads,
+    configured_startup_workloads,
     elements,
     expect_bench,
     push_workloads,
@@ -74,6 +78,24 @@ fn time_startup(runtime: &Runtime, workload: StartupWorkload, iterations: u64) -
     measurement.elapsed
 }
 
+/// Run one configured startup workload for `iterations` and return its elapsed
+/// time.
+fn time_configured_startup(
+    runtime: &Runtime,
+    workload: ConfiguredStartupWorkload,
+    iterations: u64,
+) -> Duration {
+    let measurement = expect_bench(
+        runtime.block_on(measure_configured_startup(workload, iterations)),
+        "configured startup benchmark failed",
+    );
+    // The counts are black-boxed so the compiler cannot prove the preparation
+    // unnecessary and elide the work being timed.
+    black_box(measurement.factory_calls);
+    black_box(measurement.transforms);
+    measurement.elapsed
+}
+
 /// Run one pool-acquisition workload for `iterations` and return its elapsed
 /// time.
 fn time_pool_acquisition(runtime: &Runtime, workload: PoolWorkload, iterations: u64) -> Duration {
@@ -116,6 +138,10 @@ impl BenchLabel for StartupWorkload {
 }
 
 impl BenchLabel for PoolWorkload {
+    fn bench_label(self) -> String { self.label() }
+}
+
+impl BenchLabel for ConfiguredStartupWorkload {
     fn bench_label(self) -> String { self.label() }
 }
 
@@ -223,6 +249,35 @@ pub(crate) fn startup_scope() -> BenchScope<StartupWorkload> {
         workloads: startup_workloads(),
         throughput: |workload| Some(elements(workload.connections)),
         measure: time_startup,
+    }
+}
+
+/// The configured connection-startup scope.
+///
+/// Serves the same topology grid as [`startup_scope`] on an application that
+/// installs the components #648 changes, so the bare and configured rows can be
+/// compared row for row. Throughput counts served connections.
+pub(crate) fn configured_startup_scope() -> BenchScope<ConfiguredStartupWorkload> {
+    BenchScope {
+        name: "startup/configured",
+        workloads: configured_startup_workloads(),
+        throughput: |workload| Some(elements(workload.served_connections())),
+        measure: time_configured_startup,
+    }
+}
+
+/// The configured preparation-only scope.
+///
+/// Isolates building, preparing, and dropping the configured application from
+/// serving it. Throughput is left unset because no connection is served, and
+/// declaring a rate over a connection count the scope never reaches would make
+/// the figure meaningless.
+pub(crate) fn configured_preparation_scope() -> BenchScope<ConfiguredStartupWorkload> {
+    BenchScope {
+        name: "startup/preparation",
+        workloads: configured_preparation_workloads(),
+        throughput: |_workload| None,
+        measure: time_configured_startup,
     }
 }
 

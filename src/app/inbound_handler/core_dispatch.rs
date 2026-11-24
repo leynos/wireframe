@@ -90,7 +90,7 @@ where
                 sink: &mut self.sink,
                 deser_failures: &mut self.deser_failures,
                 routes: self.routes,
-                serializer: self.serializer.as_ref(),
+                serializer: self.serializer,
                 codec: &self.codec,
                 message_assembler: self.message_assembler,
                 message_assembly: &mut self.inbound.message_assembly,
