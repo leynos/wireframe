@@ -35,7 +35,7 @@ use super::{
         push::{validate_push_queues, warn_about_legacy_push_dlq},
     },
     envelope::Packet,
-    inbound_handler::{ConnectionProcessingContext, build_route_chains, process_connection},
+    inbound_handler::{ConnectionProcessingContext, build_route_chains_owned, process_connection},
     lifecycle::{ConnectionSetup, ConnectionTeardown},
     memory_budgets::MemoryBudgets,
 };
@@ -70,20 +70,35 @@ pub struct PreparedApp<
     pub(in crate::app) streaming_routes: HashMap<u32, super::StreamingHandler>,
     /// Serializer retained by every connection driven by this application.
     ///
-    /// Shared so the connection actor's `'static` protocol hooks can decode
-    /// terminator frames without copying the serializer.
-    pub(in crate::app) serializer: Arc<S>,
+    /// Owned by the prepared root and borrowed as `&S` for the connection
+    /// lifetime; the root outlives every connection, so no reference count is
+    /// needed here.
+    pub(in crate::app) serializer: Box<S>,
     /// Codec template used to configure each connection's framed transport.
     pub(in crate::app) codec: F,
     /// Optional hook that creates per-connection state.
-    pub(in crate::app) on_connect: Option<Arc<ConnectionSetup<C>>>,
+    ///
+    /// Borrowed through the prepared root for one connection lifecycle and
+    /// never cloned per connection.
+    pub(in crate::app) on_connect: Option<Box<ConnectionSetup<C>>>,
     /// Optional hook that releases per-connection state after processing.
-    pub(in crate::app) on_disconnect: Option<Arc<ConnectionTeardown<C>>>,
+    ///
+    /// Borrowed through the prepared root for one connection lifecycle and
+    /// never cloned per connection.
+    pub(in crate::app) on_disconnect: Option<Box<ConnectionTeardown<C>>>,
     /// Optional protocol hook used to customize frame-level processing.
+    ///
+    /// Retained behind `Arc` because [`PreparedApp::protocol`] hands out a
+    /// cloneable handle and #644 gives each connection exactly one strong
+    /// reference through `ProtocolHooks`. See the ownership inventory in the
+    /// developers' guide.
     pub(in crate::app) protocol:
         Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional assembler for protocol messages spread across several frames.
-    pub(in crate::app) message_assembler: Option<Arc<dyn MessageAssembler>>,
+    ///
+    /// Owned by the prepared root and borrowed as `&dyn MessageAssembler`; a
+    /// connection keeps only its own assembly state.
+    pub(in crate::app) message_assembler: Option<Box<dyn MessageAssembler>>,
     // FIXME: Issue #643 keeps this template-owned configuration until the
     // connection-local runtime consumes it: https://github.com/leynos/wireframe/issues/643.
     #[expect(
@@ -183,23 +198,43 @@ where
     async fn build_prepared(self) -> Result<PreparedApp<S, C, E, F>, PrepareError> {
         validate_push_queues(self.push_queues.as_ref())?;
         warn_about_legacy_push_dlq(self.push_dlq.as_ref());
-        let routes = build_route_chains(&self.handlers, &self.middleware).await;
+        let Self {
+            handlers,
+            middleware,
+            serializer,
+            codec,
+            on_connect,
+            on_disconnect,
+            protocol,
+            streaming_handlers,
+            push_dlq,
+            push_queues,
+            session_registry,
+            fragmentation,
+            message_assembler,
+            read_timeout_ms,
+            memory_budgets,
+        } = self;
+        // Preparation consumes the builder, so each handler's existing `Arc`
+        // moves into its prepared service rather than being cloned. The
+        // middleware list stays alive until every transform has run.
+        let routes = build_route_chains_owned(handlers, &middleware).await;
 
         Ok(PreparedApp {
             routes,
-            streaming_routes: self.streaming_handlers,
-            serializer: self.serializer,
-            codec: self.codec,
-            on_connect: self.on_connect,
-            on_disconnect: self.on_disconnect,
-            protocol: self.protocol,
-            message_assembler: self.message_assembler,
-            push_dlq: self.push_dlq,
-            push_queues: self.push_queues,
-            session_registry: self.session_registry,
-            fragmentation: self.fragmentation,
-            read_timeout_ms: self.read_timeout_ms,
-            memory_budgets: self.memory_budgets,
+            streaming_routes: streaming_handlers,
+            serializer,
+            codec,
+            on_connect,
+            on_disconnect,
+            protocol,
+            message_assembler,
+            push_dlq,
+            push_queues,
+            session_registry,
+            fragmentation,
+            read_timeout_ms,
+            memory_budgets,
         })
     }
 }
@@ -309,14 +344,13 @@ where
             ConnectionProcessingContext {
                 routes: &self.routes,
                 streaming_routes: &self.streaming_routes,
-                serializer: Arc::clone(&self.serializer),
+                serializer: self.serializer.as_ref(),
                 codec: &self.codec,
-                on_connect: self.on_connect.as_ref(),
-                on_disconnect: self.on_disconnect.as_ref(),
-                message_assembler: self.message_assembler.as_ref(),
+                on_connect: self.on_connect.as_deref(),
+                on_disconnect: self.on_disconnect.as_deref(),
+                message_assembler: self.message_assembler.as_deref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 push_queues: self.push_queues(),

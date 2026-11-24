@@ -120,7 +120,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -145,26 +145,19 @@ where
     /// Streaming handlers keyed by message identifier.
     pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional hook that creates per-connection state.
-    pub(crate) on_connect: Option<&'a Arc<ConnectionSetup<C>>>,
+    pub(crate) on_connect: Option<&'a ConnectionSetup<C>>,
     /// Optional hook that releases per-connection state after processing.
-    pub(crate) on_disconnect: Option<&'a Arc<ConnectionTeardown<C>>>,
+    pub(crate) on_disconnect: Option<&'a ConnectionTeardown<C>>,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
-    ///
-    /// Setup runs at the connection boundary because that is where the push
-    /// handle and registry entry come into existence. Every other callback runs
-    /// through the pipeline's hook owner, and this reference is dropped once
-    /// setup has run, so a live connection holds one strong reference.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -213,7 +206,6 @@ where
         message_assembler,
         fragmentation,
         protocol_hooks,
-        protocol,
         memory_budgets,
         read_timeout_ms,
         shutdown,
@@ -232,7 +224,6 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
-            protocol,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -267,10 +258,12 @@ where
     Ok(())
 }
 
-/// Construct each route's middleware chain from registered builder inputs.
+/// Construct each route's middleware chain from borrowed builder inputs.
 ///
 /// Middleware is folded in reverse registration order, preserving the first
-/// registered middleware as the outermost service layer.
+/// registered middleware as the outermost service layer. This is the
+/// compatibility path, which still owns an unprepared builder and therefore
+/// clones each route's handler `Arc`.
 pub(crate) async fn build_route_chains<E>(
     handlers: &HashMap<u32, Route<E>>,
     middleware: &[Box<dyn Middleware<E>>],
@@ -278,15 +271,49 @@ pub(crate) async fn build_route_chains<E>(
 where
     E: Packet,
 {
-    let mut routes = HashMap::new();
-    for (&id, route) in handlers {
-        let mut service = HandlerService::from_route(id, route);
-        for mw in middleware.iter().rev() {
-            service = mw.transform(service).await;
-        }
-        routes.insert(id, service);
+    let owned = handlers
+        .iter()
+        .map(|(&id, route)| (id, route.clone()))
+        .collect();
+    build_route_chains_owned(owned, middleware).await
+}
+
+/// Construct each route's middleware chain by consuming the builder's routes.
+///
+/// Preparation owns the builder, so each handler's `Arc` moves into its service
+/// instead of being cloned. The middleware list is borrowed for the whole fold,
+/// so it stays alive through every transform.
+pub(crate) async fn build_route_chains_owned<E>(
+    handlers: HashMap<u32, Route<E>>,
+    middleware: &[Box<dyn Middleware<E>>],
+) -> HashMap<u32, HandlerService<E>>
+where
+    E: Packet,
+{
+    let mut routes = HashMap::with_capacity(handlers.len());
+    for (id, route) in handlers {
+        let service = HandlerService::from_owned_route(id, route);
+        routes.insert(id, fold_middleware(service, middleware).await);
     }
     routes
+}
+
+/// Apply every middleware layer to one route service.
+///
+/// Folded in reverse registration order so the first registered middleware is
+/// the outermost layer. Shared by both preparation entry points so the ordering
+/// cannot drift between the compatibility path and the prepared path.
+async fn fold_middleware<E>(
+    mut service: HandlerService<E>,
+    middleware: &[Box<dyn Middleware<E>>],
+) -> HandlerService<E>
+where
+    E: Packet,
+{
+    for mw in middleware.iter().rev() {
+        service = mw.transform(service).await;
+    }
+    service
 }
 
 impl<S, C, E, F> WireframeApp<S, C, E, F>
@@ -318,14 +345,13 @@ where
             ConnectionProcessingContext {
                 routes: &routes,
                 streaming_routes: &self.streaming_handlers,
-                serializer: Arc::clone(&self.serializer),
+                serializer: self.serializer.as_ref(),
                 codec: &self.codec,
-                on_connect: self.on_connect.as_ref(),
-                on_disconnect: self.on_disconnect.as_ref(),
-                message_assembler: self.message_assembler.as_ref(),
+                on_connect: self.on_connect.as_deref(),
+                on_disconnect: self.on_disconnect.as_deref(),
+                message_assembler: self.message_assembler.as_deref(),
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
-                protocol: self.protocol.clone(),
                 memory_budgets: self.memory_budgets,
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,

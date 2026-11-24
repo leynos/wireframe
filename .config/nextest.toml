@@ -2,6 +2,11 @@
 # tier chain, and nextest_target_discovery_test.py, which proves the override
 # filter names a target `cargo metadata` discovers. A renamed or moved target
 # must fail those contracts rather than fall back to the default allowance.
+
+# Setup scripts are experimental in the nextest versions the coverage action may
+# install, so the configuration opts in; newer versions accept the entry.
+experimental = ["setup-scripts"]
+
 [profile.default]
 # Match the coverage action's default policy for the runtime suite. The
 # coverage invocation sets cfg(coverage), so the compile-time harnesses are
@@ -15,3 +20,65 @@ global-timeout = "10m"
 # overrun reports elapsed time before it is terminated.
 filter = 'package(=wireframe) & binary(=compile_error) & test(=compile_tests)'
 slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# Nested builds are prepared before the timed tests start (Concordat NC-010).
+# `compile_tests` compiles every UI fixture through `trybuild`, which builds the
+# generated project and its dependencies inside the test's own deadline; measured
+# cold, that is 157 s of a 480 s allowance on an idle 32-core host, and a queued
+# compile pool spends the rest. The scripts below run each such test's own
+# target once before any test starts, under an allowance of their own, so the
+# timed bodies find the generated projects built. Each takes the caller's
+# environment (flags, `CARGO_TARGET_DIR`). The compile-error script selects the
+# repository's standard `--all-features`, which is what `make test` uses:
+# `trybuild` reads the test binary's features, so a nextest run that selects a
+# different feature set gets no benefit from it and still pays for its build,
+# and a failure there fails that run. The loom script selects
+# `runtime-benchmarks`, as `make test-loom` does, and the metadata script
+# selects none. The compile-error script runs only `compile_tests`, but it is
+# selected by the whole binary, so a run that selects only another test of the
+# binary (`rstest_bdd_v06_contracts`) still runs the `compile_tests` fixtures
+# during setup, and a fixture failure there stops the selected test. The
+# selector cannot be narrowed to the test, because the reader that credits a
+# setup script understands unions of binary selectors only. A failing
+# test in a warm-up fails the script, and nextest then reports that test's own
+# output. Every command is `--frozen` (locked and offline); `make test` fetches
+# first.
+#
+# The compile-error warm-up carries the same allowance as the test's override,
+# so a cold build ends at the same deadline whichever of the two meets it. The
+# allowances below sum to 660 s (480, 120 and 60), above the 600 s
+# `global-timeout`, which the tier-chain contract pins below the 900 s Cargo
+# watchdog. Setup and tests together can therefore exceed the global limit even
+# when no single script reaches its allowance (a slow warm-up followed by slow
+# tests); nextest then ends the run and reports it, rather than a job kill
+# doing so without a log, which is the intended failure.
+[scripts.setup.warm-compile-error]
+command = "cargo test --frozen --all-features --test compile_error -- --exact compile_tests"
+slow-timeout = { period = "60s", terminate-after = 8, grace-period = "5s" }
+
+# Compiled only under `--cfg loom` (`make test-loom` sets it through
+# `CARGO_ENCODED_RUSTFLAGS`), so this runs only for a nextest invocation that
+# sets the same cfg.
+[scripts.setup.warm-loom-api-surface]
+command = "cargo test --frozen -p wireframe_testing --test loom_api_surface --features runtime-benchmarks"
+slow-timeout = { period = "30s", terminate-after = 4, grace-period = "5s" }
+
+# The manifest and unsafe-boundary tests query `cargo metadata` and `cargo
+# pkgid`; they compile nothing, but the first query loads the workspace. The
+# warm-up is `--no-deps`, as the tests' own queries are, so a cache holding only
+# the host target's dependencies does not fail it.
+[scripts.setup.warm-workspace-metadata]
+command = "cargo --frozen metadata --no-deps --format-version 1"
+slow-timeout = { period = "30s", terminate-after = 2, grace-period = "5s" }
+
+[[profile.default.scripts]]
+filter = 'binary_id(=wireframe::compile_error)'
+setup = "warm-compile-error"
+
+[[profile.default.scripts]]
+filter = 'binary_id(=wireframe_testing::loom_api_surface)'
+setup = "warm-loom-api-surface"
+
+[[profile.default.scripts]]
+filter = 'binary_id(=wireframe::workspace_manifest) | binary_id(=wireframe::workspace_unsafe_boundary)'
+setup = "warm-workspace-metadata"

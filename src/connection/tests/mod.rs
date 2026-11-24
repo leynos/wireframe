@@ -116,6 +116,17 @@ async fn shutdown_wins_over_a_ready_high_priority_push() {
     );
 }
 
+/// A directly driven actor selects the stamping policy with its hooks.
+#[test]
+fn actor_selects_the_stamping_terminator_policy() {
+    let actor = test_actor(ProtocolHooks::default()).expect("actor should build");
+    assert_eq!(
+        actor.terminator_correlation,
+        crate::connection::TerminatorCorrelation::ACTOR,
+        "an actor with its own hooks stamps its terminator envelopes"
+    );
+}
+
 #[tokio::test]
 async fn installs_single_response_with_correlation() {
     let calls = Arc::new(AtomicUsize::new(0));

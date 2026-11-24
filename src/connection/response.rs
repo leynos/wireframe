@@ -7,7 +7,7 @@
 
 use log::warn;
 
-use super::{ConnectionActor, TerminatorCorrelation, state::ActorState};
+use super::{ConnectionActor, state::ActorState};
 use crate::{
     app::Packet,
     correlation::CorrelatableFrame,
@@ -55,7 +55,9 @@ where
         let mut produced = false;
         match res {
             Some(Ok(mut frame)) => {
-                TerminatorCorrelation::ACTOR.apply(&mut frame, self.response_correlation);
+                // Response frames inherit the request correlation on every
+                // path; only the terminator's policy differs below.
+                self.stamp_response_correlation(&mut frame);
                 self.process_frame_with_hooks_and_metrics(frame, out);
                 produced = true;
             }
@@ -80,7 +82,8 @@ where
                     .as_mut()
                     .and_then(ConnectionProtocol::stream_end_frame);
                 if let Some(mut frame) = terminator {
-                    TerminatorCorrelation::ACTOR.apply(&mut frame, self.response_correlation);
+                    self.terminator_correlation
+                        .apply(&mut frame, self.response_correlation);
                     self.process_frame_with_hooks_and_metrics(frame, out);
                     produced = true;
                 }
@@ -91,5 +94,17 @@ where
         }
 
         Ok(produced)
+    }
+
+    /// Stamp the active response's request correlation onto a frame.
+    ///
+    /// Every response frame inherits the request's identifier when one was
+    /// supplied; a frame that already carries its own keeps it when the
+    /// request has none.
+    fn stamp_response_correlation(&self, frame: &mut F) {
+        let Some(correlation_id) = self.response_correlation else {
+            return;
+        };
+        frame.set_correlation_id(Some(correlation_id));
     }
 }

@@ -46,7 +46,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ConnectionContext, ProtocolHooks, WireframeProtocol},
+    hooks::{ConnectionContext, ProtocolHooks},
     message::{DecodeWith, EncodeWith},
     message_assembler::{MessageAssembler, MessageAssemblyState},
     middleware::HandlerService,
@@ -70,22 +70,15 @@ where
     /// Streaming handlers keyed by message identifier.
     pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
-    ///
-    /// Setup runs at the connection boundary, where the push handle and
-    /// registry entry come into existence. Every other callback runs through
-    /// the pipeline's hook owner, so this reference is dropped once setup has
-    /// run and the connection keeps exactly one strong protocol reference.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -110,7 +103,7 @@ where
     /// Protocol hooks applied to every outbound frame on this connection.
     protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional assembler consulted while handling frames.
-    message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    message_assembler: Option<&'a dyn MessageAssembler>,
     /// Largest frame the negotiated codec accepts.
     requested_frame_length: usize,
     /// Byte budgets the connection enforces while reading.
@@ -147,13 +140,11 @@ where
     }
 }
 
-/// Inputs the response actor is built from.
+/// Inputs the response actor is built from, other than its protocol hooks.
 struct ActorSetup<'a, F>
 where
     F: FrameCodec,
 {
-    /// Protocol dispatching `on_connection_setup`, if one is installed.
-    protocol: Option<&'a Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Connection-local stop token the actor observes.
     shutdown: CancellationToken,
     /// Registry the connection publishes its push handle to.
@@ -164,39 +155,37 @@ where
     peer_addr: Option<SocketAddr>,
 }
 
-/// Build the response actor and install the context setup observed.
+/// Build the response actor and report the context setup observed.
 ///
-/// The cancellation guard is returned rather than bound here: it cancels the
-/// connection's shutdown token when dropped, so it must live for as long as the
-/// connection does.
+/// The hooks are borrowed rather than cloned, so setup dispatches through the
+/// one strong protocol reference they already hold; the caller moves the same
+/// value into the connection's pipeline. The cancellation guard is returned
+/// too: it cancels the connection's shutdown token when dropped, so it must
+/// live for as long as the connection does.
 fn build_actor<F>(
+    protocol_hooks: &mut ProtocolHooks<F::Frame, ()>,
     setup: ActorSetup<'_, F>,
-    pipeline: &mut FramePipeline<F::Frame>,
-) -> io::Result<(ConnectionResponseActor<F>, CancellationGuard)>
+) -> io::Result<(
+    ConnectionResponseActor<F>,
+    CancellationGuard,
+    ConnectionContext,
+)>
 where
     F: FrameCodec,
 {
     let ActorSetup {
-        protocol,
         shutdown,
         registry,
         push_queues,
         peer_addr,
     } = setup;
-    let (actor, cancel_on_exit, connection_context) =
-        build_connection_actor::<F>(ConnectionActorInit {
-            protocol,
-            shutdown,
-            registry,
-            push_queues,
-            context: ConnectionContext::default().with_peer_addr(peer_addr),
-        })?;
-    // Installing the value setup observed — rather than rebuilding an equal
-    // one — means state setup leaves in the context carries into every later
-    // callback. The sink-owned pipeline runs `before_send` too, so it must
-    // know which connection the callback is running for.
-    pipeline.set_context(connection_context);
-    Ok((actor, cancel_on_exit))
+    build_connection_actor::<F>(ConnectionActorInit {
+        protocol_hooks,
+        shutdown,
+        registry,
+        push_queues,
+        context: ConnectionContext::default().with_peer_addr(peer_addr),
+    })
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
@@ -211,12 +200,7 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    // The protocol reference is only needed to dispatch `on_connection_setup`,
-    // so it is taken out of the context and dropped once setup has run: the
-    // pipeline's hook owner must end up as the connection's single strong
-    // reference.
-    let mut connection = context;
-    let protocol = connection.protocol.take();
+    let connection = context;
     let (mut sink, mut reader, connection_codec) =
         prepare_connection_framing(stream, connection.codec).split();
     let requested_frame_length = connection_codec.max_frame_length();
@@ -224,35 +208,41 @@ where
         connection.memory_budgets,
         requested_frame_length,
     );
-    let mut inbound = build_inbound_frames::<F>(BoundState {
-        fragmentation: connection.fragmentation,
-        protocol_hooks: connection.protocol_hooks,
-        message_assembler: connection.message_assembler,
-        requested_frame_length,
-        effective_budgets,
-    });
     // A child token so the guard below cancels only this connection, while a
     // server shutdown still reaches it through the parent.
     let connection_shutdown = connection.shutdown.child_token();
     // Cancelled only by a clean EOF, which is permanent for the connection.
     let peer_eof = CancellationToken::new();
-    let (mut response_actor, _cancel_on_exit) = build_actor::<F>(
+    // Protocol setup borrows the hooks value that will own this connection's
+    // single protocol reference, then that same value moves into the pipeline
+    // below. Cloning the protocol for setup would give the connection a second
+    // strong reference while setup is pending.
+    let mut protocol_hooks = connection.protocol_hooks;
+    let (mut response_actor, _cancel_on_exit, connection_context) = build_actor::<F>(
+        &mut protocol_hooks,
         ActorSetup {
-            protocol: protocol.as_ref(),
             shutdown: connection_shutdown,
             registry: &connection.session_registry,
             push_queues: &connection.push_queues,
             peer_addr: connection.peer_addr,
         },
-        &mut inbound.pipeline,
     )?;
-    // Setup has run, and the pipeline's hook owner holds the connection's one
-    // strong reference from here on.
-    drop(protocol);
+    let mut inbound = build_inbound_frames::<F>(BoundState {
+        fragmentation: connection.fragmentation,
+        protocol_hooks,
+        message_assembler: connection.message_assembler,
+        requested_frame_length,
+        effective_budgets,
+    });
+    // Installing the value setup observed — rather than rebuilding an equal
+    // one — means state setup leaves in the context carries into every later
+    // callback. The sink-owned pipeline runs `before_send` too, so it must
+    // know which connection the callback is running for.
+    inbound.pipeline.set_context(connection_context);
     let dispatch = DispatchContext {
         routes: connection.routes,
         streaming_routes: connection.streaming_routes,
-        serializer: connection.serializer.as_ref(),
+        serializer: connection.serializer,
         codec: &connection_codec,
         message_assembler: connection.message_assembler,
         effective_budgets,
@@ -287,7 +277,7 @@ where
     /// Serializer used to decode the envelope.
     pub(super) serializer: &'a S,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(super) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Streaming route identifiers eligible for incremental delivery.
     pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Whether a streaming body already owns the dispatch slot.

@@ -107,7 +107,7 @@ use super::{
 use crate::{
     codec::FrameCodec,
     frame::FrameMetadata,
-    hooks::{ProtocolHooks, WireframeProtocol},
+    hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
     message_assembler::MessageAssembler,
     middleware::HandlerService,
@@ -131,20 +131,15 @@ where
     /// Streaming handlers keyed by message identifier.
     pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
     /// Serializer shared by all frames on the connection.
-    pub(crate) serializer: Arc<S>,
+    pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(crate) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
-    /// Installed protocol, used only to dispatch `on_connection_setup`.
-    ///
-    /// The runtime releases this reference once setup has run, so the
-    /// connection's pipeline remains its single strong protocol owner.
-    pub(crate) protocol: Option<Arc<dyn WireframeProtocol<Frame = F::Frame, ProtocolError = ()>>>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
     /// Maximum interval to wait for the next inbound frame.
@@ -238,7 +233,7 @@ where
     /// directly below the lifecycle wrapper makes the compiler's layout queries
     /// for a test crate exceed their depth limit, and it would otherwise be
     /// duplicated into every caller that joins two connections.
-    pub(crate) async fn run(self, teardown: Option<&Arc<ConnectionTeardown<C>>>) -> io::Result<()> {
+    pub(crate) async fn run(self, teardown: Option<&ConnectionTeardown<C>>) -> io::Result<()> {
         let Self {
             stream,
             config,
@@ -266,7 +261,6 @@ where
             message_assembler,
             fragmentation,
             protocol_hooks,
-            protocol,
             memory_budgets,
             read_timeout_ms,
             shutdown,
@@ -284,7 +278,6 @@ where
                 message_assembler,
                 fragmentation,
                 protocol_hooks,
-                protocol,
                 memory_budgets,
                 read_timeout_ms,
                 shutdown,

@@ -11,7 +11,7 @@
 //! is in [`super::stream_dispatch`], and the actions it schedules are in
 //! [`super::stream_actions`].
 
-use std::{collections::HashMap, io, sync::Arc, time::Duration};
+use std::{collections::HashMap, io, time::Duration};
 
 use bytes::Bytes;
 
@@ -44,7 +44,7 @@ where
     /// Codec configuration shared by all frames on the connection.
     pub(super) codec: &'a F,
     /// Optional assembly strategy for multi-frame protocol messages.
-    pub(super) message_assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(super) message_assembler: Option<&'a dyn MessageAssembler>,
     /// Effective byte budgets for this connection.
     pub(super) effective_budgets: MemoryBudgets,
     /// Maximum interval to wait for the next inbound frame.

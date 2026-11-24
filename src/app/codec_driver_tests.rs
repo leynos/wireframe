@@ -36,6 +36,17 @@ mod send_outcome_metrics;
 /// Byte appended by the test protocol's `before_send` hook.
 const MARKER: u8 = 0xa5;
 
+/// A prepared pipeline selects the preserving policy when it is built.
+#[test]
+fn pipeline_selects_the_preserving_terminator_policy() {
+    let pipeline: FramePipeline<Bytes> = FramePipeline::with_hooks(None, ProtocolHooks::default());
+    assert_eq!(
+        pipeline.terminator_correlation(),
+        crate::connection::TerminatorCorrelation::PREPARED,
+        "a prepared connection never restamps a codec-frame terminator"
+    );
+}
+
 /// Codec used by the pipeline tests.
 type TestCodec = LengthDelimitedFrameCodec;
 /// Decoder half paired with [`TestCodec`].

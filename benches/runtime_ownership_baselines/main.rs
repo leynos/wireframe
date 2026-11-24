@@ -1,12 +1,14 @@
 //! Criterion benchmarks for the runtime-ownership hot paths of Epic #635.
 //!
-//! Four scopes, one group each:
+//! Six scopes, one group each:
 //!
 //! | Group | Scope | Helper |
 //! | --- | --- | --- |
 //! | `actor/drain` | connection actor event processing | `measure_actor_drain` |
 //! | `push/send` | push handle send path | `measure_push` |
 //! | `startup/connection` | application connection startup | `measure_startup` |
+//! | `startup/configured` | startup with every configurable component installed | `measure_configured_startup` |
+//! | `startup/preparation` | building, preparing, and dropping the configured application | `measure_configured_startup` |
 //! | `pool/acquisition` | uncontended client pool acquisition | `measure_pool_acquisition` |
 //!
 //! Contended pool acquisition is deliberately absent from that table. It is
@@ -65,7 +67,15 @@ use criterion::Criterion;
 use tokio::runtime::Runtime;
 
 use crate::{
-    driver::{actor_scope, pool_scope, push_scope, run_scope, startup_scope},
+    driver::{
+        actor_scope,
+        configured_preparation_scope,
+        configured_startup_scope,
+        pool_scope,
+        push_scope,
+        run_scope,
+        startup_scope,
+    },
     observe::{init_observation_subscriber, observe_contended_acquisition, observe_push_waits},
     scenarios::expect_bench,
 };
@@ -76,10 +86,14 @@ fn main() {
     let runtime = expect_bench(Runtime::new(), "benchmark runtime failed");
     let mut criterion = Criterion::default().configure_from_args();
 
-    // One registration path for all four scopes; see `BenchScope`.
+    // One registration path for every scope; see `BenchScope`. The bare startup
+    // scope and its configured siblings stay adjacent so the two topologies'
+    // rows are read as one comparison.
     run_scope(&mut criterion, &runtime, actor_scope());
     run_scope(&mut criterion, &runtime, push_scope());
     run_scope(&mut criterion, &runtime, startup_scope());
+    run_scope(&mut criterion, &runtime, configured_startup_scope());
+    run_scope(&mut criterion, &runtime, configured_preparation_scope());
     run_scope(&mut criterion, &runtime, pool_scope());
 
     criterion.final_summary();

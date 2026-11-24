@@ -70,7 +70,7 @@ reference when navigating the project's design and architecture material.
   Proposed awaitable server shutdown and supervisor-failure observation.
 - [ADR 015: declared total body length is authoritative][adr-015] Accepted
   contract for enforcing `total_body_len` during message assembly.
-- [ADR 016: forbid unsafe code workspace-wide](adr-016-unsafe-code-boundary.md)
+- [ADR 016: forbid unsafe code workspace-wide](adrs/adr-0016-unsafe-code-boundary.md)
   Proposed workspace lint table, per-root attribute, and enforcement checks.
 - [ADR 017: remove the unwired route extractors and application data API](adrs/adr-0017-remove-route-extractors-and-app-data.md)
   Accepted removal of the extractor module and `app_data` before 1.0.

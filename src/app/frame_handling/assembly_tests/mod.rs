@@ -45,7 +45,7 @@ fn process_assembly_frame(
     envelope: Envelope,
 ) -> io::Result<Option<Envelope>> {
     let outcome = assemble_if_needed(
-        AssemblyRuntime::new(Some(assembler), state, &HashMap::new(), false),
+        AssemblyRuntime::new(Some(assembler.as_ref()), state, &HashMap::new(), false),
         deser_failures,
         envelope,
         10,

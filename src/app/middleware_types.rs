@@ -56,6 +56,20 @@ pub(crate) enum Route<E: Packet> {
     Response(ResponseHandler<E>),
 }
 
+impl<E: Packet> Clone for Route<E> {
+    /// Clone the route's shared handler handle, not the handler itself.
+    ///
+    /// Both route kinds store `Arc` aliases, so a cloned route points at the
+    /// same handler. The compatibility path uses this to own a route it only
+    /// borrowed; preparation consumes the original and never clones.
+    fn clone(&self) -> Self {
+        match self {
+            Self::Unit(handler) => Self::Unit(Arc::clone(handler)),
+            Self::Response(handler) => Self::Response(Arc::clone(handler)),
+        }
+    }
+}
+
 /// Alias for handlers that consume a streaming request body.
 ///
 /// The handler receives routing metadata separately from the body and returns

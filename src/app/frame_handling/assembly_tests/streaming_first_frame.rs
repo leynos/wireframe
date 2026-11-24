@@ -39,7 +39,7 @@ fn malformed_streaming_first_frame_stays_pending_below_the_limit(
 
     let outcome = ok(
         assemble_if_needed(
-            AssemblyRuntime::new(Some(&message_assembler), &mut state, &routes, false),
+            AssemblyRuntime::new(Some(message_assembler.as_ref()), &mut state, &routes, false),
             &mut deser_failures,
             truncated_first_frame(),
             10,
@@ -67,7 +67,7 @@ fn malformed_streaming_first_frame_ends_the_connection_at_the_limit(
     let routes = streaming_routes();
 
     let error = assemble_if_needed(
-        AssemblyRuntime::new(Some(&message_assembler), &mut state, &routes, false),
+        AssemblyRuntime::new(Some(message_assembler.as_ref()), &mut state, &routes, false),
         &mut deser_failures,
         truncated_first_frame(),
         1,

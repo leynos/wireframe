@@ -3,10 +3,15 @@
 //! The two connection paths hold terminators in different shapes, so the
 //! difference in behaviour is named here instead of being implicit in each
 //! dispatch site. A directly driven actor queues [`Envelope`] frames, which
-//! carry a correlation identifier, and its terminator inherits the response's
-//! request correlation before `before_send` runs. A prepared connection's
-//! terminator is already a complete codec frame: it has no correlation
-//! metadata, so the pipeline writes it unchanged and never restamps it.
+//! carry a correlation identifier, and its stream terminator inherits the
+//! response's request correlation before `before_send` runs. A prepared
+//! connection's terminator is already a complete codec frame: it has no
+//! correlation metadata, so the pipeline writes it unchanged and never
+//! restamps it.
+//!
+//! Multi-packet channel frames are not covered by this policy: both paths
+//! stamp them with the channel's correlation as part of the multi-packet
+//! contract, including the terminator the actor emits when the channel closes.
 //!
 //! [`Envelope`]: crate::app::Envelope
 

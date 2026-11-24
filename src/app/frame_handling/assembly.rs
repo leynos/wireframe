@@ -13,7 +13,7 @@
 //! completing a buffered message lives in [`assembly_dispatch`], and the
 //! budgets it enforces come from `MemoryBudgets`.
 
-use std::{collections::HashMap, io, num::NonZeroUsize, sync::Arc, time::Duration};
+use std::{collections::HashMap, io, num::NonZeroUsize, time::Duration};
 
 use bytes::Bytes;
 use log::debug;
@@ -48,7 +48,7 @@ const DEFAULT_MESSAGE_ASSEMBLY_TIMEOUT: Duration = Duration::from_secs(30);
 /// Borrowed inbound runtime state used for message assembly.
 pub(crate) struct AssemblyRuntime<'a> {
     /// Shared assembler implementation, absent when assembly is disabled.
-    pub(crate) assembler: Option<&'a Arc<dyn MessageAssembler>>,
+    pub(crate) assembler: Option<&'a dyn MessageAssembler>,
     /// Mutable connection-local assembly state and its memory accounting.
     pub(crate) state: &'a mut Option<MessageAssemblyState>,
     /// Streaming route identifiers. Their first frames are delivered chunk by
@@ -62,7 +62,7 @@ impl<'a> AssemblyRuntime<'a> {
     /// Create assembly runtime accessors for one inbound frame.
     #[must_use]
     pub(crate) fn new(
-        assembler: Option<&'a Arc<dyn MessageAssembler>>,
+        assembler: Option<&'a dyn MessageAssembler>,
         state: &'a mut Option<MessageAssemblyState>,
         streaming_routes: &'a HashMap<u32, StreamingHandler>,
         stream_live: bool,
@@ -201,7 +201,7 @@ pub(crate) fn assemble_if_needed(
     let mut failures = DeserFailureTracker::new(deser_failures, max_deser_failures);
     let correlation_id = env.correlation_id;
     let Some((header, body)) = split_frame(
-        assembler.as_ref(),
+        assembler,
         env.payload_bytes(),
         correlation_id,
         &mut failures,

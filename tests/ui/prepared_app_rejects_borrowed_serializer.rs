@@ -1,9 +1,10 @@
 //! A serializer borrowed from a local cannot handle connections.
 //!
-//! The prepared application shares its serializer with the connection actor's
-//! `'static` protocol hooks, so `handle_connection_result` requires
-//! `S: 'static`. Preparing the application is still allowed; only the
-//! connection boundary rejects the shorter lifetime.
+//! A connection borrows its serializer from the prepared root, so the root and
+//! everything a connection future captures must be `'static`.
+//! `handle_connection_result` therefore requires `S: 'static`. Preparing the
+//! application is still allowed; only the connection boundary rejects the
+//! shorter lifetime.
 use std::error::Error;
 
 use wireframe::{

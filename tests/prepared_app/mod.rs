@@ -20,6 +20,18 @@ mod lifecycle_matrix;
 #[path = "lifecycle_support.rs"]
 mod lifecycle_support;
 
+#[path = "ownership.rs"]
+mod ownership;
+
+#[path = "ownership_interleaved.rs"]
+mod ownership_interleaved;
+
+#[path = "ownership_lifecycle.rs"]
+mod ownership_lifecycle;
+
+#[path = "ownership_support.rs"]
+mod ownership_support;
+
 #[path = "tcp.rs"]
 mod tcp;
 
