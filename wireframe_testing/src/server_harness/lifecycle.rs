@@ -53,7 +53,7 @@ where
     Codec: FrameCodec,
     Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
 {
-    spawn_wireframe_server_with_options(server, None, ServerHarnessOptions::default()).await
+    spawn_wireframe_server_on(server, unused_listener()?).await
 }
 
 /// Start an unbound server on a caller-supplied listener.

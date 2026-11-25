@@ -26,6 +26,7 @@ use wireframe::{
     server::WireframeServer,
 };
 use wireframe_testing::{
+    RunningWireframeServer,
     ServerHarnessOptions,
     ShutdownOutcome,
     TestError,
@@ -210,64 +211,88 @@ async fn shutdown_bound_is_reported(
     let client = park_request(addr).await?;
 
     if expect_timeout {
-        let first = handle.shutdown().await;
-        ensure(
-            matches!(first, Err(TestError::Timeout(_))),
-            format!("a {bound:?} bound must report a timeout, got {first:?}"),
-        )?;
-        ensure(
-            handle.shutdown_outcome() == Some(ShutdownOutcome::TimedOut),
-            "the timeout must be recorded",
-        )?;
+        timeout_shutdown_case(&mut handle, addr, client, &release).await
+    } else {
+        generous_shutdown_case(&mut handle, client, &release).await
+    }
+}
 
-        let repeated_at = Instant::now();
-        let repeated = handle.shutdown().await;
-        ensure(
-            matches!(repeated, Err(TestError::Timeout(_))),
-            "a repeated call after a timeout must re-check without blocking",
-        )?;
-        ensure(
-            repeated_at.elapsed() < NOT_YET,
-            "the repeated call must not add a blocking wait",
-        )?;
+/// Drive the bounded case: report the timeout, then complete after releasing.
+async fn timeout_shutdown_case(
+    handle: &mut RunningWireframeServer,
+    addr: SocketAddr,
+    client: HeldClient,
+    release: &Notify,
+) -> TestResult {
+    let first = handle.shutdown().await;
+    ensure(
+        matches!(first, Err(TestError::Timeout(_))),
+        format!("a short bound must report a timeout, got {first:?}"),
+    )?;
+    ensure(
+        handle.shutdown_outcome() == Some(ShutdownOutcome::TimedOut),
+        "the timeout must be recorded",
+    )?;
 
-        // The listener is released before the drain finishes, so the address
-        // is refused while the request is still parked.
-        wait_for_listener_release(addr).await?;
+    let repeated_at = Instant::now();
+    let repeated = handle.shutdown().await;
+    ensure(
+        matches!(repeated, Err(TestError::Timeout(_))),
+        "a repeated call after a timeout must re-check without blocking",
+    )?;
+    ensure(
+        repeated_at.elapsed() < NOT_YET,
+        "the repeated call must not add a blocking wait",
+    )?;
 
-        release_handler(client, &release).await?;
-        let deadline = Instant::now() + STEP_TIMEOUT;
-        loop {
-            if handle.shutdown().await.is_ok() {
-                break;
-            }
-            ensure(
-                Instant::now() < deadline,
-                "the drain did not complete after the handler was released",
-            )?;
-            tokio::time::sleep(Duration::from_millis(10)).await;
+    // The listener is released before the drain finishes, so the address is
+    // refused while the request is still parked.
+    wait_for_listener_release(addr).await?;
+    release_handler(client, release).await?;
+    await_completion_after_release(handle).await
+}
+
+/// Poll the handle until the drain completes once nothing is in flight.
+async fn await_completion_after_release(handle: &mut RunningWireframeServer) -> TestResult {
+    let deadline = Instant::now() + STEP_TIMEOUT;
+    loop {
+        if handle.shutdown().await.is_ok() {
+            break;
         }
         ensure(
-            handle.shutdown_outcome() == Some(ShutdownOutcome::Completed),
-            "the concluding call must record completion",
+            Instant::now() < deadline,
+            "the drain did not complete after the handler was released",
         )?;
-    } else {
-        let releaser = tokio::spawn(async move {
-            tokio::time::sleep(NOT_YET).await;
-            release.notify_one();
-        });
-        let result = timeout(STEP_TIMEOUT, handle.shutdown())
-            .await
-            .map_err(|_| TestError::Msg("a generous bound must not time out".into()))?;
-        result?;
-        releaser
-            .await
-            .map_err(|error| TestError::Msg(format!("the releasing task failed: {error}")))?;
-        ensure(
-            handle.shutdown_outcome() == Some(ShutdownOutcome::Completed),
-            "a generous bound must record completion",
-        )?;
-        drop(client);
+        tokio::time::sleep(Duration::from_millis(10)).await;
     }
+    ensure(
+        handle.shutdown_outcome() == Some(ShutdownOutcome::Completed),
+        "the concluding call must record completion",
+    )
+}
+
+/// Drive the generous case: release from a second task while the drain waits.
+async fn generous_shutdown_case(
+    handle: &mut RunningWireframeServer,
+    client: HeldClient,
+    release: &Arc<Notify>,
+) -> TestResult {
+    let gate = Arc::clone(release);
+    let releaser = tokio::spawn(async move {
+        tokio::time::sleep(NOT_YET).await;
+        gate.notify_one();
+    });
+    let result = timeout(STEP_TIMEOUT, handle.shutdown())
+        .await
+        .map_err(|_| TestError::Msg("a generous bound must not time out".into()))?;
+    result?;
+    releaser
+        .await
+        .map_err(|error| TestError::Msg(format!("the releasing task failed: {error}")))?;
+    ensure(
+        handle.shutdown_outcome() == Some(ShutdownOutcome::Completed),
+        "a generous bound must record completion",
+    )?;
+    drop(client);
     Ok(())
 }
