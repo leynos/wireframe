@@ -16,20 +16,21 @@
 //!
 //! # Examples
 //!
-//! ```no_run
+//! ```rust
 //! use wireframe::{app::WireframeApp, server::WireframeServer};
 //! use wireframe_testing::{TestResult, spawn_wireframe_server};
 //!
-//! # async fn example() -> TestResult<()> {
-//! let mut server = spawn_wireframe_server(WireframeServer::new(|| -> WireframeApp {
-//!     WireframeApp::default()
-//! }))
-//! .await?;
+//! #[tokio::main(flavor = "current_thread")]
+//! async fn main() -> TestResult<()> {
+//!     let mut server = spawn_wireframe_server(WireframeServer::new(|| -> WireframeApp {
+//!         WireframeApp::default()
+//!     }))
+//!     .await?;
 //!
-//! assert!(server.local_addr().ip().is_loopback());
-//! server.shutdown().await?;
-//! # Ok(())
-//! # }
+//!     assert!(server.local_addr().ip().is_loopback());
+//!     server.shutdown().await?;
+//!     Ok(())
+//! }
 //! ```
 
 mod handle;
