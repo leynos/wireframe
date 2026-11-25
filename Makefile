@@ -2,7 +2,7 @@
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
-.PHONY: test-msrv package-crates publish-check
+.PHONY: test-msrv package-crates publish-check test-release-scripts
 # Kept off the build/test line above so that unrelated edits to that long line
 # cannot collide with the lint targets during a stack restack.
 .PHONY: lint-doc lint-clippy lint-whitaker
@@ -178,6 +178,13 @@ test-msrv: ## Check the workspace and a fresh consumer on the minimum Rust versi
 package-crates: ## Package and verify every published crate from a clean checkout
 	RUSTFLAGS="$(RELEASE_RUSTFLAGS)" $(CARGO) package --locked $(addprefix -p ,$(PUBLISHED_CRATES))
 
+# Python 3.14 matches the release workflow. Doctests run too, so each module's
+# examples stay true.
+test-release-scripts: ## Test the scripts that authorize and verify a release
+	$(PYTHON_NO_BYTECODE_ENV) PYTHONPATH=scripts/release:scripts/release/tests \
+		$(UV) run --no-project --python 3.14 --with 'pytest>=8' --with 'hypothesis>=6' \
+		pytest -q -p no:cacheprovider --doctest-modules scripts/release
+
 # Resolves the sibling crate from crates.io, as a release does, so it needs a
 # workspace version that is not published yet. See docs/releasing-crates.md.
 publish-check: ## Rehearse the release with lading, without uploading anything
@@ -234,10 +241,11 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 
 lint: lint-doc lint-clippy lint-whitaker lint-python-docs ## Run rustdoc, Clippy, Whitaker and the Python docstring check
 
-# The workflow contract tests are the repository's only Python; interrogate holds
-# docstring presence for them. Ruff-style docstring wording is not enforced here.
-lint-python-docs: ## Require a docstring on every workflow contract module, class and function
-	$(PYTHON_NO_BYTECODE_ENV) uv run --with 'interrogate>=1.7,<2' interrogate --fail-under 100 tests/workflow_contracts
+# Interrogate holds docstring presence for the repository's Python: the workflow
+# contracts and the release scripts, whose syntax needs a 3.14 parser. Ruff-style
+# docstring wording is not enforced here.
+lint-python-docs: ## Require a docstring on every Python module, class and function
+	$(PYTHON_NO_BYTECODE_ENV) uv run --no-project --python 3.14 --with 'interrogate>=1.7,<2' interrogate --fail-under 100 tests/workflow_contracts scripts/release
 
 lint-doc: ## Build workspace rustdoc for every feature with warnings denied
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" RUSTDOCFLAGS="$(RUSTDOC_FLAGS)" $(CARGO) $(DEV_FAST) doc $(DOC_FLAGS)

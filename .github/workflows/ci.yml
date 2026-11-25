@@ -148,6 +148,9 @@ jobs:
         run: make nixie
       - name: Workflow contract tests
         run: make test-workflow-contracts
+      - name: Release script tests
+        timeout-minutes: 5
+        run: make test-release-scripts
       # A separate step rather than a prerequisite of another target: the
       # consumer is its own workspace, so nothing in `make test` or
       # `make test-ui` reaches it, and a green workspace build says nothing

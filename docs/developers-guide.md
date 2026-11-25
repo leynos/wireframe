@@ -1482,7 +1482,7 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
     `whitaker --all -- --workspace --all-targets --all-features` under
     `RUSTFLAGS="-D warnings"`;
   - `lint-python-docs` runs `interrogate` at a 100% threshold over
-    `tests/workflow_contracts`, the repository's only Python.
+    `tests/workflow_contracts` and `scripts/release`, the repository's Python.
 
   `make lint` is a thin aggregate target, so each leaf can be run alone.
   `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
@@ -1495,8 +1495,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   test targets, and the separate `test-doc` target covers its doctests.
 
   `lint-python-docs` holds a docstring on every module, class and function in
-  the workflow contract tests; Ruff-style docstring wording is not enforced
-  there. It needs `uv` on `PATH`, which resolves the pinned
+  the workflow contract tests and the release scripts; Ruff-style docstring
+  wording is not enforced there. It runs on Python 3.14, whose syntax the
+  release scripts use, and needs `uv` on `PATH`, which resolves the pinned
   `interrogate>=1.7,<2` into an ephemeral environment, so no Python packages
   need installing first. The required `build-test` job runs `make lint`, so a
   missing docstring fails the pull-request lane even though the crate's own
