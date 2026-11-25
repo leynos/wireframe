@@ -48,3 +48,4 @@ mod tested_examples_steps;
 mod testkit_export_steps;
 mod unified_codec_steps;
 mod workspace_manifest_steps;
+mod zero_copy_baseline_steps;

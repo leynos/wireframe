@@ -44,6 +44,18 @@ async-trait = "0.1.89"
 # through atomics, so the benchmarks need no `unsafe` code of their own.
 stats_alloc = "0.1.10"
 
+# The allocation invariants assert on process-global allocator statistics. They
+# run without the libtest harness on one thread because libtest spawns a thread
+# per test, and that spawn's allocation lands inside whichever measurement
+# window is open. Stage A's noise-floor probe fails under the default harness
+# for exactly this reason; the check is kept in the binary so the reason stays
+# visible. See `docs/zero-copy-benchmark-baselines.md`.
+[[test]]
+name = "pipeline_allocation_invariants"
+path = "tests/pipeline_allocation_invariants/main.rs"
+harness = false
+required-features = ["pipeline-benchmarks"]
+
 [dev-dependencies]
 # Serializes the tests that assert on process-global state. `serial_test` is
 # already the repository's convention for this; see `tests/push_policies.rs`.

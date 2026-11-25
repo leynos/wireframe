@@ -44,7 +44,7 @@ mod actor;
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
 
-mod dispatch;
+pub(crate) mod dispatch;
 
 mod frames;
 
@@ -59,6 +59,8 @@ mod recovery;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+#[cfg(feature = "test-support")]
+pub use dispatch::benchmark_decode_envelope;
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;

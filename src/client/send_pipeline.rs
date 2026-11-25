@@ -5,7 +5,6 @@
 
 use std::time::Instant;
 
-use bytes::Bytes;
 use futures::SinkExt;
 use tracing::{Instrument, Span};
 
@@ -47,7 +46,13 @@ where
         self.invoke_before_send_hooks(&mut bytes);
         let span = span_for_frame(&self.tracing_config, bytes.len());
         let send_result = async {
-            let result = self.framed.send(Bytes::from(bytes)).await;
+            // Go through the counter's hand-off rather than `Bytes::from`, so
+            // the client path reports a relocation the same way the server's
+            // `encode_message_frame` does instead of bypassing the guard.
+            let result = self
+                .framed
+                .send(crate::benchmark_counters::bytes_from_vec(bytes))
+                .await;
             super::tracing_helpers::emit_timing_event(timing_start);
             result
         }

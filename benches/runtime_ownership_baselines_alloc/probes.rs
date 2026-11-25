@@ -100,28 +100,6 @@ fn probe_fresh_allocation(items: usize) {
 /// not need.
 pub(crate) type ArcProbe = (&'static str, fn(usize));
 
-/// Allocate one buffer, then leave it at the capacity it was given.
-///
-/// One request to the allocator, no growth: the control for
-/// [`probe_allocation_with_growth`].
-fn probe_single_allocation() {
-    let buffer: Vec<u8> = Vec::with_capacity(1024);
-    black_box(&buffer);
-}
-
-/// Allocate one buffer, then grow it beyond its capacity.
-///
-/// [`Vec::resize`] must ask the allocator to enlarge the existing block, which
-/// `stats_alloc` records as a reallocation rather than a fresh allocation. That
-/// is the operation the counter has to see: a counter that only tracked `alloc`
-/// would report this workload as costing the same as the single allocation it
-/// started from.
-fn probe_allocation_with_growth() {
-    let mut buffer: Vec<u8> = Vec::with_capacity(1024);
-    buffer.resize(4096, 0);
-    black_box(&buffer);
-}
-
 /// The two nested-`Arc` probe shapes, paired with their labels.
 pub(crate) fn arc_probes() -> Vec<ArcProbe> {
     vec![
@@ -135,47 +113,17 @@ pub(crate) fn arc_probes() -> Vec<ArcProbe> {
 ///
 /// Runs before any runtime or Criterion harness exists, because the counter is
 /// process-global: a background thread allocating during a window would make the
-/// zero case untrustworthy. Four checks:
+/// zero case untrustworthy.
 ///
-/// 1. a closure that allocates nothing reports exactly zero, catching a gate stuck open;
-/// 2. a closure that allocates a known buffer reports a positive count, catching a gate that never
-///    opens — which would otherwise record a silent baseline of zeros for every scope;
-/// 3. growing an existing buffer reports more than allocating the same buffer once, proving
-///    reallocations are counted rather than only fresh allocations; and
-/// 4. a per-item `Arc` construction reports one allocation per item more than cloning a shared
-///    `Arc`, which is the resolution acceptance criterion 5 requires.
+/// The generic checks — an idle window reports no traffic, a known allocation is
+/// observed, and a growing reallocation costs more than a single allocation —
+/// belong to the counting harness and run first through
+/// [`wireframe_testing::benchmark_alloc_support::verify_allocation_harness`]. What is
+/// specific to this benchmark is the resolution check: a per-item `Arc`
+/// construction must report one allocation per item more than cloning a shared
+/// `Arc`, which is the resolution acceptance criterion 5 requires.
 pub(crate) fn verify_allocation_harness() {
-    let zero = count_window("zero-allocation probe", || Ok(()));
-    assert_eq!(
-        zero, 0,
-        "an allocation-free closure must report zero; a non-zero count means the counting gate is \
-         stuck open or something else ran during the window"
-    );
-
-    let positive = count_window("positive-allocation probe", || {
-        let buffer: Vec<u8> = vec![0; 1024];
-        black_box(buffer.len());
-        Ok(())
-    });
-    assert!(
-        positive > 0,
-        "allocating a 1024-byte buffer must be observed; a zero count means the counting gate \
-         never opens and every baseline below would be a silent zero"
-    );
-
-    let single = count_window(
-        "single-allocation probe",
-        infallible(probe_single_allocation),
-    );
-    let growth = count_window(
-        "growth-allocation probe",
-        infallible(probe_allocation_with_growth),
-    );
-    assert!(
-        growth >= single.saturating_add(1),
-        "growing a buffer must cost at least one more counted operation than allocating it once: \
-         {growth} with growth vs {single} without; equality means reallocations are not counted"
-    );
+    wireframe_testing::benchmark_alloc_support::verify_allocation_harness();
 
     let shared = count_window(
         "shared-clone probe",

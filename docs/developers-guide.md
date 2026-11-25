@@ -2174,6 +2174,64 @@ targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from
 that module instead of coupling to files under `tests/common` with `#[path]`.
 
+Two of the zero-copy gates assert rather than report, and neither belongs to
+`bench-codec`, because neither depends on host load. The first is
+`wireframe_testing/tests/copied_bytes.rs`, which checks the per-seam
+copied-byte counts in `src/benchmark_counters.rs`. Four seams are counted: the
+serializer materialization (`record_serialized`), the serializer-vector hand-off
+(`bytes_from_vec`), the codec's transport write (`record_framed`), and the
+inbound deserialization (`record_deserialized`, called once by `parse_envelope`
+after the trailing-bytes check). `bytes` 1.12.1 hands a vector to `Bytes`
+without copying, so `record_handoff` fires only when the payload pointer
+changes; the seam also counts its own invocations, exposed as
+`handoff_seam_calls`, so a send path that reverts to `Bytes::from` fails a test
+even though the byte counter would not move. `record_deserialized` is measured
+from the decoded payload's length, so a rejected frame is not counted and the
+reading excludes the frame's metadata. Harnesses outside the crate reach the
+same seams through two `#[doc(hidden)]`, `test-support`-gated entry points:
+`benchmark_decode_envelope` mirrors `parse_envelope`, returning the decoded
+envelope and the consumed length (and rejecting trailing bytes), while
+`benchmark_encode_message_frame` mirrors the outbound serialize-then-wrap path
+and returns the codec's frame. Both return only their public result, so a
+caller cannot depend on how either stage is interned.
+
+The second gate is the `pipeline_allocation_invariants` target under the same
+`tests` directory. It installs its own counting allocator and checks
+payload-buffer identity plus per-operation allocation bounds for the middleware
+and hook stages. It also runs the production outbound encode as an independent
+allocator oracle: one message must allocate at least the payload size `P` and
+fewer than `2P` bytes, which is what the recorder's `P`-byte reading claims.
+That target sets `harness = false` on purpose: a libtest worker thread
+allocates on its own often enough (two windows in a thousand trials at capture
+time) that a harnessed binary cannot assert an idle window of exactly zero. The
+binary therefore runs on one thread and prints one line per check.
+`cargo nextest` discovers tests by running each binary with `--list`, so the
+target also answers that protocol with a single listing line; without it the
+coverage job fails before running any test. `AccessMode::Copying` in the same
+helper module is a seeded fault for those checks — it must relocate the buffer,
+and it is never timed.
+
+The helpers behind those checks are public through
+`wireframe_testing::codec_benchmarks`: `StageOutcome` reports the buffer
+addresses before and after a stage together with the resulting payload,
+`middleware_payload_handoff` and `hook_payload_handoff` drive one pass in a
+given `AccessMode`, and `measure_middleware_passthrough_buffer` runs a batch
+over a caller-built buffer. Benchmarks, the invariants target and the BDD
+fixtures call these helpers rather than rebuilding the chain, so a change to
+what a stage does reaches every gate at once.
+
+`wireframe_testing::benchmark_alloc_support` is split by responsibility: `gate`
+owns the process-global counters and `CountingWindow`, which closes the gate
+from `Drop` on every exit path — including an unwind out of the measured
+closure — so a panicking measurement cannot leave counting enabled for the rest
+of the process; `traffic` owns the `AllocationTraffic` value a window reports;
+`harness` owns `verify_allocation_harness` and `count_allocations_or_panic`; and
+`window` owns `WindowState`, the pure bookkeeping model whose open, reset, and
+close transitions are tested without touching process globals.
+`count_allocations` reports the operation count and `count_allocation_traffic`
+adds the byte total; the byte total is allocator growth, not bytes copied, so
+it is not a substitute for the copied-byte counters above.
+
 Run `connection_startup` on demand with
 `cargo bench --bench connection_startup`. It compares the former per-connection
 factory and preparation work with the shared prepared-root path across four
@@ -2677,6 +2735,13 @@ subscriber, that both cancellation events record `reason` through `record_str`.
 The workspace suite cannot make that check: its `wireframe_testing` dependency
 unifies `metrics` on for every root-package test, so only this isolated build
 observes the disabled configuration.
+
+The same unification hides the copied-byte recorders, so the consumer checks
+those in both directions too. Compiling without `benchmark-counters` must still
+compile every recorder and report zeros from `snapshot()`; compiling with it
+must make the same four calls accumulate their bytes. The second run is what
+keeps the first honest — an inert recorder and a recorder that never counted
+anything both satisfy a zeros-only assertion.
 
 One gated item has no trybuild fixture, and this is the documented exception.
 `ServerCancellationReason::as_str` is crate-private, so no downstream fixture
