@@ -1,0 +1,20 @@
+name: Release dry run
+
+# Packages the workspace as a release would, for every pull request. It calls
+# only the read-only packaging workflow, so no pull request can reach a job that
+# holds a credential.
+
+on:
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions: {}
+
+jobs:
+  package:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-package.yml
