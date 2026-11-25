@@ -381,13 +381,13 @@ The rest of this ADR is unchanged.
 Issue [#974](https://github.com/leynos/wireframe/issues/974), a follow-up to
 the roadmap 17.3.3 plan in
 [#655](https://github.com/leynos/wireframe/pull/655), found that this ADR's
-decision-2 sentence "a successful result proves every accept loop has exited
-and the listener has been released" was true only in part. The supervisor held
-its own `Arc<TcpListener>` for the whole of `run_with_shutdown`, including the
-final tracker wait, so the listener stayed bound after every accept loop had
-exited whenever a request was still in flight. Its figure and its drain section
-accordingly showed the supervisor owning the listener for the entire run, and
-neither said when the socket closed relative to in-flight work.
+decision-2 guarantee "a successful result proves every accept loop has exited
+and the listener has been released" was true, but the ADR never said when the
+release happened relative to in-flight work. The supervisor held its own
+`Arc<TcpListener>` for the whole of `run_with_shutdown`, including the final
+tracker wait, so the listener stayed bound after every accept loop had exited
+whenever a request was still in flight. Its figure and its drain section
+accordingly showed the supervisor owning the listener for the entire run.
 
 The supervisor now drops its own listener handle immediately after spawning the
 accept loops, before it records the startup outcome or signals readiness. Every
@@ -399,8 +399,8 @@ This addendum supersedes the ownership shown in decision 2's figure and its
 "the listener has been released" clause, and the corresponding sentence in
 section 2:
 
-- the listener is released when the accept loops exit, before in-flight
-  connection tasks finish;
+- the listener is released when the accept loops exit, independently of
+  whether in-flight connection tasks have finished; either may complete first;
 - a handler that never returns therefore no longer pins the port, and
   connections made during the drain are refused instead of sitting unaccepted
   in the backlog;

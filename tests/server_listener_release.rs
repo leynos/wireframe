@@ -162,24 +162,17 @@ async fn park_request(addr: SocketAddr, started: &Arc<Notify>) -> TestResult<Hel
 
 /// Probe whether `addr` still accepts a connection.
 ///
-/// `Ok(true)` means a connection was accepted. A socket that is gone reports
-/// `ECONNREFUSED`, or `ECONNRESET` where a peer previously listened on the
-/// port and nothing is now bound; both are `Ok(false)`. Every other outcome is
-/// an error, so a failed probe is never read as a released listener.
+/// `Ok(true)` means a connection was accepted. Only `ECONNREFUSED` counts as
+/// released: a reset does not establish that the address is unbound, and every
+/// other outcome is an error, so a failed or ambiguous probe is never read as
+/// a released listener.
 async fn still_accepting(addr: SocketAddr) -> TestResult<bool> {
     match timeout(PROBE_TIMEOUT, TcpStream::connect(addr)).await {
         Ok(Ok(stream)) => {
             drop(stream);
             Ok(true)
         }
-        Ok(Err(error))
-            if matches!(
-                error.kind(),
-                io::ErrorKind::ConnectionRefused | io::ErrorKind::ConnectionReset
-            ) =>
-        {
-            Ok(false)
-        }
+        Ok(Err(error)) if error.kind() == io::ErrorKind::ConnectionRefused => Ok(false),
         Ok(Err(error)) => Err(error.into()),
         // An attempt that never reached the socket says nothing either way.
         Err(_) => Err(TestError::Msg(format!(
@@ -214,9 +207,11 @@ async fn assert_released_while_request_in_flight(addr: SocketAddr) -> TestResult
 
 /// Release the parked handler, read the remaining frame, and observe the end.
 ///
-/// The refusal proves the socket is released; reading the frame and then the
-/// stream end proves the connection task itself terminated, which is the
-/// terminal observation available when no control or future remains to await.
+/// The refusal proves the socket is released. Reading the remaining frame and
+/// then the stream end shows the connection closed cleanly, but EOF does not by
+/// itself prove the connection task or supervisor terminated; task termination
+/// is not observable here without a control to await, so this case is recorded
+/// as observing the connection's end.
 async fn finish_request(mut client: HeldClient, release: &Notify) -> TestResult {
     release.notify_one();
     let frame = next_frame(&mut client).await?;
