@@ -18,7 +18,7 @@ use tokio::{
 };
 use wireframe::{
     preamble::write_preamble,
-    server::{ServerShutdown, WireframeServer},
+    server::{ServerError, ServerShutdown, WireframeServer},
 };
 use wireframe_testing::{
     TestApp,
@@ -189,6 +189,21 @@ async fn exercise_generated_shutdown_case(
         .map_err(|error| TestCaseError::fail(format!("server setup failed: {error}")))?;
     let mut clones = Vec::new();
     let mut observers = Vec::new();
+
+    for operation in shutdown_script(extra_operations) {
+        apply_shutdown_operation(operation, &root, &mut clones, &mut observers).await;
+    }
+
+    // Keep the root alive through every generated operation and make the
+    // terminal request independent of which operations the generator chose.
+    root.stop();
+    drop(clones);
+
+    await_observers_and_listener_release(observers, addr).await
+}
+
+/// Bracket the generated operations with the fixed set-up and tear-down steps.
+fn shutdown_script(extra_operations: Vec<ShutdownOperation>) -> Vec<ShutdownOperation> {
     let mut operations = Vec::with_capacity(extra_operations.len() + 5);
     operations.push(ShutdownOperation::Clone(0));
     operations.extend(extra_operations);
@@ -198,33 +213,43 @@ async fn exercise_generated_shutdown_case(
         ShutdownOperation::DropClone(0),
         ShutdownOperation::Stop(0),
     ]);
+    operations
+}
 
-    for operation in operations {
-        match operation {
-            ShutdownOperation::Clone(source) => {
-                clones.push(select_shutdown_handle(&root, &clones, source).clone());
-            }
-            ShutdownOperation::Stop(target) => {
-                select_shutdown_handle(&root, &clones, target).stop();
-            }
-            ShutdownOperation::ObserveDrain(target) => {
-                let shutdown = select_shutdown_handle(&root, &clones, target).clone();
-                observers.push(tokio::spawn(async move { shutdown.drained().await }));
-                tokio::task::yield_now().await;
-            }
-            ShutdownOperation::DropClone(target) => {
-                if target < clones.len() {
-                    drop(clones.remove(target));
-                }
+/// Apply one generated operation to the root handle and its clones.
+async fn apply_shutdown_operation(
+    operation: ShutdownOperation,
+    root: &ServerShutdown,
+    clones: &mut Vec<ServerShutdown>,
+    observers: &mut Vec<tokio::task::JoinHandle<Result<(), ServerError>>>,
+) {
+    match operation {
+        ShutdownOperation::Clone(source) => {
+            let clone = select_shutdown_handle(root, clones, source).clone();
+            clones.push(clone);
+        }
+        ShutdownOperation::Stop(target) => {
+            select_shutdown_handle(root, clones, target).stop();
+        }
+        ShutdownOperation::ObserveDrain(target) => {
+            let shutdown = select_shutdown_handle(root, clones, target).clone();
+            observers.push(tokio::spawn(async move { shutdown.drained().await }));
+            tokio::task::yield_now().await;
+        }
+        ShutdownOperation::DropClone(target) => {
+            if target < clones.len() {
+                drop(clones.remove(target));
             }
         }
     }
+}
 
-    // Keep the root alive through every generated operation and make the
-    // terminal request independent of which operations the generator chose.
-    root.stop();
-    drop(clones);
-
+/// Require every drain observer to finish normally and the listener to be
+/// released within one second.
+async fn await_observers_and_listener_release(
+    observers: Vec<tokio::task::JoinHandle<Result<(), ServerError>>>,
+    addr: SocketAddr,
+) -> TestCaseResult {
     timeout(Duration::from_secs(1), async {
         for (index, result) in join_all(observers).await.into_iter().enumerate() {
             let outcome = result.map_err(|error| {

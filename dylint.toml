@@ -35,3 +35,14 @@
 # # Removal tracked by <issue>.
 # excluded_paths = ["wireframe::the_one_module"]
 # ```
+#
+# `macro_aware_cognitive_complexity` replaces Clippy's `cognitive_complexity`.
+# It skips branching a macro generated and holds CodeScene's ceiling of 9. It
+# is experimental, so the suite loads it only on request. The tracker is
+# https://github.com/leynos/whitaker/issues/504. This is a lint's own numeric
+# limit, not an exclusion.
+[whitaker]
+experimental = ["macro_aware_cognitive_complexity"]
+
+[macro_aware_cognitive_complexity]
+max_complexity = 9

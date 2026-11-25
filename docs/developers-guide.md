@@ -1391,8 +1391,21 @@ CI installs through the shared `install-whitaker` action instead (the action
 owns the installer version and takes the rolling suite), so the lint step is
 plain `make lint` with no Git wrapper.
 
+Cognitive complexity is not gated by Clippy. Clippy's `cognitive_complexity`
+scores code after macro expansion, so it counts branching a macro generated,
+and neither `Cargo.toml` nor `clippy.toml` enables it. Whitaker's experimental
+`macro_aware_cognitive_complexity` gates it at `max_complexity = 9`,
+CodeScene's ceiling. `dylint.toml` opts in with the `experimental` key in its
+`[whitaker]` table, and `make lint-whitaker` runs under `-D warnings`, so a
+finding fails the build. Fix a finding by extracting named helpers, never by
+raising the threshold. A Whitaker suite installed before the lint existed does
+not register it and silently leaves the gate inactive. The Makefile's
+`WHITAKER_SUITE_REV` pin sits at or after the suite commit that added the lint,
+so rerun `make install-whitaker` to refresh the suite after updating a
+checkout, and never bump the pin to an earlier revision.
+
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
-It is deliberately empty: add an `excluded_paths` entry only with a reproduced
+It holds no exclusions: add an `excluded_paths` entry only with a reproduced
 diagnostic and a stated external constraint. Do not add `excluded_crates`,
 which would drop a whole workspace member from the policy. `excluded_paths` is
 read only by `no_std_fs_operations`; every other lint rejects unknown keys and

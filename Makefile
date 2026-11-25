@@ -75,7 +75,7 @@ WHITAKER_INSTALLER ?= whitaker-installer
 WHITAKER_INSTALLER_VERSION ?= 0.2.11
 CARGO_DYLINT_VERSION ?= 6.3.0
 DYLINT_LINK_VERSION ?= 6.3.0
-WHITAKER_SUITE_REV ?= 00186d43f5121df92bcc207e48b3b2a4ca945937
+WHITAKER_SUITE_REV ?= 487ad61b047ca7e93eba0cd1d5b1a5de3a8b29a6
 # `--all` selects every discovered lint library. The arguments after `--` are
 # forwarded to the `cargo check` that Whitaker drives, so they widen package,
 # target and feature coverage there rather than being read as lint options.
