@@ -81,7 +81,7 @@ struct Running {
 /// pair is dropped without an explicit shutdown, its server handle is dropped,
 /// which requests shutdown synchronously; the listener is then released once
 /// the accept loops exit, exactly as for a bare
-/// [`RunningWireframeServer`](crate::RunningWireframeServer).
+/// [`RunningWireframeServer`].
 ///
 /// [`WireframeServer`]: wireframe::server::WireframeServer
 /// [`WireframeClient`]: wireframe::client::WireframeClient
