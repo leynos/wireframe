@@ -161,8 +161,14 @@ def test_shared_action_invocations_use_one_consistent_version() -> None:
 
     The shared ``install-whitaker`` action is pinned at the same revision as
     every other invocation, so none needs an exemption from revision equality.
+    The delayed PR comment workflow only sleeps and posts, so it moves on its
+    own pin and is the one named exception.
     """
-    versions = _shared_action_versions()
+    versions = [
+        (path, version)
+        for path, version in _shared_action_versions()
+        if path.name != "delayed-pr-comment.yml"
+    ]
     distinct_versions = {version for _, version in versions}
     assert len(distinct_versions) == 1, (
         "all leynos/shared-actions invocations must use one version; found "
