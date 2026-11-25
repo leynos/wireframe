@@ -829,7 +829,7 @@ dropped frames are logged. The configured fallback quarantine pause is
 currently inactive, because an installed hook supplies the pause through
 `RecoveryPolicyHook::quarantine_duration` and a missing hook disconnects:
 
-<!-- tested-example: users-guide-068 -->
+<!-- tested-example: users-guide-069 -->
 ```rust
 use std::time::Duration;
 
