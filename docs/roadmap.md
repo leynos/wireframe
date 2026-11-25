@@ -22,14 +22,14 @@ the request and response lifecycle.
 - [x] 1.1.1. Define the basic frame structure for network communication
   (`src/frame/mod.rs`).
 - [x] 1.1.2. Implement preamble validation for versioning and compatibility
-  (`src/preamble.rs`, `tests/preamble.rs`).
+  (`src/preamble/mod.rs`, `tests/preamble.rs`).
 
 ### 1.2. Core server implementation
 
 - [x] 1.2.1. Implement the `Server` struct with `bind` and `run` methods
-  (`src/server.rs`).
+  (`src/server/`).
 - [x] 1.2.2. Handle incoming TCP connections and spawn connection-handling
-  tasks (`src/connection.rs`).
+  tasks (`src/connection/`).
 - [x] 1.2.3. Define `Request`, `Response`, and `Message` structs
   (`src/message.rs`, `src/response.rs`).
 
@@ -62,7 +62,7 @@ extensibility.
 ### 2.1. Middleware trait
 
 - [x] 2.1.1. Design and implement the `Middleware` trait
-  (`src/middleware.rs`).
+  (`src/middleware/`).
 - [x] 2.1.2. Define `Next` to allow middleware to pass control to the next in
   the chain.
 
@@ -85,7 +85,7 @@ communication and streaming.
 ### 3.1. Push messaging
 
 - [x] 3.1.1. Implement the `Push` mechanism for sending messages from server to
-  client without a direct request (`src/push.rs`).
+  client without a direct request (`src/push/`).
 - [x] 3.1.2. Develop `PushPolicies` for broadcasting messages to all or a
   subset of clients.
 - [x] 3.1.3. Create tests for various push scenarios (`tests/push.rs`,
@@ -936,7 +936,7 @@ and usability.
   examples.
 - [ ] 19.4.2. Publish documentation to `docs.rs`.
 
-## 20. Prepared application and runtime ownership (in progress)
+## 20. Prepared application and runtime ownership (complete)
 
 This phase makes the builder-to-runtime ownership boundary explicit while
 sequencing the remaining server and connection-runtime work separately.
@@ -970,6 +970,10 @@ parallel runtime.
   with the bytes that arrived. A lost push is counted by
   `wireframe_push_drops_total` so the loss is observable. See issue
   [#879](https://github.com/leynos/wireframe/issues/879).
+- [x] 20.1.6. Publish the accepted ownership ADRs, add the developer-guide
+  ownership checklist, and record the final #639 evidence and issue
+  dispositions. See issue
+  [#649](https://github.com/leynos/wireframe/issues/649).
 
 ## 21. Protocol-neutral adapters for the first consumers
 
