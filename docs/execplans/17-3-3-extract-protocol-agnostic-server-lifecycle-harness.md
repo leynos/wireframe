@@ -461,12 +461,13 @@ spawning the accept loops, which is the form #974 measured, so the socket's
 lifetime is exactly the accept loops' lifetime. A first revision used the
 second form, dropping before the tracker wait; review found that leaves the
 contract conditional, because the supervisor still holds its handle while it
-waits on the tracker when every loop ends unexpectedly. Its regression suite `tests/server_listener_release.rs` covers
-`stop()`, dropping the last control, and a resolved `run_with_shutdown` future,
-each with a response parked mid-stream; all three fail without the change. This
-branch is rebased onto it, so the harness is developed against the
-released-listener behaviour rather than against a promise of it. Merge to
-`main` is outstanding work outside this plan's authority.
+waits on the tracker when every loop ends unexpectedly. Its regression suite
+`tests/server_listener_release.rs` covers `stop()`, dropping the last control,
+and a resolved `run_with_shutdown` future, each with a response parked
+mid-stream; all three fail without the change. This branch is rebased onto it,
+so the harness is developed against the released-listener behaviour rather than
+against a promise of it. Merge to `main` is outstanding work outside this
+plan's authority.
 
 - Change: in `PreparedServerRuntime::run_with_shutdown`
   (`src/server/runtime/server/mod.rs`), drop the supervisor's own listener
