@@ -52,3 +52,4 @@ pub mod testkit_export;
 pub mod unified_codec;
 mod virtual_time;
 pub mod workspace_manifest;
+pub mod zero_copy_baseline;

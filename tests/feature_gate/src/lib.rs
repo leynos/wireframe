@@ -19,3 +19,7 @@ pub mod support_accessors;
 /// Verifies the cancellation trace events record `reason` as a string.
 #[cfg(test)]
 mod cancellation_reason_field_type;
+
+/// Verifies the copied-byte recorders are inert without their feature.
+#[cfg(test)]
+mod copied_byte_recorders;

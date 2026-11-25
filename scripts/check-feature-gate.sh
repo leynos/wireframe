@@ -6,12 +6,14 @@
 # development dependency enables `wireframe/test-support` for every fixture in
 # this repository. This script therefore builds a standalone consumer
 # (`tests/feature_gate`) that depends on `wireframe` alone and drives it
-# through four configurations:
+# through six configurations:
 #
 #   1. accessors disabled  -> must FAIL, naming `pool_size` and `slot_id`
 #   2. accessors enabled   -> must PASS
 #   3. public API, disabled -> must PASS
 #   4. cancellation trace fields, metrics disabled -> must PASS
+#   5. copied-byte recorders, feature disabled -> must PASS and report zeros
+#   6. copied-byte recorders, feature enabled  -> must PASS and count
 #
 # Run 3 is the control. Without it, a consumer so broken that nothing compiles
 # would make run 1's expected failure meaningless.
@@ -20,6 +22,11 @@
 # checked: the workspace's `wireframe_testing` dependency unifies `metrics` on
 # for every root-package test, so a subscriber assertion there would never see
 # the disabled configuration.
+#
+# Runs 5 and 6 are a pair for the same reason: `wireframe_testing` enables
+# `wireframe/benchmark-counters` for every root-package test, so no workspace
+# test can observe the inert recorders. Run 6 keeps run 5 honest — a recorder
+# that never counted anything would also pass a zeros-only assertion.
 #
 # Each run is a separate Cargo invocation, so this is not cheap; it is a
 # correctness gate, not a fast unit test.
@@ -119,5 +126,17 @@ run_check "public API without test-support (expected to pass)" "$work/control.lo
 run_test "cancellation trace fields without metrics (expected to pass)" \
     "$work/cancellation.log" --lib ||
     fail "the cancellation trace events did not record reason as a string without metrics"
+
+# 5. Copied-byte recorders disabled: each recorder must still compile and must
+# report zeros, so a production build pays nothing for the call sites.
+run_test "copied-byte recorders without the feature (expected to pass)" \
+    "$work/recorders-inert.log" --lib recorders_are_inert_without_the_feature ||
+    fail "the copied-byte recorders were not inert without benchmark-counters"
+
+# 6. Control for run 5: the same calls must count once the feature is on.
+run_test "copied-byte recorders with the feature (expected to pass)" \
+    "$work/recorders-enabled.log" --lib --features benchmark-counters \
+    recorders_accumulate_with_the_feature ||
+    fail "the copied-byte recorders did not count with benchmark-counters enabled"
 
 echo "feature-gate: ok"

@@ -38,6 +38,8 @@ mod completion_tests;
 #[cfg(all(test, not(loom)))]
 mod delivery_span_tests;
 #[cfg(all(test, not(loom)))]
+mod response_pointer_tests;
+#[cfg(all(test, not(loom)))]
 mod response_pushes_tests;
 #[cfg(all(test, not(loom)))]
 mod terminator_tests;

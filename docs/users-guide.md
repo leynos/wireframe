@@ -3780,10 +3780,41 @@ std::hint::black_box(count);
 # Ok::<(), String>(())
 ```
 
+`count_allocations` reports the number of allocation operations. When the byte
+total matters as well — a test bounding a stage by its payload size, for
+instance — `count_allocation_traffic` runs the same window and returns an
+`AllocationTraffic` with both readings:
+
+<!-- tested-example: users-guide-068 -->
+```rust
+use wireframe_testing::benchmark_alloc_support::count_allocation_traffic;
+
+let traffic = count_allocation_traffic(|| {
+    let buffer: Vec<u8> = vec![0; 1024];
+    std::hint::black_box(buffer.len());
+    Ok(())
+})?;
+std::hint::black_box(traffic.operations);
+std::hint::black_box(traffic.bytes);
+# Ok::<(), String>(())
+```
+
+`AllocationTraffic::bytes` counts the memory a window requested, not the memory
+copied or freed: a reallocation that grows a buffer contributes only the
+growth, because that is what `stats_alloc` records. It is therefore not a
+copied-byte measure; use `wireframe::benchmark_counters` for payload copies.
+
 The window closes on the error path too, so a failed measurement cannot leave
 counting enabled for the rest of the process. `count_allocations_or_panic`
 wraps the same helper for benchmark binaries that treat a failed measurement as
 fatal.
+
+A benchmark binary should call `verify_allocation_harness` once before
+measuring. It proves the installed allocator reports what the invariants depend
+on: an allocation-free closure reports no traffic, a known allocation is
+observed, and growing a buffer reports more traffic than allocating it once. A
+binary whose counting gate never opened would otherwise record a silent zero
+for every baseline.
 
 The recorded value counts both fresh allocations and reallocations: a buffer
 that grows in place is still a buffer that asked the allocator for memory. It
@@ -3800,6 +3831,56 @@ This module replaces the `CountingAllocator` type that earlier releases
 exported. Install `INSTRUMENTED_SYSTEM` as shown above instead; see the
 [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
 change.
+
+## Copied-byte counters
+
+The `benchmark-counters` feature exposes the copy-site instrumentation behind
+the repository's zero-copy baselines. It is a harness facility, not an
+application feature: each recorder is an atomic increment on a hot path, so
+enable the feature only in benchmarks and tests. The
+`wireframe::benchmark_counters` API is available either way and reports zero
+while the feature is disabled, so a caller compiles with or without it.
+
+`CopiedBytes` reports the bytes copied at each seam since the last `reset`:
+
+| Field          | Records                                                |
+| -------------- | ------------------------------------------------------ |
+| `serialized`   | Bytes a serializer wrote into the vector it returns.   |
+| `handoff`      | Bytes copied when a serializer vector became `Bytes`.  |
+| `framed`       | Bytes copied into a codec write buffer while framing.  |
+| `deserialized` | Bytes copied when an inbound frame became an envelope. |
+
+`snapshot` reads the counters, `reset` clears them, and `record_serialized`,
+`record_handoff`, `record_framed`, and `record_deserialized` record bytes
+directly. Call `reset` before a measurement and `snapshot` after it: the
+counters are process-global and accumulate across every thread.
+`CopiedBytes::total` sums the seams, and `per_operation` divides each field by
+a message count for a per-message figure.
+
+The `handoff` field counts payload bytes copied when the hand-off cannot keep
+the buffer in place. With `bytes` 1.12.x, `bytes_from_vec` moves a vector whose
+length equals its capacity in place, so `handoff` stays zero and the hand-off
+allocates nothing. A vector with spare capacity keeps its payload pointer but
+allocates one small control block, which `handoff` does not charge.
+
+## Pipeline benchmark harness
+
+`wireframe_testing`'s `pipeline-benchmarks` feature adds helpers that drive the
+benchmark harness's own pipeline, so a benchmark and a test measure the same
+scenario. `middleware_payload_handoff` and `hook_payload_handoff` return a
+`StageOutcome` holding the payload's arrival and departure addresses, the
+returned bytes, and `is_payload_preserved`, which reports whether the stage
+returned the buffer it was given at the same address. A copy the stage returns
+in a new buffer reports `false`; a copy it discards goes undetected by this
+method. `measure_middleware_passthrough_buffer` times a chain over a buffer the
+caller built, which keeps the buffer's own allocation outside an allocation
+window.
+
+These helpers select access through `AccessMode`: `ReadOnly` inspects the
+payload, `Mutating` rewrites it, and `Copying` is a seeded fault that must
+relocate the buffer. They do not construct a `wireframe::App`, so their results
+describe the benchmark harness chain rather than an application's middleware
+stack.
 
 ## Mutation testing
 

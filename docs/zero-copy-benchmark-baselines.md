@@ -21,12 +21,19 @@ accepts them, the thresholds below are proposals and those items stay open.
 | Latency          | All four stages, both codecs, both payload classes                      | Yes, proposed       |
 | Throughput       | Same sixteen rows; bytes/s for codec and outbound, messages/s otherwise | Yes, proposed       |
 | Allocations      | Codec wrap/decode plus the three pipeline stages                        | Yes, proposed       |
-| Copied bytes     | Per-seam byte counts asserted by the test suite                         | Yes, deterministic  |
+| Copied bytes     | Per-seam byte counts asserted by the test suite, inbound included       | Yes, deterministic  |
 | Fragmentation    | Paired fragmented and unfragmented wrap                                 | Informational only  |
 
 The rows are stated this way because a reader must not infer coverage from the
 presence of a table. "Not measured" and "measured as unchanged" are different
 claims, and only the second one can support a release decision.
+
+Two of the four kinds are now enforced rather than reported. Copied bytes are
+asserted per seam by `wireframe_testing/tests/copied_bytes.rs`, and buffer
+identity and the per-operation allocation bounds are asserted by
+`wireframe_testing/tests/pipeline_allocation_invariants`. A regression in
+either fails a gate; the timing tables remain captures that a later comparison
+interprets.
 
 Two units appear under throughput and the difference is deliberate. The codec
 and outbound stages traverse the payload, so payload bytes per second is a real
@@ -231,8 +238,15 @@ allocator.
 The chain is built from the library's `Transform` and `Service` traits and
 terminated by a service that returns the request frame unchanged. The frame is
 recycled between iterations, so the timed region is chain traversal rather than
-allocation. Both access modes run the same chain; the mutating policy rewrites
-one frame byte before continuing.
+allocation. Both timed access modes run the same chain; the mutating policy
+rewrites one frame byte before continuing.
+
+A third access mode, `copying`, exists as a seeded fault. It replaces the frame
+with a freshly built vector, so it is never timed: its purpose is to prove that
+the pointer-identity and allocation checks would notice a copy if one appeared.
+`wireframe_testing/tests/pipeline_allocation_invariants` drives it, and
+`a_copying_middleware_relocates_the_frame_buffer` and
+`copying_middleware_pass_exceeds_payload` fail if the detection stops working.
 
 Throughput is reported as messages per second because the stage borrows the
 frame without traversing it.
@@ -336,10 +350,22 @@ Timing is the same measurement as the corresponding non-allocation group.
 
 All eight rows record 35 allocations per 16 requests, about two per request.
 Those are the boxed futures the `Service` trait's object-safe dispatch
-requires, not payload buffers: the frame is recycled, and the copied-byte
-counters show the payload is not written. The count is the same for both access
-modes and both payload classes, which is the signature of fixed async plumbing
-rather than size-dependent work.
+requires, not payload buffers. The count is the same for both access modes and
+both payload classes, which is the signature of fixed async plumbing rather
+than size-dependent work.
+
+The copied-byte counters do not observe this stage: they instrument the
+serializer, the hand-off, frame construction, the encoder, and inbound
+deserialization, and middleware traversal is none of those. The claims that a
+read-only pass preserves the payload buffer, that a mutating hook rewrites it
+in place, and that a copying policy relocates it are enforced separately, by
+the pointer-identity assertions in
+`wireframe_testing/src/codec_benchmarks/pipeline_middleware.rs` and
+`pipeline_hooks.rs` and by the allocator-level checks in
+`wireframe_testing/tests/pipeline_allocation_invariants`. In particular,
+`read_only_middleware_pass_stays_below_payload` bounds one pass's traffic below
+the payload size, and `read_only_middleware_counts_match` shows the allocation
+count does not depend on payload class.
 
 #### Request-hook dispatch allocations
 
@@ -392,9 +418,20 @@ on host load — and the numbers below come from the assertion in
 | Frame construction            | `FrameCodec::wrap_payload` | `0`               |
 | Transport framing copy        | `Encoder::encode`          | `P`               |
 | Outbound total                | serialize + wrap + encode  | `2P`              |
+| Inbound deserialization       | `parse_envelope` decode    | `P`               |
 
 `P` is the payload length, 32 bytes or 64 KiB depending on the class, and the
 table holds for both the length-delimited codec and Hotline.
+
+The inbound row is the fourth seam and the only one that runs on the receive
+path. `parse_envelope` deserializes the frame's bytes into a fresh envelope, so
+the message's payload is copied once on arrival however the outbound path is
+later changed. The counter is recorded inside the production `parse_envelope`
+(`src/app/inbound_handler/dispatch.rs`) rather than in a harness, so the
+measurement moves with the code: `record_deserialized` sits after the
+trailing-bytes check, which is why a rejected frame is not counted. Deleting
+that call makes `inbound_decode_copies_the_payload_once` fail with a recorded
+count of `0` against a payload of `32` or `65,536` bytes.
 
 The hand-off is zero because `bytes` 1.12.1's `From<Vec<u8>>` for `Bytes` never
 copies the payload: an exact-capacity vector takes the boxed slice, and a
@@ -420,21 +457,64 @@ so its windows do not observe the first two sites at all. That is a harness
 boundary, not a limit of the allocator: a bench that ran the serializer would
 count its allocation.
 
+## Inversion register
+
+Some assertions in the gate state a pre-migration total on purpose. They are
+meant to fail once the roadmap item that removes the copy lands, so a failure
+there is the migration's success signal rather than a regression. Every such
+assertion is registered below with the item that flips it. The test
+`inversion_register_names_real_tests`, in the `inversion_register` module
+compiled from `wireframe_testing/tests/copied_bytes/inversion_register.rs`,
+fails when an entry names a test that no longer exists, so this list and the
+gate cannot drift apart.
+
+<!-- inversion-register:start -->
+
+- `outbound_path_copies_the_payload_twice_per_message` in
+  `wireframe_testing/tests/copied_bytes.rs` — states the pre-migration outbound
+  total of `2P`; flips when item `11.1.2` removes the serializer
+  materialization, leaving `P`.
+- `harness_serializer_copies_the_payload_once_at_each_seam` in
+  `wireframe_testing/tests/copied_bytes.rs` — states the harness serializer's
+  `P`-byte materialization; flips when item `11.1.2` makes serializer output
+  shared instead of materialized.
+- `default_serializer_and_handoff_copy_the_payload_once` in
+  `wireframe_testing/tests/copied_bytes.rs` — states the production
+  serializer's materialization; flips when item `11.1.2` lands.
+- `inbound_decode_copies_the_payload_once` in
+  `wireframe_testing/tests/copied_bytes.rs` — states the inbound decode copy;
+  flips when item `11.1.1` shares the frame's payload with the envelope.
+- `seams_charge_one_payload_per_message_at_any_size` in
+  `wireframe_testing/tests/copied_bytes.rs` — states one payload charge per
+  message at both seams for any payload length; flips when items `11.1.1` and
+  `11.1.2` stop materializing the decoded and encoded buffers.
+- `production_outbound_allocates_one_payload` in
+  `wireframe_testing/tests/pipeline_allocation_invariants/checks/handoff.rs` —
+  states that one outbound message allocates between `P` and `2P` bytes; flips
+  when item `11.1.2` shares the serializer output instead of materializing it.
+
+<!-- inversion-register:end -->
+
+An assertion that is deleted by a migration item rather than inverted is not
+registered: `default_serializer_leaves_no_spare_capacity` disappears with the
+hand-off it controls when item `11.1.2` lands.
+
 ## Read-only and mutation paths
 
 The migration's claim is that read-only paths stop copying and mutation paths
 copy only on demand. A threshold that averages the two together cannot test
 that claim, so the paths are kept separate.
 
-| Path kind | Stage                   | Measured?                                                        | Baseline                |
-| --------- | ----------------------- | ---------------------------------------------------------------- | ----------------------- |
-| Read-only | Inbound decode          | Yes                                                              | Decode table above      |
-| Read-only | Middleware pass-through | Yes, `readonly` rows                                             | Middleware table above  |
-| Mutation  | Middleware mutation     | Yes, `mutating` rows                                             | Middleware table above  |
-| Read-only | Request-hook read       | Yes, `readonly` rows                                             | Hook table above        |
-| Mutation  | Request-hook mutation   | Yes, `mutating` rows                                             | Hook table above        |
-| Mixed     | Outbound encode         | Yes, serializer-only and serialize-plus-wrap reported separately | Outbound table above    |
-| All       | Copied bytes            | Yes, per seam                                                    | Copied-byte table above |
+| Path kind | Stage                   | Measured?                                                        | Baseline                         |
+| --------- | ----------------------- | ---------------------------------------------------------------- | -------------------------------- |
+| Read-only | Inbound decode          | Yes                                                              | Decode table above               |
+| Read-only | Middleware pass-through | Yes, `readonly` rows and the allocation invariants               | Middleware table above           |
+| Mutation  | Middleware mutation     | Yes, `mutating` rows                                             | Middleware table above           |
+| Read-only | Request-hook read       | Yes, `readonly` rows and the allocation invariants               | Hook table above                 |
+| Mutation  | Request-hook mutation   | Yes, `mutating` rows                                             | Hook table above                 |
+| Mixed     | Outbound encode         | Yes, serializer-only and serialize-plus-wrap reported separately | Outbound table above             |
+| All       | Copied bytes            | Yes, per seam including inbound                                  | Copied-byte table above          |
+| All       | Buffer identity         | Yes, pointer identity plus allocator windows                     | `pipeline_allocation_invariants` |
 
 Inbound decode is read-only in the relevant sense: it hands out a payload
 without copying it for a caller, though the harness pays the reader's
@@ -507,19 +587,33 @@ allocations and zero new copied bytes between serialization and `wrap_payload`.
 This is evidenced by both an allocation count and a pointer-identity test
 comparing `as_ptr()` across the hand-off, modelled on the existing codec
 pointer-identity assertions. A timing improvement alone does not satisfy T4.
+The assertion that states the outbound two-copy total today is
+`outbound_path_copies_the_payload_twice_per_message`, supported by the per-seam
+assertions `harness_serializer_copies_the_payload_once_at_each_seam` and
+`default_serializer_and_handoff_copy_the_payload_once`, all in
+`wireframe_testing/tests/copied_bytes.rs`, alongside the codec pointer-identity
+tests in `src/codec/tests/mod.rs`. Item `11.1.2` inverts them; until then, they
+state the two-copy total.
 
 T5. A read-only stage must add no payload-buffer allocation and no payload byte
 copy per operation. The middleware chain's async plumbing allocates about two
 control blocks per request, and that fixed count must not grow with payload
-class; payload allocation is separately evidenced by the copied-byte counters.
-A mutation stage may copy one payload buffer per mutating operation and must
-not copy on its read-only branch.
+class. A mutation stage may copy one payload buffer per mutating operation and
+must not copy on its read-only branch. The enforcing checks live in
+`wireframe_testing/tests/pipeline_allocation_invariants`: the byte bound is
+`read_only_middleware_pass_stays_below_payload` and
+`read_only_hooks_stay_below_payload`, payload independence is
+`read_only_middleware_counts_match`, buffer preservation is
+`middleware_preserves_buffer` and `hooks_preserve_buffer`, and the mutation and
+copying controls are `mutating_hook_changes_buffer`,
+`copying_hook_relocates_buffer`, and `copying_middleware_relocates_buffer`.
 
 T6. A post-migration outbound total above one payload copy per message fails
-the copied-byte gate. The pre-migration assertions in
-`wireframe_testing/tests/copied_bytes.rs` encode the current two-copy total, so
-the migration must lower them to one copy; a performance reviewer must agree to
-that change before it lands.
+the copied-byte gate. The pre-migration assertion
+`outbound_path_copies_the_payload_twice_per_message` in
+`wireframe_testing/tests/copied_bytes.rs` encodes the current two-copy total,
+so the migration must lower it to one copy; a performance reviewer must agree
+to that change before it lands.
 
 T7. A stage with no harness has no threshold and is reported as unmeasured. It
 is not assumed unchanged. No stage is in that position now; the
@@ -541,6 +635,8 @@ worse than no benchmark.
 | Hook behaviour        | `tests/features/client_request_hooks.feature` and its steps      | Present           |
 | Wire output           | `tests/frame_codec.rs`, serializer round-trip tests              | Present           |
 | Copied bytes          | `wireframe_testing/tests/copied_bytes.rs` per-seam assertions    | Present           |
+| Buffer identity       | `wireframe_testing/tests/pipeline_allocation_invariants`         | Present           |
+| Payload pass-through  | `tests/features/zero_copy_baseline.feature` and its steps        | Present           |
 
 "Present" means the suite exists at the measured revision. A release candidate
 must re-run every suite under roadmap item `13.2.1`; a threshold check on an
@@ -570,6 +666,17 @@ than left implicit:
   length to `black_box` let the optimizer delete the allocation and fill; the
   superseded capture in [measurement provenance](#measurement-provenance)
   records the effect.
+- **The buffer-identity checks run without the libtest harness.** The checks in
+  `wireframe_testing/tests/pipeline_allocation_invariants` install their own
+  counting allocator, and a libtest worker thread occasionally allocates on its
+  own — two non-zero windows in a thousand trials at capture time. The target
+  is therefore a `harness = false` binary with a single thread, so every byte
+  its windows report belongs to the code under test. The idle-window check is
+  kept at a thousand trials so a regression to threaded execution is caught
+  rather than tolerated. A harness-free binary is invisible to `cargo nextest`
+  unless it answers the discovery protocol, so the target lists itself as one
+  unit when nextest passes `--list` and runs every check on any other
+  invocation.
 
 ## Reproducing
 
@@ -581,6 +688,18 @@ cat /proc/loadavg
 timeout 3600 make bench-codec 2>&1 | tee \
   "/tmp/bench-codec-$(git branch --show-current).out"
 ```
+
+The copied-byte and allocation-invariant gates are not part of `bench-codec`,
+because neither depends on host load:
+
+```sh
+cargo test -p wireframe_testing --all-features --test copied_bytes
+cargo test -p wireframe_testing --all-features \
+  --test pipeline_allocation_invariants
+```
+
+The second command runs a plain binary rather than a libtest harness, so it
+prints one line per check and exits non-zero on the first failure.
 
 The commit, tree content, and load average are recorded because the harness and
 the host both evolve. A number is comparable only to one taken from the same

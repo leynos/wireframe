@@ -34,6 +34,9 @@ mod push_diagnostics;
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};
 pub use error::{PrepareError, Result, SendError};
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub use inbound_handler::benchmark_decode_envelope;
 pub use lifecycle::{ConnectionSetup, ConnectionTeardown};
 pub use memory_budgets::{BudgetBytes, MemoryBudgets};
 pub(crate) use middleware_types::Route;
