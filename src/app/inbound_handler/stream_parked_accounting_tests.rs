@@ -112,6 +112,13 @@ fn published_totals(scenario: impl FnOnce()) -> Vec<f64> {
 /// `LoopState::new` is the only place production wires the process-wide parked
 /// gauge. Replacing `ParkedAccounting::process_wide` with a no-op leaves the
 /// local recorder empty and fails here.
+///
+/// The assertion stops at "a sample was published" on purpose. A gauge sample
+/// carries the process-wide total at the moment it was set, not this thread's
+/// contribution, so a concurrent test's park can move the value between two of
+/// these publications; and the recorder keeps only the last value per series, so
+/// the number of publications is not recoverable either. The exact 2 → 1 → 0
+/// sequence is asserted in the sibling test, whose sink is the test's own.
 #[cfg(feature = "metrics")]
 #[test]
 fn a_production_state_publishes_the_shared_parked_gauge() {
@@ -128,18 +135,21 @@ fn a_production_state_publishes_the_shared_parked_gauge() {
     );
 }
 
-/// Every ending reports its release through the accounting it was built with.
+/// Dropping the loop state releases what the connection still held.
 ///
-/// A connection ends by returning, by being cancelled while it awaits, or by
-/// unwinding; all three drop the loop state. The sink here counts calls and
-/// forwards to the process-wide tallies, so this proves both that the drop
-/// releases what the connection still held and that releasing reaches the
-/// shared gauge. Counting call sites rather than reading the gauge back is what
-/// makes the assertion exact: the gauge is a single process-wide series, and a
-/// concurrent test's park would move it between two readings.
+/// This exercises the destructor directly, not a live connection: it parks two
+/// messages, drains one, and lets the block end. `Drop for LoopState` is the one
+/// path every ending takes, so the same release runs when a connection task is
+/// cancelled while it awaits and when a handler unwinds — but those endings are
+/// not driven here, and no connection-level scenario is claimed.
+///
+/// The sink counts calls and forwards to the process-wide tallies, so the
+/// assertion covers both that the drop releases and that releasing reaches the
+/// shared gauge. The counts are exact because they are per-call; the gauge's own
+/// value is process-wide and would race a concurrent test.
 #[cfg(feature = "metrics")]
 #[test]
-fn every_ending_releases_through_the_shared_tallies() {
+fn dropping_the_loop_state_releases_through_the_shared_tallies() {
     static ADDED: AtomicUsize = AtomicUsize::new(0);
     static RELEASED: AtomicUsize = AtomicUsize::new(0);
     fn add() {
