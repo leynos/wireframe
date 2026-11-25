@@ -364,6 +364,12 @@ fn codec_error_in(error: &io::Error) -> Option<&CodecError> {
 #[path = "recovery_dispatch_tests.rs"]
 mod dispatch_tests;
 
+// The end-of-stream exit is driven directly: it is a plain function over the
+// coordinator, so no connection loop is needed to pin what it returns.
+#[cfg(test)]
+#[path = "recovery_hold_tests.rs"]
+mod hold_tests;
+
 // The read step's tests drive the same hook and metric that recovery reports
 // through, so these fixtures are shared across the inbound module rather than
 // rebuilt in each test tree.
