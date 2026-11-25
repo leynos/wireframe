@@ -80,13 +80,13 @@ fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
 /// behaviour under test here.
 fn held_handler(started: Arc<Notify>, release: Arc<Notify>) -> ResponseHandler<Envelope> {
     Arc::new(move |_request: &Envelope| {
-        let started = Arc::clone(&started);
-        let release = Arc::clone(&release);
+        let handler_started = Arc::clone(&started);
+        let handler_release = Arc::clone(&release);
         Box::pin(async move {
             let stream: FrameStream<Envelope, ()> = Box::pin(async_stream::try_stream! {
                 yield Envelope::new(HELD_ROUTE, None, vec![REPLY]);
-                started.notify_one();
-                release.notified().await;
+                handler_started.notify_one();
+                handler_release.notified().await;
                 yield Envelope::new(HELD_ROUTE, None, vec![REPLY + 1]);
             });
             Response::Stream(stream)
