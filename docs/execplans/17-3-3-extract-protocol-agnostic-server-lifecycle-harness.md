@@ -7,9 +7,11 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 proceeds.
 
 Status: APPROVED — every decision accepted, including D23 option 1 on
-2026-11-24. Implementation authorized on 2026-11-25. EP-M1 also waits for PRE-1
+2026-11-24. Implementation authorized on 2026-11-25 and in progress. PRE-1
 ([#974](https://github.com/leynos/wireframe/issues/974)), the server change
-D23 selects, to land; see `Upstream prerequisite`.
+D23 selects, is delivered as prerequisite PR
+[#977](https://github.com/leynos/wireframe/pull/977) beneath this branch; see
+`Upstream prerequisite`.
 
 [#962](https://github.com/leynos/wireframe/pull/962), merged on 2026-11-25, pins
 `ServerShutdown`'s auto traits for
@@ -161,8 +163,18 @@ touches this surface, so there is no further history to draw on.
 - [x] (2026-11-25) PRE-1 raised as
       [#974](https://github.com/leynos/wireframe/issues/974).
 - [x] (2026-11-25) Implementation authorized.
-- [ ] PRE-1 landed on `main`.
-- [ ] EP-M0 Green baseline recorded.
+- [x] (2026-11-25) PRE-1 implemented and delivered as
+      [#977](https://github.com/leynos/wireframe/pull/977), a prerequisite PR
+      beneath this branch; the feature PR is retargeted onto it. This branch is
+      rebased on `dcce5481`, whose `src/server/` contains the change, so fact 13
+      and AXIOM-7 are re-read against it. It is not yet merged to `main`: this
+      assignment carries no merge authority, and chapter 3 of the pull-request
+      lifecycle places prerequisite work beneath the original PR instead of
+      hiding it in the feature diff.
+- [x] (2026-11-25) EP-M0 baseline recorded on the rebased tree: `make
+      check-fmt`, `make lint`, `make typecheck` and `make test` are green on
+      `dcce5481` (see `Artefacts and notes`).
+- [ ] PRE-1 merged to `main`.
 - [ ] EP-M1 Harness, options, spawn helpers, rstest and BDD coverage.
 - [ ] EP-M2 Exhaustive and property tests.
 - [ ] EP-M3 `WireframePair` delegates; duplicated machinery removed.
@@ -353,12 +365,17 @@ measured.
 12. **`unused_listener()` binds `"localhost:0"`**
     (`wireframe_testing/src/integration_helpers.rs:52`), which may resolve to
     `::1`. Assert `addr.ip().is_loopback()`, never an IPv4 range.
-13. **A request in flight holds the listener open.** The supervisor keeps its
+13. **A request in flight no longer holds the listener open** (re-read on
+    2026-11-25 against PRE-1, `dcce5481`). Before PRE-1 the supervisor kept its
     own `Arc` to the listener for the whole of `run_with_shutdown`, including
-    the final `tracker.wait()`
-    (`src/server/runtime/server/mod.rs:71`, `:125-165`), so the accept loops
-    exiting is not enough to release it. See Table 5 for the measurement. PRE-1
-    removes that handle; re-read this fact when it lands.
+    the final `tracker.wait()`, so the accept loops exiting was not enough to
+    release it. PRE-1 drops that handle once
+    `await_supervisor_termination` returns and before the tracker wait, so the
+    socket now closes when the last accept loop exits and an in-flight request
+    keeps only its connection task alive. Table 5 records the measurement that
+    motivated the change, and PRE-1's own
+    `tests/server_listener_release.rs` is the permanent evidence for the new
+    behaviour.
 14. **The pair still uses the pre-#657 machinery.** `client_pair.rs` spawns
     `run_with_shutdown` in a task with a `oneshot` shutdown sender
     (`:302-312`), awaits readiness without a bound (`:318`), joins without a
@@ -428,6 +445,19 @@ PRE-1 is the server change accepted in D23. It is not part of this plan, whose
 Constraint 6 still forbids touching `src/`. It is
 [#974](https://github.com/leynos/wireframe/issues/974), raised as a follow-up
 to #655 and delivered in its own pull request before EP-M1.
+
+Delivered on 2026-11-25 as
+[#977](https://github.com/leynos/wireframe/pull/977), head `dcce5481`, with the
+second of #974's two candidate forms: the supervisor drops its listener handle
+after `await_supervisor_termination` returns and before `tracker.wait()`. That
+keeps the supervisor's ownership for the whole time it is running, which
+matches ADR 0014's figure, and releases the socket at the same point as the
+measured form. Its regression suite `tests/server_listener_release.rs` covers
+`stop()`, dropping the last control, and a resolved `run_with_shutdown` future,
+each with a response parked mid-stream; all three fail without the change. This
+branch is rebased onto it, so the harness is developed against the
+released-listener behaviour rather than against a promise of it. Merge to
+`main` is outstanding work outside this plan's authority.
 
 - Change: in `PreparedServerRuntime::run_with_shutdown`
   (`src/server/runtime/server/mod.rs`), drop the supervisor's own listener
@@ -507,8 +537,12 @@ RFC sections deliberately not discharged here:
   one.
 - **AXIOM-7** (supplied by PRE-1, not true at `10809b0d`): once shutdown is
   requested, the listener is released when the accept loops exit, whether or
-  not a request is still in flight. Evidence: PRE-1's tests, to be named here
-  when it lands; until then, the last column of Table 5.
+  not a request is still in flight. Evidence:
+  `tests/server_listener_release.rs` in
+  [#977](https://github.com/leynos/wireframe/pull/977), which covers `stop()`,
+  the last control's drop, and a resolved `run_with_shutdown` future with a
+  response parked mid-stream; the last column of Table 5 records the
+  measurement.
 
 ### The design decision that makes verification tractable
 
@@ -879,12 +913,15 @@ text (D19):
 ### EP-M0 — re-derived plan, accepted decisions, green baseline
 
 - Outcome: this plan re-derived against `a7eecaff` (done 2026-11-22); every
-  decision accepted (done 2026-11-24); PRE-1 landed on `main`, with fact 13 and
-  AXIOM-7 re-read against it; implementation authorized; `make check-fmt`,
-  `make lint`, and `make test` recorded green on an unmodified tree; the Stage
-  A auto-trait probe recorded (done 2026-11-24).
+  decision accepted (done 2026-11-24); implementation authorized (done
+  2026-11-25); PRE-1 delivered as prerequisite PR #977 and present in this
+  branch's tree at `dcce5481`, with fact 13 and AXIOM-7 re-read against it;
+  `make check-fmt`, `make lint`, `make typecheck` and `make test` recorded
+  green on the rebased tree; the Stage A auto-trait probe recorded (done
+  2026-11-24).
 - Acceptance evidence: gate transcripts under `/tmp`; the probe's outcome in
-  `Surprises & discoveries`.
+  `Surprises & discoveries`; PRE-1's merge to `main` remains outstanding and is
+  the only EP-M0 item not satisfied as originally worded.
 - Conformance check: confirm RFC 0001, ADR 0014, and the cited server API are
   unchanged since `a7eecaff`. If `main` has moved, re-verify every
   `Facts that shape the design` entry before EP-M1; a path-only check is not
@@ -1708,6 +1745,19 @@ Reserved for transcripts. At minimum, capture:
 4. One negative-control or seeded-fault result per invariant, INV-1 to INV-8.
 5. The INV-5 classification counts.
 6. The ten full `make test` runs from the flakiness check.
+
+EP-M0 evidence, 2026-11-25, on `dcce5481` (PRE-1) rebased into this branch:
+
+- `make check-fmt`: `144 files left unchanged.`
+- `make lint`: `lint-doc` finished clean; `lint-clippy` clean; `lint-whitaker`
+  `EXIT=0` with `src/server/runtime/server/mod.rs` at exactly 400 lines, so
+  `module_max_lines` is observed rather than inferred; `lint-python-docs`
+  `RESULT: PASSED (minimum: 100.0%, actual: 100.0%)`.
+- `make typecheck`: `Finished dev profile ... in 16m 23s`.
+- `make test`: 112 `test result: ok` suites, 0 `FAILED`, 0 ignored, including
+  the three new `server_listener_release` cases.
+- `make markdownlint`: `Summary: 0 issues in 0 files`.
+- `make nixie`: `All diagrams validated successfully!`
 
 ## Revision history
 
