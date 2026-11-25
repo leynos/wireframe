@@ -31,12 +31,12 @@ record the consumer evidence, validation profiles, and delivery order.
 Namespace is retired. Each lane now sits where the kind of work decides, rather
 than all four repository-owned lanes sharing one profile.
 
-| Workflow                 | Job                 | Trigger            | Runner                | Ceiling |
-| ------------------------ | ------------------- | ------------------ | --------------------- | ------- |
-| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 60 min  |
-| `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
-| `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
-| `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
+| Workflow                 | Job               | Trigger            | Runner                  | Ceiling |
+| ------------------------ | ----------------- | ------------------ | ----------------------- | ------- |
+| `ci.yml`                 | `build-test`      | pull request, push | `ubicloud-standard-2`   | 60 min  |
+| `coverage-main.yml`      | `coverage-upload` | push               | `ubicloud-standard-4`   | 20 min  |
+| `advanced-tests.yml`     | `advanced`        | schedule           | `ubuntu-latest`         | 60 min  |
+| `delayed-pr-comment.yml` | `delayed-comment` | dispatch           | callee: `ubuntu-latest` | callee  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
@@ -286,13 +286,13 @@ every night since at least 2026-09-09 and its last green run was 2025-10-04 at
 32 seconds, so 60 minutes is generous enough not to mask the repair when it
 lands.
 
-`delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
-`sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
-legitimate longer delay: it would fire exactly when the delay became
-interesting, which inverts the failure a ceiling exists to prevent. The lane is
-GitHub-hosted, so the six-hour default costs nothing.
-`ci_runner_placement_test.py` asserts that absence with its reason, so it reads
-as a decision rather than as the gap the neighbouring test looks for.
+`delayed-comment` is a caller of the shared `delayed-pr-comment.yml` reusable
+workflow in `leynos/shared-actions`, which owns the runner (`ubuntu-latest`)
+and the job ceiling. This repository used to forbid any ceiling on the old
+inline job, because a fixed ceiling would cancel a legitimate longer delay. The
+shared workflow resolves that by capping the delay at 345 minutes and setting
+the ceiling to 355, just under GitHub's 360-minute limit, so a valid delay is
+never cancelled and the contract no longer pins the absence of a ceiling.
 
 ### The contract
 
@@ -310,11 +310,10 @@ stand in for `head.repo.fork` and `github.actor` cannot stand in for the
 author; pins placement by `(workflow, job id)` coordinate and compares that set
 against the tree's jobs in both directions; pins each ceiling by value and
 requires one on every job that can select any `ubicloud-` label; asserts the
-delayed lane has none; asserts the two reusable callers declare no runner; and
-compares `.github/actionlint.yaml` against the labels in use in both
-directions. That last comparison is what retires `namespace-profile-default`
-from the registry rather than leaving it behind to authorize a runner family
-nobody uses.
+three reusable callers declare no runner; and compares
+`.github/actionlint.yaml` against the labels in use in both directions. That
+last comparison is what retires `namespace-profile-default` from the registry
+rather than leaving it behind to authorize a runner family nobody uses.
 
 It also checks that the reviewed tables are total against each other, which is
 what stops a lane escaping review by being left out of one of them. Every other
