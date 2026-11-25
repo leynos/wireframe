@@ -37,6 +37,7 @@ mod lifecycle;
 mod options;
 mod outcome;
 
+pub(crate) use self::lifecycle::{bind_with_readiness, start_bound};
 pub use self::{
     handle::RunningWireframeServer,
     lifecycle::{

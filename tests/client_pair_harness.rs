@@ -133,3 +133,79 @@ async fn drop_without_explicit_shutdown_does_not_hang() -> TestResult<()> {
     tokio::task::yield_now().await;
     Ok(())
 }
+
+// ── Delegated lifecycle ──────────────────────────────────────────────
+
+// The pair delegates to the server harness; these traits are what callers
+// move across tasks, so pin them for the harness types as well as the pair.
+static_assertions::assert_impl_all!(wireframe_testing::WireframePair: Send, Sync, Unpin);
+static_assertions::assert_impl_all!(wireframe_testing::RunningWireframeServer: Send, Sync, Unpin);
+
+/// Handle a request by waiting on `release` before answering.
+fn gated_handler(
+    started: std::sync::Arc<tokio::sync::Notify>,
+    release: std::sync::Arc<tokio::sync::Notify>,
+) -> wireframe::app::ResponseHandler<wireframe::app::Envelope> {
+    std::sync::Arc::new(move |_request: &wireframe::app::Envelope| {
+        let handler_started = std::sync::Arc::clone(&started);
+        let handler_release = std::sync::Arc::clone(&release);
+        Box::pin(async move {
+            handler_started.notify_one();
+            handler_release.notified().await;
+            wireframe::response::Response::Single(wireframe::app::Envelope::new(
+                1,
+                Some(7),
+                Vec::new(),
+            ))
+        })
+    })
+}
+
+/// Dropping the pair with a request in flight releases the listener promptly.
+///
+/// The pair historically aborted its server task after a 100 ms grace period.
+/// With the handle delegation there is no task handle, so the guarantee comes
+/// from the control's synchronous cancellation plus the server releasing its
+/// listener when the accept loops exit. The parked handler proves the request
+/// is still in flight when the release is observed, so neither the drop nor
+/// the harness can have waited for it.
+#[rstest]
+#[tokio::test]
+async fn drop_with_request_in_flight_releases_listener() -> TestResult {
+    use std::{pin::pin, sync::Arc, time::Duration};
+
+    use futures::poll;
+    use tokio::{sync::Notify, time::timeout};
+    use wireframe_testing::wait_for_listener_release;
+
+    let started = Arc::new(Notify::new());
+    let release = Arc::new(Notify::new());
+    let handler = gated_handler(Arc::clone(&started), Arc::clone(&release));
+    let factory = move || -> TestResult<wireframe_testing::TestApp> {
+        let app = wireframe_testing::TestApp::new()?;
+        Ok(app.route_response(1, handler.clone())?)
+    };
+
+    let mut pair = spawn_wireframe_pair_default(factory).await?;
+    let addr = pair.local_addr();
+    let request = CommonTestEnvelope::new(1, Some(7), vec![1]);
+    {
+        let client = pair.client_mut()?;
+        let call = client.call::<CommonTestEnvelope, CommonTestEnvelope>(&request);
+        let mut pinned = pin!(call);
+        if poll!(pinned.as_mut()).is_ready() {
+            return Err("the gated request completed before the pair was dropped".into());
+        }
+    }
+    timeout(Duration::from_secs(1), started.notified())
+        .await
+        .map_err(|_| "the gated handler never started".to_owned())?;
+
+    drop(pair);
+    wait_for_listener_release(addr).await?;
+
+    // Release only after the release was observed, so the handler cannot have
+    // finished before the listener closed.
+    release.notify_one();
+    Ok(())
+}
