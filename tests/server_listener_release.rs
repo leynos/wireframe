@@ -21,7 +21,7 @@ use tokio::{
     net::TcpStream,
     sync::{Notify, oneshot},
     task::JoinHandle,
-    time::timeout,
+    time::{sleep, timeout},
 };
 use tokio_util::codec::Framed;
 use wireframe::{
@@ -188,21 +188,48 @@ async fn still_accepting(addr: SocketAddr) -> TestResult<bool> {
     }
 }
 
-/// Assert that the address refuses connections while the request is parked.
+/// Wait until the address stops accepting while the request is still parked.
+///
+/// A shutdown request is asynchronous: the accept loops must be scheduled to
+/// observe cancellation and exit before their clones release the socket. One
+/// immediate probe would therefore race the release, so the assertion polls
+/// under one bounded budget. The handler is gated for the whole wait, so a
+/// successful refusal cannot be explained by the request having finished.
 async fn assert_released_while_request_in_flight(addr: SocketAddr) -> TestResult {
-    ensure(
-        !still_accepting(addr).await?,
-        format!("the listener at {addr} stayed bound while a request was in flight"),
-    )
+    timeout(PROBE_TIMEOUT, async {
+        loop {
+            if !still_accepting(addr).await? {
+                return Ok(());
+            }
+            sleep(Duration::from_millis(10)).await;
+        }
+    })
+    .await
+    .map_err(|_| {
+        TestError::Msg(format!(
+            "the listener at {addr} stayed bound for one second"
+        ))
+    })?
 }
 
-/// Release the parked handler and read the frame it then streams.
+/// Release the parked handler, read the remaining frame, and observe the end.
+///
+/// The refusal proves the socket is released; reading the frame and then the
+/// stream end proves the connection task itself terminated, which is the
+/// terminal observation available when no control or future remains to await.
 async fn finish_request(mut client: HeldClient, release: &Notify) -> TestResult {
     release.notify_one();
     let frame = next_frame(&mut client).await?;
     ensure(
         frame == vec![REPLY + 1],
         format!("the drained response must deliver its remaining frame: {frame:?}"),
+    )?;
+    let ended = timeout(FRAME_TIMEOUT, client.next())
+        .await
+        .map_err(|_| TestError::Msg("the connection did not end after its last frame".into()))?;
+    ensure(
+        ended.is_none(),
+        "the connection must close once its response is complete",
     )
 }
 

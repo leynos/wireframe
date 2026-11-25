@@ -389,10 +389,11 @@ exited whenever a request was still in flight. Its figure and its drain section
 accordingly showed the supervisor owning the listener for the entire run, and
 neither said when the socket closed relative to in-flight work.
 
-The supervisor now drops its own listener handle after the accept loops have
-exited and before the tracker wait. Each accept loop holds its own clone, so
-this is the point at which the socket has no remaining user: no loop is
-accepting on it, and none will.
+The supervisor now drops its own listener handle immediately after spawning the
+accept loops, before it records the startup outcome or signals readiness. Every
+loop already holds a clone, so the supervisor has no further use for one: the
+socket's lifetime becomes exactly the accept loops' lifetime, and it closes
+when the last loop exits.
 
 This addendum supersedes the ownership shown in decision 2's figure and its
 "the listener has been released" clause, and the corresponding sentence in
@@ -407,12 +408,15 @@ section 2:
   so it still waits for in-flight requests, and the release it reports has
   already happened.
 
-The trade-off is deliberate and narrow. If every accept loop ended unexpectedly
-while the supervisor was still running, the socket now closes where it
-previously stayed bound with nothing accepting on it; a bound socket that
-nobody accepts on is the worse of the two states. The graceful drain is
-unchanged, so this is a statement about when the socket closes, not about
-whether in-flight work completes.
+The trade-off is deliberate and narrow, and it is the one the issue measured.
+If every accept loop ended unexpectedly while the supervisor was still running,
+the socket now closes where it previously stayed bound with nothing accepting
+on it; a bound socket that nobody accepts on is the worse of the two states.
+The graceful drain is unchanged, so this is a statement about when the socket
+closes, not about whether in-flight work completes. In particular, a request
+that has not yet produced a response can still be abandoned by the stop, and a
+stalled response can be cancelled; a completed handler response is not
+guaranteed for work that had not started writing.
 
 The rest of this ADR is unchanged.
 
