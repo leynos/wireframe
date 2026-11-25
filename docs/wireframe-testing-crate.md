@@ -39,6 +39,9 @@ Paths below are relative to the `wireframe_testing/` package.
 - `src/multi_packet.rs` keeps the `collect_multi_packet` helper.
 - `src/client_pair.rs` provides the in-process server/client pair harness for
   loopback integration tests (roadmap `17.3.2`).
+- `src/server_harness/` provides the protocol-agnostic server lifecycle
+  harness (roadmap `17.3.3`), split into `handle.rs`, `lifecycle.rs`,
+  `options.rs`, and `outcome.rs` so no module owns more than one concern.
 
 ## Dependencies
 
@@ -640,6 +643,115 @@ purpose of `17.3.2` is client/server compatibility, not in-memory app driving.
 It lives in `wireframe_testing` rather than `wireframe::testkit` to avoid
 widening the optional production feature surface for a purely test-facing
 capability.
+
+## Protocol-agnostic server lifecycle harness
+
+`wireframe_testing::server_harness` starts a fully configured but unbound
+`WireframeServer` and returns a handle that owns its lifecycle. Unlike the pair
+harness, it fixes no serializer, codec, preamble, or client type, so a
+downstream crate that speaks its own protocol can use it.
+
+### Harness public API
+
+- `spawn_wireframe_server(server)` — reserves a loopback listener, binds the
+  server, waits for readiness under the default five-second bound, and returns a
+  `RunningWireframeServer`.
+- `spawn_wireframe_server_on(server, listener)` — the same, on a listener the
+  caller reserved, so the test knows the address before the server starts.
+- `spawn_wireframe_server_with_options(server, listener, options)` — the shared
+  form, taking an optional listener and a `ServerHarnessOptions` policy.
+- `RunningWireframeServer::local_addr()` — the address captured before binding.
+- `RunningWireframeServer::shutdown().await` — issues the non-blocking stop,
+  then awaits the drain under the configured bound.
+- `RunningWireframeServer::shutdown_outcome()` — the recorded
+  `ShutdownOutcome`, or `None` before any call has concluded.
+- `ServerHarnessOptions` — readiness and shutdown bounds; `None` means wait
+  indefinitely.
+
+### Harness lifecycle
+
+The harness reserves the listener first, reads its address from the standard
+listener, installs its own readiness sender, and only then binds the server.
+Reading the address before binding is what makes the reported address real
+rather than an `Option`: binding calls `set_nonblocking` and adopts the same
+socket, so the address cannot change.
+
+Startup uses `WireframeServer::spawn`, which reports factory and preparation
+errors before a control exists, and the harness then awaits the readiness
+signal. A failed readiness wait stops the server before returning, because a
+live server never drains unasked; a cleanliness failure that also fails to
+clean up is reported as one message naming both causes.
+
+`RunningWireframeServer` owns exactly one `ServerShutdown` and never clones or
+exposes it. It has no `Drop` implementation: dropping the handle drops its only
+control, which requests shutdown synchronously through the control's own drop
+guard, so it behaves identically inside and outside a Tokio runtime and needs
+no detached cleanup task. With the server's listener released when the accept
+loops exit, a drop releases the port even while a request is in flight.
+
+`shutdown()` is four steps: stop, await the drain under the chosen bound,
+classify the outcome, and merge it into the record. `Completed` and
+`AbnormalTermination` are absorbing, so a later call returns an equivalent
+result; `TimedOut` is replaced by whatever the next call observes. Nothing is
+mutated before the await except the idempotent stop, so a cancelled `shutdown`
+future leaves the handle exactly as a fresh call finds it.
+
+### Harness timeout policy
+
+`ServerHarnessOptions` defaults both bounds to five seconds. A readiness
+timeout returns `TestError::Timeout`; a shutdown timeout records `TimedOut` and
+also returns `TestError::Timeout`. A repeated call after a timeout re-checks
+with a zero bound instead of blocking again, so reporting a stuck drain does
+not add a second wait to a failing test.
+
+The pair harness passes `None` for both, preserving its historical unbounded
+waits and adding no failure mode for existing callers.
+
+### Harness usage
+
+<!-- tested-example: wireframe-testing-crate-029 -->
+```rust,no_run
+use wireframe::{app::WireframeApp, server::WireframeServer};
+use wireframe_testing::{TestResult, spawn_wireframe_server};
+
+async fn example() -> TestResult<()> {
+    let server = WireframeServer::new(|| -> WireframeApp { WireframeApp::default() }).workers(1);
+    let mut running = spawn_wireframe_server(server).await?;
+
+    assert!(running.local_addr().ip().is_loopback());
+    running.shutdown().await?;
+    Ok(())
+}
+```
+
+### Harness rationale
+
+The pair harness cannot serve a downstream protocol: it builds the server for
+you and fixes the client type. Hand-rolling the lifecycle instead is where port
+races and hanging suites come from, so the lifecycle belongs in one tested
+place. Wrapping `ServerShutdown` rather than spawning `run_with_shutdown` with a
+`oneshot` and a `JoinHandle` reuses the server's own idempotent stop,
+repeatable terminal observation, and runtime-free drop cancellation instead of
+reimplementing them.
+
+### Table 3: identifying the failing stage
+
+With typed variants, the stage is identified by the operation and the variant
+together, without parsing text.
+
+<!-- markdownlint-disable MD013 -->
+
+| Operation  | Variant                                         | Stage                           |
+| ---------- | ----------------------------------------------- | ------------------------------- |
+| `spawn_*`  | `TestError::Io`                                 | listener reservation or address |
+| `spawn_*`  | `TestError::Server(ServerError::Bind(_))`       | bind                            |
+| `spawn_*`  | `TestError::Server(FactoryBuild or Prepare)`    | application startup             |
+| `spawn_*`  | `TestError::Timeout(_)`                         | readiness                       |
+| `spawn_*`  | `TestError::Msg(_)`                             | readiness, with cleanup failure |
+| `shutdown` | `TestError::Timeout(_)`                         | drain bound                     |
+| `shutdown` | `TestError::Server(AbnormalTermination { .. })` | server termination              |
+
+<!-- markdownlint-enable MD013 -->
 
 ## Helper macros
 

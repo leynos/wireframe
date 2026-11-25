@@ -2668,6 +2668,38 @@ example in the relevant test suite before publishing the document.
 
 ## Test infrastructure and framework
 
+### Test lifecycle helpers wrap `ServerShutdown`
+
+A test helper that owns a server lifecycle must wrap `WireframeServer::spawn`
+and its `ServerShutdown`, not spawn `run_with_shutdown` in its own task with a
+`oneshot` sender and a `JoinHandle`. The control already provides an idempotent
+stop, a repeatable terminal observation, a listener-release guarantee, and
+runtime-free cancellation when its last clone drops; reimplementing those in a
+helper duplicates the server's contract and its bugs.
+`wireframe_testing::server_harness` is the worked example, and `client_pair` is
+a façade over it rather than a second implementation. A helper's `Drop` should
+drop the control rather than abort a task, and an explicit `shutdown` should
+await the drain rather than race a join.
+
+Keep the helper's own decision logic in pure, total functions so it can be
+enumerated exhaustively. `server_harness/outcome.rs` classifies one bounded
+drain, merges an outcome into the handle's record, and chooses the next drain
+bound; the effectful method is then four lines that call them. When a helper
+adds an invariant over inputs or orderings, cover it with a property test.
+
+### Async property tests
+
+`proptest!` cannot take an `async fn`. The established idiom, first compiled in
+`tests/server_shutdown.rs` and used again by
+`tests/server_harness_lifecycle_props.rs`, is a synchronous property body that
+builds a `current_thread` runtime, calls `block_on`, and returns
+`TestCaseResult`. Wrap the case body in a `tokio::time::timeout` inside that
+`block_on`, so a hang becomes a printable, shrinkable failure instead of a
+stuck suite; keep the bound independent of the code under test. Use
+`prop_assert_eq!` on structured values rather than `prop_assert!` on booleans,
+so a shrunk counter-example prints actual against expected. Commit any
+`.proptest-regressions` file proptest writes.
+
 ### Integration-test target layout
 
 Integration-test roots may be relocated from `tests/<name>.rs` to

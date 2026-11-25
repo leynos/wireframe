@@ -175,10 +175,18 @@ touches this surface, so there is no further history to draw on.
       check-fmt`, `make lint`, `make typecheck` and `make test` are green on
       `dcce5481` (see `Artefacts and notes`).
 - [ ] PRE-1 merged to `main`.
-- [ ] EP-M1 Harness, options, spawn helpers, rstest and BDD coverage.
-- [ ] EP-M2 Exhaustive and property tests.
-- [ ] EP-M3 `WireframePair` delegates; duplicated machinery removed.
-- [ ] EP-M4 Documentation, RFC amendment, roadmap tick.
+- [x] (2026-11-25) EP-M1 Harness, options, spawn helpers, rstest and BDD
+      coverage: `server_harness` exists with the handle, options, pure outcome
+      functions, and three spawn helpers; twelve rstest case instances and four
+      behavioural scenarios pass.
+- [x] (2026-11-25) EP-M2 Exhaustive and property tests: the three pure
+      functions are enumerated exhaustively, and three property tests plus two
+      named witnesses discharge INV-5 to INV-7.
+- [x] (2026-11-25) EP-M3 `WireframePair` delegates; duplicated machinery
+      removed: `Drop`, `PendingServer`, the bounded abort, and the `oneshot`
+      sender are deleted, `client_pair.rs` shrank from 387 to 369 lines, and
+      the two mapping functions carry Table 1.
+- [x] (2026-11-25) EP-M4 Documentation, RFC amendment, roadmap tick.
 
 ## Risks
 
@@ -1723,9 +1731,36 @@ references resolve:
 
 ## Outcomes & retrospective
 
-To be completed at EP-M4. Before setting the status to `COMPLETE`, reconcile
-every entry in `Surprises & discoveries` and `Decision log` against RFC 0001
-and confirm the Stage E amendments for D17 to D21 have landed.
+EP-M1 to EP-M4 are implemented. `wireframe_testing::server_harness` provides
+the handle, options, pure outcome functions, and three spawn helpers;
+`spawn_wireframe_pair` delegates to it; RFC 0001 carries a dated revision note
+for D17 to D21; and roadmap 17.3.3 is ticked. The Stage E amendment list is
+discharged against RFC 0001's new `Revision note: 2026-11-25` section, which
+also records that only the second of #974's two forms was implemented (the
+supervisor keeps the listener while running and releases it before the tracker
+wait).
+
+What changed against the plan's estimates: the integration cases were split
+across `server_harness_lifecycle.rs` and `server_harness_in_flight.rs` exactly
+as the plan permitted, and the pure-function tests live in `outcome.rs` rather
+than a sibling file because they fit the budget. `client_pair.rs` shrank to 369
+lines. The only unmet item is the wording of EP-M0's "PRE-1 landed on `main`":
+PRE-1 is delivered as prerequisite PR #977, which this branch is based on, but
+this assignment carries no merge authority.
+
+Two lessons. First, `mapsplice replace` rewrote unrelated headings in
+`docs/roadmap.md` by escaping their parentheses; per its own skill guidance
+that churn was rejected, and the single checkbox change was applied directly
+with the inline links preserved verbatim. Second, the property test found its
+own bug: after a completed shutdown, a further `shutdown()` poll resolves
+immediately rather than pending, so a "cancelled shutdown" operation has to
+accept a ready result. That case is now pinned in the committed
+`.proptest-regressions` file.
+
+Status remains `APPROVED` rather than `COMPLETE` until PRE-1 is merged to
+`main`, because EP-M0's wording makes that part of the milestone. Everything
+this assignment can validate locally is done: the delivered branch has the
+code, tests, documentation, RFC amendment, and roadmap tick.
 
 Lesson recorded early, from the 2026-11-22 re-derivation: when `main` moves
 under a plan, re-verify the plan's claims, not only its links. Two rebases
