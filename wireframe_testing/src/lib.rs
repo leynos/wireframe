@@ -41,6 +41,8 @@ pub mod observability;
 pub mod reassembly;
 #[cfg(all(feature = "runtime-benchmarks", not(loom)))]
 pub mod runtime_ownership_benchmarks;
+#[cfg(not(loom))]
+pub mod server_harness;
 
 #[cfg(not(loom))]
 pub use client_pair::{WireframePair, spawn_wireframe_pair, spawn_wireframe_pair_default};
@@ -124,3 +126,12 @@ pub use logging::{LoggerHandle, logger};
 #[doc(inline)]
 pub use multi_packet::collect_multi_packet;
 pub use observability::{Labels, ObservabilityHandle, obs_handle};
+#[cfg(not(loom))]
+pub use server_harness::{
+    RunningWireframeServer,
+    ServerHarnessOptions,
+    ShutdownOutcome,
+    spawn_wireframe_server,
+    spawn_wireframe_server_on,
+    spawn_wireframe_server_with_options,
+};
