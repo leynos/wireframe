@@ -45,9 +45,8 @@ fn a_decode_eof_failure_returns_the_original_typed_error() {
     let failure = DecodeFailure::new(oversized_error(), DecodeOrigin::DecodeEof, 4);
     let item = DecodedItem::<u8>::Failure(failure);
 
-    let error = match hold_or_end(item, &coordinator) {
-        Ok(_) => panic!("a decode_eof failure must end the connection"),
-        Err(error) => error,
+    let Err(error) = hold_or_end(item, &coordinator) else {
+        panic!("a decode_eof failure must end the connection");
     };
 
     assert_eq!(
@@ -113,5 +112,5 @@ fn a_frame_is_passed_through() {
         matches!(held, DecodedItem::Frame(7)),
         "a decoded frame must reach the dispatch step unchanged"
     );
-    assert!(hook.applied_policies().is_empty());
+    assert_eq!(hook.applied_policies(), Vec::new());
 }
