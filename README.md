@@ -48,7 +48,6 @@ compile.
 Create a project and add the dependencies:
 
 <!-- tested-example: readme-new-project -->
-
 ```bash
 cargo new hello-wireframe
 cd hello-wireframe
@@ -58,7 +57,6 @@ Then add these lines to `Cargo.toml`. Pin the exact version during the alpha,
 because one alpha may change what the last one offered.
 
 <!-- tested-example: readme-dependencies -->
-
 ```toml
 [dependencies]
 wireframe = "=0.4.0-alpha1"
@@ -72,7 +70,6 @@ async-trait = "0.1"
 Replace `src/main.rs` with this program:
 
 <!-- tested-example: readme-first-server -->
-
 ```rust
 use std::{convert::Infallible, error::Error, sync::Arc};
 
@@ -164,7 +161,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
 Run it:
 
 <!-- tested-example: readme-run-first-server -->
-
 ```bash
 cargo run
 ```
@@ -182,11 +178,16 @@ Wireframe v0.4.0-alpha1 provides:
 - routing by message ID, with custom envelopes through the `Packet` trait and
   correlation identifiers;
 - middleware through `Transform`, and per-connection setup and teardown hooks;
+- replies of one frame, several, or a stream, written under back-pressure;
+- server pushes with priorities, rate limits, dead-letter queues, and a registry
+  of live connections;
 - length-delimited framing by default, with worked `FrameCodec` implementations
   for Hotline, MySQL, and RESP in `examples/`;
 - bincode serialization by default, a pluggable `Serializer` trait, and an
   optional Serde bridge;
 - connection preambles, with a 10-second default deadline on the server;
+- recovery policies for undecodable frames, and protocol hooks for setup, every
+  outbound frame, completed replies, and truncated input;
 - transport fragmentation, protocol message assembly, and per-connection memory
   budgets with read pacing;
 - a server with configurable workers, readiness signals, graceful shutdown, and
@@ -200,25 +201,22 @@ ______________________________________________________________________
 
 ## Release and development status
 
-Wireframe v0.4.0-alpha1 has a target release date of 15 November 2026. It is an
-alpha for early adopters: expect interfaces to change before 1.0, and pin the
-version. Upgrading from v0.3.0? The
+Wireframe v0.4.0-alpha1 is an alpha for early adopters: expect interfaces to
+change before 1.0, and pin the version. Upgrading from v0.3.0? The
 [migration guide](docs/v0-4-0-migration-guide.md) lists every change to act on.
 
 A few things are worth knowing before you build on it:
 
-- **One reply per request.** A routed request produces exactly one response,
-  which is split across frames only by fragmentation, and a handler cannot
-  return a stream.
-- **Some parts ship ahead of the wiring.** Push queues, `ConnectionActor`,
-  streaming request bodies, extractors, and codec recovery policies exist and
-  are tested, but `WireframeServer` does not drive them yet. The
-  [users' guide](docs/users-guide.md#building-blocks-not-yet-wired-into-the-server)
-  says how far each one goes.
+- **Requests arrive whole.** A handler receives one buffered message. Streaming
+  a request body to a handler is
+  [not available yet](docs/users-guide.md#streaming-request-bodies), though
+  streaming a reply is.
+- **One request at a time per connection.** A long streamed reply delays the
+  next request, while server pushes can slip between its frames.
 - **There is no built-in TLS.** Terminate it in front of the server.
-- **Idle connections stay open.** `read_timeout_ms` is a housekeeping interval,
-  and shutdown waits for open connections to finish, so bound them in your
-  protocol or with your own deadline.
+- **Idle connections stay open while the server runs.** `read_timeout_ms` is a
+  housekeeping interval, so bound quiet peers in your protocol. Shutdown ends
+  idle connections, but waits for running handlers.
 
 ______________________________________________________________________
 
@@ -228,7 +226,6 @@ The `examples/` directory holds complete programs. To run them, clone the
 repository and start the echo server:
 
 <!-- tested-example: readme-run-echo-server -->
-
 ```bash
 git clone https://github.com/leynos/wireframe.git
 cd wireframe
@@ -238,7 +235,6 @@ cargo run --example echo --features examples
 Then, in a second terminal in the same directory, log in against it:
 
 <!-- tested-example: readme-run-echo-client -->
-
 ```bash
 cargo run --example client_echo_login --features examples
 ```

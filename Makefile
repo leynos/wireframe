@@ -163,7 +163,7 @@ test-doc: ## Run doctests across all features
 # Examples are built first because the suite runs the documented example pair.
 test-documentation-contracts: ## Validate documented examples, commands and links
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) build --examples --all-features $(BUILD_JOBS)
-	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --test documentation_examples_loader_tests --test documentation_examples_tests --all-features $(BUILD_JOBS)
+	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) test --test documentation_examples --test documentation_examples_tests --all-features $(BUILD_JOBS)
 
 test-ui: ## Run trybuild compile-time API tests
 	$(CARGO) test --test compile_error

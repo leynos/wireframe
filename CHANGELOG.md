@@ -61,7 +61,7 @@ All notable changes to this project will be documented in this file.
   implements `MessageAssembler` and install a separate value. The installed
   protocol keeps its `Arc`, because a connection holds exactly one strong
   reference to it. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
   ([#648](https://github.com/leynos/wireframe/issues/648), [#598](https://github.com/leynos/wireframe/issues/598))
 
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
@@ -83,7 +83,7 @@ All notable changes to this project will be documented in this file.
   `ConnectionInfo`, or `StreamingBody`. Capture an `Arc` in the handler closure
   for shared state and decode envelopes directly; see
   [ADR 017](docs/adrs/adr-0017-remove-route-extractors-and-app-data.md) and the
-  [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
+  [migration guide](docs/v0-4-0-migration-guide.md#removed-extractors-and-app_data).
   ([#877](https://github.com/leynos/wireframe/issues/877))
 
 - Give server connections a push path. `WireframeApp::with_push_queues` stores a
@@ -166,7 +166,7 @@ All notable changes to this project will be documented in this file.
   every packet-oriented outbound path — handler responses, push queues,
   streamed responses, multi-packet channels, and stream-end terminators — runs
   `before_send` exactly once per emitted packet. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
   ([#644](https://github.com/leynos/wireframe/issues/644))
 
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
@@ -186,11 +186,10 @@ All notable changes to this project will be documented in this file.
 
 - Audit the README, users' guide, and migration guide against the code for
   v0.4.0-alpha1, and rewrite them. Rename the migration guide to
-  `docs/v0-4-0-migration-guide.md`, matching other df12 projects. Every
-  documented Rust example now runs as a doctest, and a new suite validates the
-  other fences and relative links. The guide previously described a
-  `PayloadBytes` serializer API that does not exist, and streaming bodies and
-  extractors as usable from route handlers.
+  `docs/v0-4-0-migration-guide.md`, matching other df12 projects. Every Rust
+  example in the three now compiles or runs, and a suite validates their other
+  fences and relative links. The guide previously described a `PayloadBytes`
+  serializer API that does not exist.
 
 - Correct rustdoc that overstated runtime integration: streaming request
   bodies, extractors and `app_data` are not delivered to route handlers, and
@@ -212,7 +211,7 @@ All notable changes to this project will be documented in this file.
   seams rather than three, including the inbound copy that roadmap item
   `11.1.1` removes. A `benchmark-counters` build that constructs `CopiedBytes`
   exhaustively must name the new field; see the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#copied-byte-counters).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#copied-byte-counters).
   The same change adds a buffer-identity and allocation-invariant gate to
   `wireframe_testing`, and a feature-gate probe proving the recorders stay
   inert without the feature.

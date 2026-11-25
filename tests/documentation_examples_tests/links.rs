@@ -10,7 +10,7 @@ use camino::Utf8Path;
 use cap_std::{ambient_authority, fs_utf8::Dir};
 use rstest::rstest;
 
-use super::documentation_examples::DOCUMENTS;
+use super::{DOCUMENTS, read_document};
 
 /// Convert a Markdown heading to its GitHub anchor.
 fn github_anchor(heading: &str) -> String {
@@ -93,20 +93,13 @@ fn resolve(source: &str, target: &str) -> String {
     parts.join("/")
 }
 
-fn documented_contents(path: &str) -> Option<&'static str> {
-    DOCUMENTS
-        .iter()
-        .find(|(document, _)| *document == path)
-        .map(|(_, contents)| *contents)
-}
-
 #[test]
 fn relative_links_resolve_to_files_and_headings() {
     let root = Dir::open_ambient_dir(env!("CARGO_MANIFEST_DIR"), ambient_authority())
         .expect("the repository root should open");
     let mut broken = Vec::new();
-    for &(source, contents) in DOCUMENTS {
-        for target in link_targets(contents) {
+    for &source in DOCUMENTS {
+        for target in link_targets(&read_document(source)) {
             if is_external(&target) {
                 continue;
             }
@@ -123,10 +116,7 @@ fn relative_links_resolve_to_files_and_headings() {
             if fragment.is_empty() {
                 continue;
             }
-            let target_text = documented_contents(&resolved).map_or_else(
-                || root.read_to_string(&resolved).unwrap_or_default(),
-                str::to_owned,
-            );
+            let target_text = root.read_to_string(&resolved).unwrap_or_default();
             if !anchors(&target_text).contains(fragment) {
                 broken.push(format!("{source}: {target} (no heading)"));
             }

@@ -244,4 +244,4 @@ once the RFC 0003 response and reply-context boundary is settled.
 - [ADR 005: serializer abstraction](adr-0005-serializer-abstraction-beyond-bincode.md)
 - [ADR 012: prepared application templates and connection-local runtimes](adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
 - [RFC 0003: native message adapter boundary](../rfcs/rfc-0003-native-message-adapter-boundary.md)
-- [v0.3.0 to v0.4.0 migration guide](../v0-3-0-to-v0-4-0-migration-guide.md)
+- [v0.3.0 to v0.4.0 migration guide](../v0-4-0-migration-guide.md)

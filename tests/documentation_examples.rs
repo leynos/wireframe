@@ -42,7 +42,7 @@ fn published_examples_load_from_the_marked_documents() {
 /// `published_examples_load_from_the_marked_documents`.
 #[test]
 fn the_gate_rejects_a_malformed_copy_of_a_shipped_document() {
-    const MARKER: &str = "<!-- tested-example: users-guide-001 -->\n";
+    const MARKER: &str = "<!-- tested-example: guide-dependencies -->\n";
     let source = repo_access::read_repo_file("docs/users-guide.md")
         .expect("the shipped guide should be readable from the repository root");
     assert!(

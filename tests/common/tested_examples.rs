@@ -27,6 +27,7 @@ use parsing::{
 };
 
 const USER_DOCUMENTS: &[(&str, &str)] = &[
+    ("README.md", include_str!("../../README.md")),
     ("docs/api.md", include_str!("../../docs/api.md")),
     (
         "docs/developers-guide.md",
@@ -37,16 +38,16 @@ const USER_DOCUMENTS: &[(&str, &str)] = &[
         include_str!("../../docs/users-guide.md"),
     ),
     (
-        "docs/v0-1-0-to-v0-2-0-migration-guide.md",
-        include_str!("../../docs/v0-1-0-to-v0-2-0-migration-guide.md"),
+        "docs/v0-2-0-migration-guide.md",
+        include_str!("../../docs/v0-2-0-migration-guide.md"),
     ),
     (
-        "docs/v0-2-0-to-v0-3-0-migration-guide.md",
-        include_str!("../../docs/v0-2-0-to-v0-3-0-migration-guide.md"),
+        "docs/v0-3-0-migration-guide.md",
+        include_str!("../../docs/v0-3-0-migration-guide.md"),
     ),
     (
-        "docs/v0-3-0-to-v0-4-0-migration-guide.md",
-        include_str!("../../docs/v0-3-0-to-v0-4-0-migration-guide.md"),
+        "docs/v0-4-0-migration-guide.md",
+        include_str!("../../docs/v0-4-0-migration-guide.md"),
     ),
     (
         "docs/rstest-bdd-v0-6-0-migration-guide.md",

@@ -1,23 +1,35 @@
-//! Executable contracts for the examples in user-facing documentation.
+//! Executable contracts for the documents a new user reads first.
 //!
-//! Rust fences run as doctests through `src/lib.rs`, so this suite pins what
-//! rustdoc cannot see: which fences exist, that they hide nothing from readers,
-//! that shell and manifest fences match this repository, and that the links
-//! between the documents resolve.
+//! The shared loader requires a marker on every fence, and Rust fences run as
+//! doctests through `src/tested_documentation.rs`. This suite holds the README,
+//! the users' guide, and the current migration guide to more than that: which
+//! fences exist, that each language has a validator, that no Rust fence is
+//! ignored or hides a line from its reader, that shell and manifest fences match
+//! this repository, and that the links between the documents resolve.
 
 #![forbid(unsafe_code)]
 
-// `pub` because this binary uses only part of the shared loader.
-pub mod documentation_examples;
-
 #[path = "documentation_examples_tests/links.rs"]
 mod links;
+#[path = "common/repo_access.rs"]
+mod repo_access;
 #[path = "documentation_examples_tests/shell_commands.rs"]
 mod shell_commands;
+#[path = "common/tested_examples.rs"]
+mod tested_examples;
 
 use std::collections::BTreeSet;
 
-use documentation_examples::{hidden_rustdoc_line, load_documented_examples};
+use repo_access::read_repo_file;
+use rstest::rstest;
+use tested_examples::{TestedExample, load_documents};
+
+/// The documents a new user reads first, which this suite holds to its contracts.
+const DOCUMENTS: &[&str] = &[
+    "README.md",
+    "docs/users-guide.md",
+    "docs/v0-4-0-migration-guide.md",
+];
 
 /// The release these documents describe, which is the one this tree builds.
 const DOCUMENTED_RELEASE: &str = env!("CARGO_PKG_VERSION");
@@ -43,8 +55,8 @@ const EXPECTED_EXAMPLE_IDS: &[&str] = &[
     "guide-const-config",
     "guide-const-push-builder",
     "guide-custom-envelope",
+    "guide-decode-eof",
     "guide-dependencies",
-    "guide-extractors",
     "guide-first-server",
     "guide-fragmentation-config",
     "guide-fragmenter",
@@ -66,13 +78,17 @@ const EXPECTED_EXAMPLE_IDS: &[&str] = &[
     "guide-request-body",
     "guide-request-journey",
     "guide-response-channel",
+    "guide-response-route",
+    "guide-response-route-stream",
     "guide-response-stream",
     "guide-routes",
     "guide-run-client-example",
     "guide-send-response",
     "guide-server-configuration",
     "guide-server-preamble",
+    "guide-server-push",
     "guide-session-registry",
+    "guide-shared-state",
     "guide-testing-dependencies",
     "guide-testing-fixtures",
     "guide-testing-observability",
@@ -84,14 +100,22 @@ const EXPECTED_EXAMPLE_IDS: &[&str] = &[
     "migration-assembly-error-match",
     "migration-before-send-order",
     "migration-client-error-match",
+    "migration-copied-bytes-after",
+    "migration-copied-bytes-before",
     "migration-dependencies",
+    "migration-extractors-after",
+    "migration-extractors-before",
     "migration-fragmentation-config",
+    "migration-message-assembler-after",
+    "migration-message-assembler-before",
     "migration-observability-dependencies",
     "migration-pool-closed",
     "migration-preamble-timeout",
     "migration-prepared-app",
     "migration-prepared-test-drivers",
     "migration-protocol-error",
+    "migration-protocol-hooks-after",
+    "migration-protocol-hooks-before",
     "migration-reassembler-new",
     "migration-server-from-app",
     "readme-dependencies",
@@ -107,6 +131,46 @@ const EXPECTED_EXAMPLE_IDS: &[&str] = &[
 /// `ignore` is absent on purpose: an ignored fence is an untested one.
 const ACCEPTED_RUST_INFO: &[&str] = &["rust", "rust,no_run", "rust,compile_fail"];
 
+/// Read one of [`DOCUMENTS`].
+fn read_document(path: &str) -> String {
+    read_repo_file(path).expect("a documented file should be readable")
+}
+
+/// Load every example in [`DOCUMENTS`].
+fn load_documented_examples() -> Vec<TestedExample> {
+    let contents: Vec<_> = DOCUMENTS
+        .iter()
+        .map(|path| (*path, read_document(path)))
+        .collect();
+    let documents: Vec<_> = contents
+        .iter()
+        .map(|(path, text)| (*path, text.as_str()))
+        .collect();
+    load_documents(&documents).expect("documents should load")
+}
+
+/// Return the info string of an example's fence, including rustdoc attributes.
+fn fence_info(example: &TestedExample) -> String {
+    read_document(&example.document)
+        .lines()
+        .nth(example.start_line - 1)
+        .expect("an example starts inside its document")
+        .trim_start_matches(['`', '~'])
+        .trim()
+        .to_owned()
+}
+
+/// Return the first line rustdoc would compile but hide from its rendering.
+///
+/// GitHub shows such a line verbatim, so a reader copying the example would not
+/// get what was tested.
+fn hidden_rustdoc_line(body: &str) -> Option<&str> {
+    body.lines().find(|line| {
+        let code = line.trim_start();
+        code == "#" || code.starts_with("# ")
+    })
+}
+
 fn parsed_manifest() -> toml::Table {
     CARGO_MANIFEST
         .parse()
@@ -115,7 +179,7 @@ fn parsed_manifest() -> toml::Table {
 
 #[test]
 fn every_documented_fence_has_a_known_unique_identifier() {
-    let examples = load_documented_examples().expect("documents should load");
+    let examples = load_documented_examples();
     let actual: BTreeSet<_> = examples.iter().map(|example| example.id.as_str()).collect();
     let expected: BTreeSet<_> = EXPECTED_EXAMPLE_IDS.iter().copied().collect();
     assert_eq!(actual, expected, "documented example registry drifted");
@@ -123,26 +187,36 @@ fn every_documented_fence_has_a_known_unique_identifier() {
 
 #[test]
 fn rust_fences_are_doctests_that_hide_nothing() {
-    for example in load_documented_examples().expect("documents should load") {
-        if example.info.starts_with("rust") || example.info.starts_with("no_run") {
-            assert!(
-                ACCEPTED_RUST_INFO.contains(&example.info.as_str()),
-                "{} in {} uses unsupported fence info '{}'",
-                example.id,
-                example.source,
-                example.info
-            );
-        }
-        if example.is_rust() {
-            let hidden = hidden_rustdoc_line(&example.body);
-            assert!(
-                hidden.is_none(),
-                "{} in {} hides {hidden:?}; readers copying it would not get what was tested",
-                example.id,
-                example.source
-            );
-        }
+    for example in load_documented_examples()
+        .iter()
+        .filter(|example| example.language == "rust")
+    {
+        let info = fence_info(example);
+        assert!(
+            ACCEPTED_RUST_INFO.contains(&info.as_str()),
+            "{} in {} uses unsupported fence info '{info}'",
+            example.id,
+            example.document
+        );
+        let hidden = hidden_rustdoc_line(&example.source);
+        assert!(
+            hidden.is_none(),
+            "{} in {} hides {hidden:?}; readers copying it would not get what was tested",
+            example.id,
+            example.document
+        );
     }
+}
+
+#[rstest]
+#[case::hidden_item("# fn main() {}\nlet x = 1;\n", Some("# fn main() {}"))]
+#[case::hidden_indented("    # let y = 2;\n", Some("    # let y = 2;"))]
+#[case::bare_hash("#\n", Some("#"))]
+#[case::attribute("#[derive(Debug)]\nstruct A;\n", None)]
+#[case::inner_attribute("#![allow(unused)]\n", None)]
+#[case::comment("// # not hidden\nlet x = 1;\n", None)]
+fn hidden_lines_are_detected(#[case] body: &str, #[case] expected: Option<&str>) {
+    assert_eq!(hidden_rustdoc_line(body), expected);
 }
 
 /// Check one `[dependencies]`-style table from a documented manifest.
@@ -186,12 +260,12 @@ fn dependency_examples_name_the_documented_release_and_real_features() {
         .and_then(toml::Value::as_table)
         .expect("Cargo.toml should declare features");
 
-    let examples = load_documented_examples().expect("documents should load");
-    for example in examples
-        .iter()
-        .filter(|example| example.language() == "toml")
-    {
-        let parsed: toml::Table = example.body.parse().expect("example should be valid TOML");
+    let examples = load_documented_examples();
+    for example in examples.iter().filter(|example| example.language == "toml") {
+        let parsed: toml::Table = example
+            .source
+            .parse()
+            .expect("example should be valid TOML");
         let sections = ["dependencies", "dev-dependencies"]
             .iter()
             .filter_map(|section| parsed.get(*section).and_then(toml::Value::as_table));
@@ -208,16 +282,16 @@ fn dependency_examples_name_the_documented_release_and_real_features() {
 /// sample output and code from an earlier release.
 #[test]
 fn every_fence_language_has_a_validator() {
-    for example in load_documented_examples().expect("documents should load") {
+    for example in load_documented_examples() {
         assert!(
             matches!(
-                example.language(),
+                example.language.as_str(),
                 "rust" | "toml" | "bash" | "mermaid" | "text"
             ),
             "{} in {} uses unvalidated language '{}'",
             example.id,
-            example.source,
-            example.language()
+            example.document,
+            example.language
         );
     }
 }
@@ -232,10 +306,7 @@ fn the_readme_links_the_badge_and_the_home_page_in_the_manifest() {
         .expect("Cargo.toml should declare a homepage");
     assert_eq!(homepage, "https://df12.studio/wireframe");
 
-    let (_, readme) = documentation_examples::DOCUMENTS
-        .iter()
-        .find(|(path, _)| *path == "README.md")
-        .expect("README.md is a documented file");
+    let readme = read_document("README.md");
     assert!(readme.contains(&format!("Website: <{homepage}>")));
     assert!(
         readme.contains(&format!("Wireframe v{DOCUMENTED_RELEASE}")),

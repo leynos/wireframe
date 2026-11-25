@@ -4,7 +4,7 @@
 //! command against the manifest, and run the example pair the README promises
 //! the way a reader would: the server first, then the client against it.
 
-use super::{documentation_examples::load_documented_examples, parsed_manifest};
+use super::{load_documented_examples, parsed_manifest};
 
 /// Setup commands that have nothing in this repository to check them against,
 /// other than the clone URL, which must name this project.
@@ -54,12 +54,9 @@ fn assert_example_command_matches_manifest(id: &str, line: &str, manifest: &toml
 #[test]
 fn documented_commands_are_recognized_and_match_the_repository() {
     let manifest = parsed_manifest();
-    let examples = load_documented_examples().expect("documents should load");
-    for example in examples
-        .iter()
-        .filter(|example| example.language() == "bash")
-    {
-        for line in example.body.lines() {
+    let examples = load_documented_examples();
+    for example in examples.iter().filter(|example| example.language == "bash") {
+        for line in example.source.lines() {
             if line.starts_with("cargo run --example") {
                 assert_example_command_matches_manifest(&example.id, line, &manifest);
             } else {

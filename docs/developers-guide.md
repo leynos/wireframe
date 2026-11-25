@@ -1628,41 +1628,6 @@ changed-line gate a reviewer sees on a pull request is CodeScene's own check
 against what this workflow published, so this upload must succeed before that
 gate can evaluate anything.
 
-## User-facing documentation examples
-
-Every fenced example in `README.md`, `docs/users-guide.md`, and
-`docs/v0-4-0-migration-guide.md` is a contract. This follows the approach used
-by `leynos/netsuke`. A `<!-- tested-example: <identifier> -->` marker must
-precede each fence, and `tests/documentation_examples/mod.rs` rejects unmarked,
-indented, unterminated, and duplicate fences, so an example cannot be published
-untested.
-
-Each language has one validator:
-
-- `rust` fences run as doctests through the `#[cfg(doctest)]` items in
-  `src/lib.rs`. Prefer a runnable example. Use `no_run` only where the example
-  needs a server it does not start, and never `ignore`. Rustdoc's hidden `#`
-  lines are rejected, because GitHub shows them verbatim, and a reader copying
-  the example would not get what was tested. Write complete programs instead.
-- `toml` fences must parse, pin `wireframe` and `wireframe_testing` to the
-  version in `Cargo.toml`, and name real features.
-- `bash` fences may contain only commands that
-  `tests/documentation_examples_tests/shell_commands.rs` recognizes. A
-  `cargo run --example` line must match the manifest, and a further test runs
-  the README's echo server and login client against each other.
-- `mermaid` fences are validated by `make nixie`.
-- `text` fences are illustrations, such as sample output, and carry no contract.
-
-To add an example, add its marker, list its identifier in
-`EXPECTED_EXAMPLE_IDS`, and run `make test-doc` and
-`make test-documentation-contracts`. The contracts also check that relative
-links resolve to a file and a heading. Bumping the crate version fails these
-contracts until every install line and the README's release statement match it.
-
-Be careful with prose as well: a compiled example does not prove the sentences
-around it. Before describing what the runtime does, confirm that something
-outside the feature's own module calls it.
-
 ## Mutation testing
 
 Scheduled mutation testing runs in CI via
@@ -2815,6 +2780,37 @@ and in that repository's guide-acceptance criteria; importing it here is a
 follow-up once it lands. Until then the enforcement above is the strongest form
 of the requirement this repository can apply, and issue #881 tracks the fences
 that still need a code change before they can compile.
+
+### The documents a new user reads first
+
+`README.md`, `docs/users-guide.md`, and the current migration guide are held to
+more, following the approach used by `leynos/netsuke`.
+`tests/documentation_examples_tests.rs` requires every fence in them to have a
+validator:
+
+- `rust` fences must run or compile. Use `no_run` only where the example needs a
+  server it does not start, and never `ignore`. Rustdoc's hidden `#` lines are
+  rejected, because GitHub shows them verbatim, and a reader copying the
+  example would not get what was tested. Write complete programs instead.
+- `toml` fences must parse, pin `wireframe` and `wireframe_testing` to the
+  workspace version, and name real features.
+- `bash` fences may contain only commands that
+  `tests/documentation_examples_tests/shell_commands.rs` recognizes. A
+  `cargo run --example` line must match the manifest, and a further test runs
+  the README's echo server and login client against each other.
+- `mermaid` fences are validated by `make nixie`.
+- `text` fences are illustrations, such as sample output, and carry no contract.
+
+To add an example, add its marker, list its identifier in
+`EXPECTED_EXAMPLE_IDS`, and run `make test-doc` and
+`make test-documentation-contracts`. The contracts also check that relative
+links resolve to a file and a heading, and that the README names the workspace
+version. `make test-documentation-contracts` is its own CI step, because the
+coverage run enables default features only.
+
+Be careful with prose as well: a compiled example does not prove the sentences
+around it. Before describing what the runtime does, confirm that something
+outside the feature's own module calls it.
 
 When adding a user-facing guide, add it to both the shared loader inventory and
 the rustdoc test module. Give each fence a stable marker and validate the
