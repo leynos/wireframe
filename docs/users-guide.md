@@ -822,6 +822,85 @@ impl RecoveryPolicyHook for StrictRecovery {
 }
 ```
 
+Install the hook on the application builder. `with_recovery_hook` stores the
+hook for every connection the application serves, and `recovery_config` sets
+the global limits: how many consecutive frames a `Drop` may discard and whether
+dropped frames are logged. The configured fallback quarantine pause is
+currently inactive, because an installed hook supplies the pause through
+`RecoveryPolicyHook::quarantine_duration` and a missing hook disconnects:
+
+<!-- tested-example: users-guide-069 -->
+```rust
+use std::time::Duration;
+
+use wireframe::{
+    app::WireframeApp,
+    codec::{
+        CodecError, CodecErrorContext, RecoveryConfig, RecoveryPolicy, RecoveryPolicyHook,
+    },
+};
+
+struct QuarantineProtocolErrors;
+
+impl RecoveryPolicyHook for QuarantineProtocolErrors {
+    fn recovery_policy(&self, error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
+        match error {
+            CodecError::Protocol(_) => RecoveryPolicy::Quarantine,
+            other => other.default_recovery_policy(),
+        }
+    }
+
+    fn quarantine_duration(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
+let app: WireframeApp = WireframeApp::new()
+    .expect("build the application")
+    .with_recovery_hook(QuarantineProtocolErrors)
+    .recovery_config(RecoveryConfig::default().max_consecutive_drops(3));
+let _ = app;
+```
+
+**How a decode failure is handled:**
+
+When a decoder on a live connection served by `WireframeApp` returns an error,
+the connection loop applies this order:
+
+1. With no hook installed, the connection disconnects and the original error
+   reaches the teardown path. Nothing else is consulted.
+2. Otherwise the hook's `recovery_policy` selects a policy.
+3. The loop overrides that selection in three cases. A failure from
+   `decode_eof` always disconnects, because the peer has stopped sending.
+   `Drop` or `Quarantine` chosen for a failure that consumed no bytes
+   disconnects, because the same malformed prefix would be decoded again. A
+   `Drop` beyond `RecoveryConfig::max_consecutive_drops` disconnects, and the
+   counter restarts whenever a frame decodes successfully.
+4. For an applied `Quarantine`, the hook's `quarantine_duration` supplies the
+   pause, so a hook that varies its pause per error is honoured.
+   `RecoveryConfig::quarantine_duration` is a fallback that never takes effect
+   today, because a quarantine can only be applied when a hook selects it.
+5. The hook's `on_error` receives the error and the *applied* policy,
+   immediately before the loop acts on it.
+
+An applied `Drop` discards the malformed frame and keeps reading. An applied
+`Quarantine` pauses the connection, purges expired assembly state, and then
+keeps reading. An applied `Disconnect` returns the original error and ends the
+connection. A clean close at a frame boundary is not a failure: it ends the
+connection without a recovery decision.
+
+A `decode_eof` failure ends the connection even when it is read while a
+response or a queued push write is still pending. That read is normally
+buffered for the next frame, but the peer has already stopped sending, so there
+is no next frame to buffer it for; the failure is reported as the disconnect it
+is and the connection ends. This is what lets the protocol's `on_eof` hook
+observe a peer that truncates mid-frame while a handler is still running.
+
+Recovery only works when the decoder consumes the malformed frame and leaves
+its framing state valid before returning the error. A decoder that returns an
+error without consuming any bytes would be offered the same input again, so the
+loop escalates that case to a disconnect.
+
 `CodecErrorContext` provides connection metadata for policy decisions:
 
 <!-- tested-example: users-guide-020 -->
@@ -833,6 +912,13 @@ let ctx = CodecErrorContext::new()
     .with_correlation_id(123)
     .with_codec_state("seq=5");
 ```
+
+The connection loop fills `peer_address` when the server accepted a TCP
+connection, so a hook can attribute a decode failure to the peer that caused
+it. The other fields stay empty on that path: a decode failure happens before a
+frame exists, so there is no correlation identifier to report, and the
+connection loop tracks neither a per-connection identifier nor generic codec
+state.
 
 **Protocol hooks for truncation:**
 
@@ -1026,15 +1112,30 @@ impl WireframeProtocol for MyProtocol {
 
 **Metrics:**
 
-When the `metrics` feature is enabled, codec errors increment the
-`wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
-labels:
+When the `metrics` feature is enabled, every decode failure increments the
+`wireframe_codec_errors_total` counter exactly once, with `error_type` and
+`recovery_policy` labels. The `recovery_policy` label carries the policy the
+connection loop applied, not the policy the hook selected, so it never reports
+a drop or quarantine that was escalated to a disconnect:
 
 <!-- tested-example: users-guide-022 -->
 ```text
 wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
 wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
 ```
+
+The label also reports a disconnect for a failure the connection could no
+longer act on, such as one buffered while a response ran that then ended the
+connection, or one still buffered when shutdown ended the read: no selected
+policy was applied, so none is reported.
+
+A decoder that reports a structured `CodecError` is classified from that value,
+so its `error_type` label names the real category. The built-in
+`LengthDelimitedFrameCodec` is no exception: a length prefix beyond
+`max_frame_length` is recorded as `error_type="framing"`, not `"io"`. Because
+that decoder leaves the offending header unconsumed, the zero-consumption
+fallback escalates the default `Drop` for an oversized frame to a disconnect,
+and the metric reports the applied policy.
 
 ## Packets, payloads, and serialization
 
@@ -4007,10 +4108,41 @@ std::hint::black_box(count);
 # Ok::<(), String>(())
 ```
 
+`count_allocations` reports the number of allocation operations. When the byte
+total matters as well — a test bounding a stage by its payload size, for
+instance — `count_allocation_traffic` runs the same window and returns an
+`AllocationTraffic` with both readings:
+
+<!-- tested-example: users-guide-068 -->
+```rust
+use wireframe_testing::benchmark_alloc_support::count_allocation_traffic;
+
+let traffic = count_allocation_traffic(|| {
+    let buffer: Vec<u8> = vec![0; 1024];
+    std::hint::black_box(buffer.len());
+    Ok(())
+})?;
+std::hint::black_box(traffic.operations);
+std::hint::black_box(traffic.bytes);
+# Ok::<(), String>(())
+```
+
+`AllocationTraffic::bytes` counts the memory a window requested, not the memory
+copied or freed: a reallocation that grows a buffer contributes only the
+growth, because that is what `stats_alloc` records. It is therefore not a
+copied-byte measure; use `wireframe::benchmark_counters` for payload copies.
+
 The window closes on the error path too, so a failed measurement cannot leave
 counting enabled for the rest of the process. `count_allocations_or_panic`
 wraps the same helper for benchmark binaries that treat a failed measurement as
 fatal.
+
+A benchmark binary should call `verify_allocation_harness` once before
+measuring. It proves the installed allocator reports what the invariants depend
+on: an allocation-free closure reports no traffic, a known allocation is
+observed, and growing a buffer reports more traffic than allocating it once. A
+binary whose counting gate never opened would otherwise record a silent zero
+for every baseline.
 
 The recorded value counts both fresh allocations and reallocations: a buffer
 that grows in place is still a buffer that asked the allocator for memory. It
@@ -4027,6 +4159,56 @@ This module replaces the `CountingAllocator` type that earlier releases
 exported. Install `INSTRUMENTED_SYSTEM` as shown above instead; see the
 [v0.3.0 to v0.4.0 migration guide](v0-3-0-to-v0-4-0-migration-guide.md) for the
 change.
+
+## Copied-byte counters
+
+The `benchmark-counters` feature exposes the copy-site instrumentation behind
+the repository's zero-copy baselines. It is a harness facility, not an
+application feature: each recorder is an atomic increment on a hot path, so
+enable the feature only in benchmarks and tests. The
+`wireframe::benchmark_counters` API is available either way and reports zero
+while the feature is disabled, so a caller compiles with or without it.
+
+`CopiedBytes` reports the bytes copied at each seam since the last `reset`:
+
+| Field          | Records                                                |
+| -------------- | ------------------------------------------------------ |
+| `serialized`   | Bytes a serializer wrote into the vector it returns.   |
+| `handoff`      | Bytes copied when a serializer vector became `Bytes`.  |
+| `framed`       | Bytes copied into a codec write buffer while framing.  |
+| `deserialized` | Bytes copied when an inbound frame became an envelope. |
+
+`snapshot` reads the counters, `reset` clears them, and `record_serialized`,
+`record_handoff`, `record_framed`, and `record_deserialized` record bytes
+directly. Call `reset` before a measurement and `snapshot` after it: the
+counters are process-global and accumulate across every thread.
+`CopiedBytes::total` sums the seams, and `per_operation` divides each field by
+a message count for a per-message figure.
+
+The `handoff` field counts payload bytes copied when the hand-off cannot keep
+the buffer in place. With `bytes` 1.12.x, `bytes_from_vec` moves a vector whose
+length equals its capacity in place, so `handoff` stays zero and the hand-off
+allocates nothing. A vector with spare capacity keeps its payload pointer but
+allocates one small control block, which `handoff` does not charge.
+
+## Pipeline benchmark harness
+
+`wireframe_testing`'s `pipeline-benchmarks` feature adds helpers that drive the
+benchmark harness's own pipeline, so a benchmark and a test measure the same
+scenario. `middleware_payload_handoff` and `hook_payload_handoff` return a
+`StageOutcome` holding the payload's arrival and departure addresses, the
+returned bytes, and `is_payload_preserved`, which reports whether the stage
+returned the buffer it was given at the same address. A copy the stage returns
+in a new buffer reports `false`; a copy it discards goes undetected by this
+method. `measure_middleware_passthrough_buffer` times a chain over a buffer the
+caller built, which keeps the buffer's own allocation outside an allocation
+window.
+
+These helpers select access through `AccessMode`: `ReadOnly` inspects the
+payload, `Mutating` rewrites it, and `Copying` is a seeded fault that must
+relocate the buffer. They do not construct a `wireframe::App`, so their results
+describe the benchmark harness chain rather than an application's middleware
+stack.
 
 ## Mutation testing
 
@@ -4079,7 +4261,7 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/prepared_app.rs` and
+[^6]: Implemented in `src/app/prepared_app/` and
       `src/app/inbound_handler/mod.rs`.
 [^7]: Implemented in `src/app/inbound_handler/core.rs`.
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).

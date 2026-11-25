@@ -30,6 +30,7 @@ use super::{
         envelope::{Envelope, Packet},
         frame_handling::{self, FrameOutcome},
         memory_budgets::MemoryBudgets,
+        recovery_codec::DecodedItem,
     },
     MAX_DESER_FAILURES,
     actor::{
@@ -41,10 +42,11 @@ use super::{
     dispatch::parse_envelope,
     frames::InboundFrames,
     framing::{prepare_connection_framing, report_truncation},
+    recovery,
     stream_dispatch::{self, DispatchContext},
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks},
     message::{DecodeWith, EncodeWith},
@@ -81,6 +83,10 @@ where
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
@@ -111,7 +117,9 @@ where
 }
 
 /// Build the inbound buffer and its assembly state for one connection.
-fn build_inbound_frames<F>(state: BoundState<'_, F>) -> InboundFrames<F::Frame>
+fn build_inbound_frames<F>(
+    state: BoundState<'_, F>,
+) -> InboundFrames<DecodedItem<F::Frame>, F::Frame>
 where
     F: FrameCodec,
 {
@@ -248,6 +256,9 @@ where
         effective_budgets,
         read_timeout_ms: connection.read_timeout_ms,
     };
+    let recovery =
+        recovery::RecoveryCoordinator::new(connection.recovery_hook, connection.recovery_config)
+            .with_peer_address(connection.peer_addr);
     let outcome = stream_dispatch::run(stream_dispatch::Connection {
         reader: &mut reader,
         sink: &mut sink,
@@ -256,6 +267,7 @@ where
         ctx: &dispatch,
         shutdown: connection.shutdown,
         peer_eof: &peer_eof,
+        recovery,
         wait: Duration::from_millis(connection.read_timeout_ms),
     })
     .await;

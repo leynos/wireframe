@@ -13,6 +13,37 @@ use crate::{
     serializer::Serializer,
 };
 
+/// Benchmark entry point for the inbound decode seam.
+///
+/// Mirrors the crate-internal envelope decoder for harnesses that live outside
+/// the crate. It exists only with the `test-support` feature and returns the
+/// decoded envelope rather than any internal state, so a caller cannot depend
+/// on how the decode is staged.
+///
+/// # Errors
+///
+/// Returns the decoder's error when `payload` is not a complete envelope, or
+/// when trailing bytes follow it.
+///
+/// # Examples
+///
+/// ```ignore
+/// let (envelope, consumed) = benchmark_decode_envelope(&BincodeSerializer, &frame_payload)?;
+/// assert_eq!(envelope.payload_bytes().len(), payload_len);
+/// ```
+#[cfg(feature = "test-support")]
+#[doc(hidden)]
+pub fn benchmark_decode_envelope<S>(
+    serializer: &S,
+    payload: &[u8],
+) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    Envelope: DecodeWith<S>,
+{
+    parse_envelope(serializer, payload)
+}
+
 /// Decode exactly one envelope, using metadata to select full deserialization.
 pub(super) fn parse_envelope<S>(
     serializer: &S,
@@ -52,6 +83,11 @@ where
         )
         .into());
     }
+    // The envelope owns a freshly allocated payload vector, which is the
+    // inbound copy. Recording from the decoded payload's length measures the
+    // bytes the message holds, not the frame's metadata, and it sits after the
+    // trailing-bytes check so a rejected frame is not counted as decoded.
+    crate::benchmark_counters::record_deserialized(envelope.payload_bytes().len());
     Ok((envelope, consumed))
 }
 

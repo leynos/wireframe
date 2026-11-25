@@ -20,7 +20,9 @@
 //! reports the stage rather than the allocator. Read-only and mutating variants
 //! are separate entry points because the migration's claim is about read-only
 //! paths staying zero-copy, and averaging the two would erase the effect being
-//! measured.
+//! measured. A third variant, [`AccessMode::Copying`], is a seeded fault rather
+//! than a workload: it exists so the invariants that reject a copying stage can
+//! be shown to fail when one is present.
 
 use std::time::Duration;
 
@@ -33,6 +35,13 @@ pub enum AccessMode {
     ReadOnly,
     /// The stage rewrites at least one byte of the frame.
     Mutating,
+    /// Seeded fault: the stage deliberately copies the frame.
+    ///
+    /// This is not a workload the matrix captures. It exists so the read-only
+    /// invariants can show that they reject a copying stage: a bound that no
+    /// seeded fault can break proves nothing about the production path. Never
+    /// include it in a timed row.
+    Copying,
 }
 
 impl AccessMode {
@@ -42,7 +51,35 @@ impl AccessMode {
         match self {
             Self::ReadOnly => "readonly",
             Self::Mutating => "mutating",
+            Self::Copying => "copying",
         }
+    }
+}
+
+/// What one pass through a stage did to the payload buffer.
+///
+/// Addresses are reported as `usize` rather than pointers so the value is a
+/// plain, comparable number: the question is only whether the buffer the stage
+/// returned is the one it was given.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageOutcome {
+    /// Address of the payload buffer when the stage received it.
+    pub arrival_address: usize,
+    /// Address of the payload buffer when the stage returned it.
+    pub departure_address: usize,
+    /// Payload bytes the stage returned.
+    pub payload: Vec<u8>,
+}
+
+impl StageOutcome {
+    /// Whether the stage returned the buffer it was given, unrelocated.
+    ///
+    /// A stage that moves the payload keeps the address; a stage that copies it
+    /// necessarily allocates a different one, because the original is still
+    /// live while the copy is made.
+    #[must_use]
+    pub const fn is_payload_preserved(&self) -> bool {
+        self.arrival_address == self.departure_address
     }
 }
 

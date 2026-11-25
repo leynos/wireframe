@@ -517,6 +517,40 @@ Counting semantics are unchanged: both fresh allocations and reallocations are
 counted, exactly as the removed allocator counted them, so an existing baseline
 stays comparable across the upgrade.
 
+## Copied-byte counters
+
+The `benchmark-counters` feature now reports the inbound copy as well as the
+three outbound seams. `wireframe::benchmark_counters::CopiedBytes` gains a
+`deserialized` field, and `record_deserialized` records the payload a decoded
+frame materializes. The copied-byte gate therefore covers four seams, including
+the inbound copy that roadmap item `11.1.1` removes.
+
+Code that reads fields from a `benchmark_counters::snapshot` needs no change. A
+build that constructs `CopiedBytes` by naming every field must add the new one:
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-027 -->
+```rust,ignore
+// Before
+let copied = CopiedBytes {
+    serialized: 0,
+    handoff: 0,
+    framed: 0,
+};
+```
+
+<!-- tested-example: v0-3-0-to-v0-4-0-migration-guide-028 -->
+```rust
+// After
+use wireframe::benchmark_counters::CopiedBytes;
+
+let copied = CopiedBytes {
+    serialized: 0,
+    handoff: 0,
+    framed: 0,
+    deserialized: 0,
+};
+```
+
 ## Install your own tracing subscriber
 
 `tracing-subscriber` is no longer a runtime dependency of Wireframe; it is a
@@ -796,6 +830,37 @@ written without decoding or re-wrapping, so the adapter does not replace the
 identifier produced by `stream_end_frame` for either streamed or multi-packet
 responses (`before_send` can still rewrite the frame); see the
 [users' guide](users-guide.md#response-producing-routes) for the full contract.
+
+## Decoder recovery on live connections
+
+A decoder failure on a live connection no longer always ends the connection
+without consultation. Install a `RecoveryPolicyHook` with
+`WireframeApp::with_recovery_hook`, and tune the global recovery limits with
+`WireframeApp::recovery_config`. The connection loop then asks the hook for a
+policy on each failure, applies the documented fallbacks, and reports the
+policy it actually applied.
+
+With the `metrics` feature enabled — it is a default feature — every decoder
+failure increments `wireframe_codec_errors_total` once, labelled with the error
+type and the applied policy, so a dashboard can separate framing, protocol,
+I/O, and EOF failures. With no hook installed, the applied policy is still
+`Disconnect`: an application that installs no hook keeps the previous behaviour.
+
+One failure is reported without consulting the hook. When a response ends the
+connection, or the server shuts the connection down, reading stops with a
+failure still buffered behind it, and no selected policy can take effect on a
+connection that is already ending. That failure is reported as the `Disconnect`
+it actually is, so `on_error` and the counter still observe it exactly once.
+The same reporting runs when memory pressure ends the connection before the
+next read, so a buffered failure is never lost behind the pressure error.
+
+The built-in length-delimited codec now classifies an oversized frame as
+`error_type="framing"` rather than `"io"`. A dashboard or alert that filtered on
+`error_type="io"` must also match `framing` to keep counting those failures.
+
+See [codec error handling](users-guide.md#codec-error-handling) in the users'
+guide for the error taxonomy, the default policy per error type, and the full
+decision order and fallbacks.
 
 ## Push queues on server connections
 

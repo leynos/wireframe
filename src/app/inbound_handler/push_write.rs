@@ -85,17 +85,17 @@ impl FrameWrite {
 /// counted once. The shutdown arm records its own abandonment because it
 /// returns before `finish_write` runs; the bounded path records after
 /// `finish_write` has classified the bound.
-pub(super) async fn write_frame<S, K, F, R>(
+pub(super) async fn write_frame<S, K, F, R, I>(
     transport: &mut PushTransport<'_, S, K, F>,
     frame: F::Frame,
-    batch: &mut PushBatch<'_, F, R>,
+    batch: &mut PushBatch<'_, F, R, I>,
     peer_closed: bool,
 ) -> io::Result<FrameWrite>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<I>> + Unpin,
 {
     // Read the identity before the write borrows the transport: the write
     // future lives until this call returns, so the field is unreachable after.
@@ -128,7 +128,16 @@ where
                     return Ok(FrameWrite::stopped(closed));
                 }
                 next = batch.reader.next() => match next {
-                    Some(Ok(next_frame)) => *batch.pending_frame = Some(next_frame),
+                    Some(Ok(next_frame)) => {
+                        *batch.pending_frame = Some(next_frame);
+                        // One buffered item is the whole contract: a second
+                        // read would overwrite it, and when the first item is
+                        // a decoder failure its recovery decision, callback and
+                        // metric would never happen. The write still has to
+                        // finish, so leave the loop and let the shared finish
+                        // below bound it.
+                        break;
+                    }
                     Some(Err(error)) => return Err(error),
                     None => {
                         batch.peer_eof.cancel();
@@ -155,9 +164,9 @@ where
 /// The read half is no longer polled here, so `read_deadline` would otherwise
 /// never be observed and a partial assembly below the memory-pressure threshold
 /// could stay buffered past its timeout.
-async fn finish_write_purging<W, F, R>(
+async fn finish_write_purging<W, F, R, I>(
     write: Pin<&mut W>,
-    batch: &mut PushBatch<'_, F, R>,
+    batch: &mut PushBatch<'_, F, R, I>,
     diagnostics: PushWriteDiagnostics,
 ) -> io::Result<bool>
 where

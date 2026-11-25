@@ -107,7 +107,7 @@ pub trait Serializer {
     /// second decode pass would be redundant.
     ///
     /// This flag is consulted by the inbound handler in
-    /// `src/app/inbound_handler.rs` (`parse_envelope`).
+    /// `src/app/inbound_handler/dispatch.rs` (`parse_envelope`).
     #[must_use]
     fn should_deserialize_after_parse(&self) -> bool { true }
 }

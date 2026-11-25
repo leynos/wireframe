@@ -19,9 +19,11 @@ use super::{
     super::{
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
+        recovery_codec::DecodedItem,
     },
     actor::observe_peer,
     peer_watch::{PeerObservation, handle_watching_peer},
+    recovery::settle_dispatch,
     stream_actions::{drain_parked, fail_body_ending_with},
     stream_dispatch::Connection,
     stream_frame::dispatch_frame,
@@ -54,7 +56,7 @@ impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
@@ -86,7 +88,7 @@ where
         let (unobserved, cause) = observe_peer(handles.actor, self.peer_eof);
         let observation = PeerObservation::new(self.peer_eof, &unobserved, &cause);
         let pending = &mut self.inbound.pending;
-        match action {
+        let dispatch = match action {
             ObservedAction::Frame(frame) => {
                 handle_watching_peer(
                     dispatch_frame(frame, state, handles),
@@ -133,6 +135,9 @@ where
                 )
                 .await
             }
-        }
+        };
+        // A dispatch that ends the connection abandons any failure buffered
+        // behind it, so the failure is reported here as the disconnect it is.
+        settle_dispatch(dispatch, self.inbound, &self.recovery)
     }
 }

@@ -16,6 +16,39 @@ All notable changes to this project will be documented in this file.
   [users' guide](docs/users-guide.md#streaming-request-body-consumption).
   ([#876](https://github.com/leynos/wireframe/issues/876))
 
+- Consult `RecoveryPolicyHook` on decoder failures from live server
+  connections and, with the default `metrics` feature, emit
+  `wireframe_codec_errors_total` once per failure, labelled with the error type
+  and the applied policy. With no hook installed the applied policy remains
+  disconnect, and a failure buffered when reading stops for a reason other than
+  that failure — a response that ended the connection, a server shutdown, or
+  memory pressure — is reported as that disconnect without consulting the hook.
+  An end-of-stream (`decode_eof`) failure read while a response or a queued
+  push write is still pending also ends the connection, rather than waiting for
+  a frame that can never arrive, so the protocol's `on_eof` hook still observes
+  a peer that truncates mid-frame. The built-in length-delimited codec now
+  classifies an oversized frame as `error_type="framing"` instead of `"io"`.
+  ([#878](https://github.com/leynos/wireframe/issues/878))
+
+- **Breaking:** Collapse the avoidable inner sharing beneath `PreparedApp`.
+  `Arc<PreparedApp>` is the one shared root for every connection, so the
+  prepared application now boxes its serializer, lifecycle callbacks, and
+  message assembler, and route handlers move into the prepared services without
+  an extra clone. Connections borrow these values, which means the connection
+  path no longer requires `S: Clone`. The message assembler gets its own
+  reference-counting layer only if a caller clones it out of the app, which the
+  new borrowed accessor rules out: `WireframeApp::message_assembler` and
+  `PreparedApp::message_assembler` now return `Option<&dyn MessageAssembler>`
+  rather than the borrowed `Option<&Arc<dyn MessageAssembler>>` that callers
+  had to clone. A caller that needs an assembler to outlive the application
+  must keep its own handle — the trait has no `Clone` bound, and an `Arc` is
+  not installed as one — so wrap the shared value in a forwarding newtype that
+  implements `MessageAssembler` and install a separate value. The installed
+  protocol keeps its `Arc`, because a connection holds exactly one strong
+  reference to it. See the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
+  ([#648](https://github.com/leynos/wireframe/issues/648), [#598](https://github.com/leynos/wireframe/issues/598))
+
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
   `on_eof` now runs when a peer disconnects mid-header or mid-frame, receiving
   the structured `EofError` and every byte the framed reader still held for the
@@ -133,10 +166,9 @@ All notable changes to this project will be documented in this file.
   `wireframe_testing`.
 
 - Correct rustdoc that overstated runtime integration: streaming request
-  bodies, extractors and `app_data` are not delivered to route handlers,
-  `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,
-  the runtime does not emit `wireframe_codec_errors_total`, `read_timeout_ms`
-  does not close idle connections, and pool sockets open on first use. Mark
+  bodies, extractors and `app_data` are not delivered to route handlers, and
+  `on_eof` is not consulted by the connection loop. `read_timeout_ms` does not
+  close idle connections, and pool sockets open on first use. Mark
   `WireframeApp::handle_connection*` deprecated since 0.4.0, the release that
   deprecates them, and reopen roadmap item 8.1.4.
 
@@ -146,6 +178,17 @@ All notable changes to this project will be documented in this file.
   mutation target, and re-export `drive_with_frame_with_capacity_mut` and
   `drive_with_frames_with_capacity_mut` from its crate root.
   ([#578](https://github.com/leynos/wireframe/issues/578))
+
+- **Breaking:** `benchmark_counters::CopiedBytes` gains a `deserialized` field,
+  and `benchmark_counters::record_deserialized` records the payload a decoded
+  frame materializes. The zero-copy copied-byte gate therefore covers four
+  seams rather than three, including the inbound copy that roadmap item
+  `11.1.1` removes. A `benchmark-counters` build that constructs `CopiedBytes`
+  exhaustively must name the new field; see the
+  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#copied-byte-counters).
+  The same change adds a buffer-identity and allocation-invariant gate to
+  `wireframe_testing`, and a feature-gate probe proving the recorders stay
+  inert without the feature.
 
 - **Breaking:** Protocol `before_send` hooks now run for `WireframeApp`
   handler responses, not only actor-driven push and multi-packet frames. The

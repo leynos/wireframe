@@ -12,7 +12,13 @@ use std::{fmt::Write as _, hint::black_box, time::Duration};
 use criterion::{BenchmarkId, Criterion};
 use tokio::runtime::Runtime;
 use wireframe_testing::{
-    benchmark_alloc_support::{INSTRUMENTED_SYSTEM, StatsAlloc, System, count_allocations},
+    benchmark_alloc_support::{
+        INSTRUMENTED_SYSTEM,
+        StatsAlloc,
+        System,
+        count_allocations,
+        verify_allocation_harness,
+    },
     codec_benchmarks::{
         AccessMode,
         BenchmarkWorkload,
@@ -192,7 +198,11 @@ fn benchmark_outbound_allocations(c: &mut Criterion) {
 }
 
 /// Entrypoint for the pipeline allocation baselines.
+///
+/// The harness self-check runs first: every label below embeds a count, so a
+/// gate that never opened or never closed would make all of them meaningless.
 fn main() {
+    verify_allocation_harness();
     let runtime = benchmark_runtime();
     let mut criterion = Criterion::default().configure_from_args();
     benchmark_middleware_allocations(&mut criterion, &runtime);

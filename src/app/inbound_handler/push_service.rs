@@ -97,7 +97,7 @@ where
 /// Grouped because a push write keeps polling the read half while it is
 /// pending, so the frames and the observation state travel together; a
 /// positional list of five arguments is easy to pass in the wrong order.
-pub(super) struct PushBatch<'a, F, R>
+pub(super) struct PushBatch<'a, F, R, I>
 where
     F: FrameCodec,
 {
@@ -107,8 +107,8 @@ where
     pub(super) priority: Option<PushPriority>,
     /// Read half of the connection's framed transport.
     pub(super) reader: &'a mut R,
-    /// Frame read during the write, kept for the next dispatch.
-    pub(super) pending_frame: &'a mut Option<F::Frame>,
+    /// Item read during the write, kept for the next dispatch.
+    pub(super) pending_frame: &'a mut Option<I>,
     /// Inbound state that keeps expiring while the write is stalled.
     pub(super) expiry: InboundExpiry<'a>,
     /// Cancelled only by a clean EOF, which is permanent for the connection.
@@ -138,16 +138,16 @@ where
 /// # Errors
 ///
 /// Returns the transport error raised by the write or by the read half.
-pub(super) async fn deliver_pushes<S, K, F, R>(
+pub(super) async fn deliver_pushes<S, K, F, R, I>(
     transport: &mut PushTransport<'_, S, K, F>,
     actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    mut batch: PushBatch<'_, F, R>,
+    mut batch: PushBatch<'_, F, R, I>,
 ) -> io::Result<bool>
 where
     S: Serializer + Send + Sync,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<I>> + Unpin,
 {
     let mut peer_closed = batch.peer_eof.is_cancelled();
     for frame in std::mem::take(&mut batch.frames) {

@@ -53,3 +53,4 @@ mod tested_examples_scenarios;
 mod testkit_export_scenarios;
 mod unified_codec_scenarios;
 mod workspace_manifest_scenarios;
+mod zero_copy_baseline_scenarios;

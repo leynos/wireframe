@@ -53,11 +53,12 @@
 
 mod actor;
 mod compat;
+mod recovery;
 // The connection-local runtime drives the same frame loop from outside this
 // module, so the processing entry point is crate-visible.
 pub(crate) mod core;
 
-mod dispatch;
+pub(crate) mod dispatch;
 
 mod frames;
 
@@ -105,6 +106,8 @@ mod stream_outcome_support;
 mod stream_types;
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+#[cfg(feature = "test-support")]
+pub use dispatch::benchmark_decode_envelope;
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
@@ -119,7 +122,7 @@ use super::{
     middleware_types::{Middleware, StreamingHandler},
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
@@ -171,6 +174,10 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -208,6 +215,8 @@ where
         fragmentation,
         protocol_hooks,
         memory_budgets,
+        recovery_hook,
+        recovery_config,
         read_timeout_ms,
         shutdown,
         push_queues,
@@ -226,6 +235,8 @@ where
             fragmentation,
             protocol_hooks,
             memory_budgets,
+            recovery_hook,
+            recovery_config,
             read_timeout_ms,
             shutdown,
             push_queues,

@@ -31,12 +31,12 @@ record the consumer evidence, validation profiles, and delivery order.
 Namespace is retired. Each lane now sits where the kind of work decides, rather
 than all four repository-owned lanes sharing one profile.
 
-| Workflow                 | Job                 | Trigger            | Runner                | Ceiling |
-| ------------------------ | ------------------- | ------------------ | --------------------- | ------- |
-| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2` | 60 min  |
-| `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4` | 20 min  |
-| `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`       | 60 min  |
-| `delayed-pr-comment.yml` | `delay_and_comment` | dispatch           | `ubuntu-latest`       | none    |
+| Workflow                 | Job               | Trigger            | Runner                  | Ceiling |
+| ------------------------ | ----------------- | ------------------ | ----------------------- | ------- |
+| `ci.yml`                 | `build-test`      | pull request, push | `ubicloud-standard-2`   | 60 min  |
+| `coverage-main.yml`      | `coverage-upload` | push               | `ubicloud-standard-4`   | 20 min  |
+| `advanced-tests.yml`     | `advanced`        | schedule           | `ubuntu-latest`         | 60 min  |
+| `delayed-pr-comment.yml` | `delayed-comment` | dispatch           | callee: `ubuntu-latest` | callee  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
@@ -286,13 +286,13 @@ every night since at least 2026-09-09 and its last green run was 2025-10-04 at
 32 seconds, so 60 minutes is generous enough not to mask the repair when it
 lands.
 
-`delay_and_comment` declares no ceiling, deliberately. Its entire duration is a
-`sleep` of the caller's `delay_minutes` input, so any fixed ceiling cancels a
-legitimate longer delay: it would fire exactly when the delay became
-interesting, which inverts the failure a ceiling exists to prevent. The lane is
-GitHub-hosted, so the six-hour default costs nothing.
-`ci_runner_placement_test.py` asserts that absence with its reason, so it reads
-as a decision rather than as the gap the neighbouring test looks for.
+`delayed-comment` is a caller of the shared `delayed-pr-comment.yml` reusable
+workflow in `leynos/shared-actions`, which owns the runner (`ubuntu-latest`)
+and the job ceiling. This repository used to forbid any ceiling on the old
+inline job, because a fixed ceiling would cancel a legitimate longer delay. The
+shared workflow resolves that by capping the delay at 345 minutes and setting
+the ceiling to 355, just under GitHub's 360-minute limit, so a valid delay is
+never cancelled and the contract no longer pins the absence of a ceiling.
 
 ### The contract
 
@@ -310,11 +310,10 @@ stand in for `head.repo.fork` and `github.actor` cannot stand in for the
 author; pins placement by `(workflow, job id)` coordinate and compares that set
 against the tree's jobs in both directions; pins each ceiling by value and
 requires one on every job that can select any `ubicloud-` label; asserts the
-delayed lane has none; asserts the two reusable callers declare no runner; and
-compares `.github/actionlint.yaml` against the labels in use in both
-directions. That last comparison is what retires `namespace-profile-default`
-from the registry rather than leaving it behind to authorize a runner family
-nobody uses.
+three reusable callers declare no runner; and compares
+`.github/actionlint.yaml` against the labels in use in both directions. That
+last comparison is what retires `namespace-profile-default` from the registry
+rather than leaving it behind to authorize a runner family nobody uses.
 
 It also checks that the reviewed tables are total against each other, which is
 what stops a lane escaping review by being left out of one of them. Every other
@@ -712,6 +711,67 @@ are:
 
 [adr-014-addenda]: adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md
 
+### Inbound recovery boundary
+
+The codec driver wraps each connection's codec in a recovery decoder, so
+`decode` and `decode_eof` errors arrive in band as `DecodedItem::Failure`
+rather than as a stream error. The read loop therefore keeps the framed
+transport and its buffering state intact while it decides what the failure
+means.
+
+`RecoveryCoordinator`, in `src/app/inbound_handler/` (`recovery.rs`,
+`recovery_decision.rs`, `recovery_loop.rs`, and `frames.rs`), is the single
+place that consults `RecoveryPolicyHook` for a decoder failure. It applies the
+documented decision order and its fallbacks, reports the applied policy — which
+a fallback may have escalated from the hook's selection — to `on_error` and to
+the log, and emits `wireframe_codec_errors_total` once per failure, labelled
+with the error type and the applied policy. The counter is gated behind the
+`metrics` feature, which is on by default, and
+`crate::metrics::inc_codec_error` is a no-op without it, so the `on_error`
+callback and the log line are the reporting a build without the feature still
+makes. With no hook installed, the applied policy is `Disconnect`, and the
+decoder's original error reaches the teardown path unchanged. Reporting a
+failure buffered when the connection stops reading is the one exception: no
+selected policy can take effect there, so `report_terminal` reports the applied
+disconnect without consulting the hook.
+
+Consultation, decision, recording, and reporting stay apart. `consider` is the
+only step that consults the hook: it asks for a policy, resolves the fallbacks,
+asks for a quarantine duration only when one will be applied, and describes the
+answer as a `Selection`. `decide` is then a pure query: it takes that
+`Selection` and the stored drop streak and returns a `Decision` naming the
+selected and applied policies, the action, and the streak to store, without
+reaching the hook or writing any of them. `record_failure` then records that
+streak and reports the decision through `publish`, the one command that calls
+`on_error`, increments the counter, and logs. Keeping the steps apart leaves
+`publish` as the only emitter, so a record cannot be made without naming the
+policy it applied, and a decision taken on its own neither consults the hook
+nor emits anything.
+
+`crate::metrics` is the reporting sink rather than a trait threaded through the
+coordinator: an application installs the exporter's recorder once, and a test
+installs a `DebuggingRecorder` snapshotter, which is the same injection point
+for both. `deciding_changes_no_metric_hook_or_counter_state` uses a stateful
+hook and that recorder to prove the pure step consults nothing and emits
+nothing.
+
+An end-of-stream failure is the one case the loop cannot buffer and decide
+later. `recovery_loop::hold_or_end` ends the connection on a `decode_eof`
+failure read while a response or a push write is pending, reporting it as the
+disconnect it is first: the peer has stopped sending, so no later frame can
+justify continuing, and buffering it would leave the connection waiting on a
+read that can never yield anything. Every other in-band failure is held in
+`InboundFrames::pending` for the next dispatch, which is where its policy is
+applied. Truncation reporting is separate and still runs at the loop's single
+error boundary: `report_truncation` hands the whole abandoned frame — length
+prefix included — to the protocol's `on_eof` hook, so a peer that vanishes
+mid-frame is observed whichever step noticed it.
+
+The prepared application and the rebuild helpers are split to match. Prepared
+state lives in `src/app/prepared_app/mod.rs`, with the read-only surface split
+into `src/app/prepared_app/accessors.rs`; the shared type-parameter rebuild
+helpers live in `src/app/builder/rebuild.rs`.
+
 ## Runtime ownership model
 
 Three decision records govern runtime ownership and task-lifetime boundaries
@@ -773,10 +833,49 @@ connection task. Deferring them means a pending setup cannot clone a custom
 codec or reserve the maximum frame buffer, and no codec is initialized before
 setup establishes its state.
 
-Peer addresses and connection identifiers are absent from the processing
-context: the entry points accept a generic `AsyncRead + AsyncWrite` stream, so
-the runtime owns none. Envelope correlation identifiers are per-frame state and
-stay on the decoded envelope; the connection-task span carries `peer_addr`.
+The processing context does carry the connection's identity. `InboundConfig`
+records the application-wide settings preparation resolved, and
+`ConnectionProcessingContext` adds the per-attempt values, including the
+optional peer address and the shutdown token. `StreamProcessingContext` is the
+subset the frame loop needs, so `ConnectionLoop` can name the peer in
+diagnostics and in the recovery hook's `CodecErrorContext`, and the actor can
+register its push handle under a connection identifier. Only the entry point
+decides whether a peer address exists: `handle_connection_with_shutdown`
+receives the one the accept loop resolved, while the public
+`handle_connection_result` and `handle_connection` have none to report and pass
+`None`. Envelope correlation identifiers remain per-frame state on the decoded
+envelope.
+
+The loop's own boundaries are worth knowing when reading or extending it:
+
+- `src/app/combined_codec.rs` — `connection_codec` builds the
+  `ConnectionCodec` that frames a stream, so the codec's own state stays
+  per-connection.
+- `src/app/recovery_codec.rs` — `RecoveryDecoder` turns decoder errors into
+  `DecodedItem::Failure` values instead of ending the stream.
+- `src/app/inbound_handler/framing.rs` — `prepare_connection_framing` splits a
+  stream into `TransportSink` and `TransportStream`, the two halves the loop
+  writes and reads through.
+- `src/app/inbound_handler/frames.rs` — `InboundFrames` holds the buffered item
+  and the timeout state, and `InboundExpiry` is the view a write uses to purge
+  it.
+- `src/app/inbound_handler/dispatch.rs` — `parse_envelope` and `handle_frame`
+  turn a decoded frame into middleware work.
+- `src/app/inbound_handler/core_dispatch.rs` — `ConnectionLoop::handle_step`
+  resolves one stream step, and its private `dispatch` handles a decoded frame
+  and settles the result, so a failure buffered behind a response that ends the
+  connection is still reported.
+- `src/app/inbound_handler/push_service.rs` and `push_write.rs` —
+  `StreamStep`, `StreamWait`, `next_stream_step`, `PushBatch`, `PushTransport`,
+  `deliver_pushes`, and `drain_queued` are how a push batch competes with the
+  next inbound frame; `push_write.rs` owns the single-frame write.
+- `src/app/inbound_handler/core_pushes.rs` — `ConnectionLoop::write_pushes`
+  hands a push batch to `deliver_pushes`, and `drain_pushes` finishes a lane a
+  producer left queued when the peer half-closed; both reach `push_write.rs`
+  through `push_service.rs`.
+- `src/app/inbound_handler/peer_watch.rs` — `PeerObservation` and
+  `handle_watching_peer` notice a peer that disconnected while a frame was
+  being handled.
 
 `process_connection` is the single entry point and drives the runtime. `run`
 destructures the staged runtime and wraps initialization together with inbound
@@ -922,6 +1021,13 @@ drained its tracker. Clones converge on that one terminal outcome. Dropping the
 final `ServerShutdown` clone also requests shutdown; keep a clone alive and
 await `drained()` when the terminal outcome matters.
 
+The `Send`, `Sync`, and `Unpin` auto traits on `ServerShutdown` are pinned by a
+compile-time assertion beside the type definition, as are `Send` and `Sync` on
+`ServerError`. Callers move the control across tasks and share it by reference,
+and the planned test-support lifecycle handle will inherit those traits, so a
+payload that silently dropped one must break this repository's build rather
+than a downstream call site.
+
 `spawn()` reports the typed application factory and preparation errors before
 returning a control handle. After it succeeds, `drained()` returns either clean
 completion or `ServerError::AbnormalTermination`, which contains the captured
@@ -1025,7 +1131,7 @@ decode work, not actual allocation for every container; see the
 the 16 MiB reassembly ceiling and the limits of bincode's resource accounting.
 
 Builder methods that change `WireframeApp` type parameters should route through
-the shared rebuild helpers in `app::builder::core`. Serializer and codec
+the shared rebuild helpers in `app::builder::rebuild`. Serializer and codec
 transitions use `rebuild_with_params`; connection-state transitions use
 `rebuild_with_connection_state`. A teardown hook is typed to the old connection
 state, so `on_connection_setup` clears any teardown hook registered before it.
@@ -1560,8 +1666,21 @@ CI installs through the shared `install-whitaker` action instead (the action
 owns the installer version and takes the rolling suite), so the lint step is
 plain `make lint` with no Git wrapper.
 
+Cognitive complexity is not gated by Clippy. Clippy's `cognitive_complexity`
+scores code after macro expansion, so it counts branching a macro generated,
+and neither `Cargo.toml` nor `clippy.toml` enables it. Whitaker's experimental
+`macro_aware_cognitive_complexity` gates it at `max_complexity = 9`,
+CodeScene's ceiling. `dylint.toml` opts in with the `experimental` key in its
+`[whitaker]` table, and `make lint-whitaker` runs under `-D warnings`, so a
+finding fails the build. Fix a finding by extracting named helpers, never by
+raising the threshold. A Whitaker suite installed before the lint existed does
+not register it and silently leaves the gate inactive. The Makefile's
+`WHITAKER_SUITE_REV` pin sits at or after the suite commit that added the lint,
+so rerun `make install-whitaker` to refresh the suite after updating a
+checkout, and never bump the pin to an earlier revision.
+
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
-It is deliberately empty: add an `excluded_paths` entry only with a reproduced
+It holds no exclusions: add an `excluded_paths` entry only with a reproduced
 diagnostic and a stated external constraint. Do not add `excluded_crates`,
 which would drop a whole workspace member from the policy. `excluded_paths` is
 read only by `no_std_fs_operations`; every other lint rejects unknown keys and
@@ -2349,6 +2468,64 @@ targets, direct unit tests, and BDD fixtures should import the workload matrix,
 measurement helpers, fragmentation helpers, and allocation-label helpers from
 that module instead of coupling to files under `tests/common` with `#[path]`.
 
+Two of the zero-copy gates assert rather than report, and neither belongs to
+`bench-codec`, because neither depends on host load. The first is
+`wireframe_testing/tests/copied_bytes.rs`, which checks the per-seam
+copied-byte counts in `src/benchmark_counters.rs`. Four seams are counted: the
+serializer materialization (`record_serialized`), the serializer-vector hand-off
+(`bytes_from_vec`), the codec's transport write (`record_framed`), and the
+inbound deserialization (`record_deserialized`, called once by `parse_envelope`
+after the trailing-bytes check). `bytes` 1.12.1 hands a vector to `Bytes`
+without copying, so `record_handoff` fires only when the payload pointer
+changes; the seam also counts its own invocations, exposed as
+`handoff_seam_calls`, so a send path that reverts to `Bytes::from` fails a test
+even though the byte counter would not move. `record_deserialized` is measured
+from the decoded payload's length, so a rejected frame is not counted and the
+reading excludes the frame's metadata. Harnesses outside the crate reach the
+same seams through two `#[doc(hidden)]`, `test-support`-gated entry points:
+`benchmark_decode_envelope` mirrors `parse_envelope`, returning the decoded
+envelope and the consumed length (and rejecting trailing bytes), while
+`benchmark_encode_message_frame` mirrors the outbound serialize-then-wrap path
+and returns the codec's frame. Both return only their public result, so a
+caller cannot depend on how either stage is interned.
+
+The second gate is the `pipeline_allocation_invariants` target under the same
+`tests` directory. It installs its own counting allocator and checks
+payload-buffer identity plus per-operation allocation bounds for the middleware
+and hook stages. It also runs the production outbound encode as an independent
+allocator oracle: one message must allocate at least the payload size `P` and
+fewer than `2P` bytes, which is what the recorder's `P`-byte reading claims.
+That target sets `harness = false` on purpose: a libtest worker thread
+allocates on its own often enough (two windows in a thousand trials at capture
+time) that a harnessed binary cannot assert an idle window of exactly zero. The
+binary therefore runs on one thread and prints one line per check.
+`cargo nextest` discovers tests by running each binary with `--list`, so the
+target also answers that protocol with a single listing line; without it the
+coverage job fails before running any test. `AccessMode::Copying` in the same
+helper module is a seeded fault for those checks — it must relocate the buffer,
+and it is never timed.
+
+The helpers behind those checks are public through
+`wireframe_testing::codec_benchmarks`: `StageOutcome` reports the buffer
+addresses before and after a stage together with the resulting payload,
+`middleware_payload_handoff` and `hook_payload_handoff` drive one pass in a
+given `AccessMode`, and `measure_middleware_passthrough_buffer` runs a batch
+over a caller-built buffer. Benchmarks, the invariants target and the BDD
+fixtures call these helpers rather than rebuilding the chain, so a change to
+what a stage does reaches every gate at once.
+
+`wireframe_testing::benchmark_alloc_support` is split by responsibility: `gate`
+owns the process-global counters and `CountingWindow`, which closes the gate
+from `Drop` on every exit path — including an unwind out of the measured
+closure — so a panicking measurement cannot leave counting enabled for the rest
+of the process; `traffic` owns the `AllocationTraffic` value a window reports;
+`harness` owns `verify_allocation_harness` and `count_allocations_or_panic`; and
+`window` owns `WindowState`, the pure bookkeeping model whose open, reset, and
+close transitions are tested without touching process globals.
+`count_allocations` reports the operation count and `count_allocation_traffic`
+adds the byte total; the byte total is allocator growth, not bytes copied, so
+it is not a substitute for the copied-byte counters above.
+
 Run `connection_startup` on demand with
 `cargo bench --bench connection_startup`. It compares the former per-connection
 factory and preparation work with the shared prepared-root path across four
@@ -2884,6 +3061,13 @@ subscriber, that both cancellation events record `reason` through `record_str`.
 The workspace suite cannot make that check: its `wireframe_testing` dependency
 unifies `metrics` on for every root-package test, so only this isolated build
 observes the disabled configuration.
+
+The same unification hides the copied-byte recorders, so the consumer checks
+those in both directions too. Compiling without `benchmark-counters` must still
+compile every recorder and report zeros from `snapshot()`; compiling with it
+must make the same four calls accumulate their bytes. The second run is what
+keeps the first honest — an inert recorder and a recorder that never counted
+anything both satisfy a zeros-only assertion.
 
 One gated item has no trybuild fixture, and this is the documented exception.
 `ServerCancellationReason::as_str` is crate-private, so no downstream fixture

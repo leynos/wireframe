@@ -89,10 +89,7 @@ Mutation proof; each applied alone and reverted:
   ``test_the_reviewed_tables_are_total`` alone, for the same reason;
 - deleting ``timeout-minutes`` from ``coverage-upload`` fails
   ``test_the_job_declares_its_reviewed_ceiling`` and
-  ``test_every_ubicloud_job_has_a_ceiling``;
-- adding a ``timeout-minutes`` to ``delay_and_comment`` fails
-  ``test_the_delayed_comment_lane_declares_no_ceiling``, which is the point:
-  the absence there is a decision, not an oversight.
+  ``test_every_ubicloud_job_has_a_ceiling``.
 
 Placement of ``build-test`` on ``ubicloud-standard-2`` (2026-10-17) was
 proved by three further mutations, each applied alone and reverted:
@@ -116,7 +113,6 @@ from __future__ import annotations
 import pytest
 from runner_placement_policy import (
     CI_UBICLOUD_LABEL,
-    CEILING_FREE_JOB,
     DELEGATED_JOBS,
     EXPECTED_CEILING_MINUTES,
     EXPECTED_PLACEMENT,
@@ -186,9 +182,9 @@ def test_the_reviewed_tables_are_total() -> None:
         f"by label; {sorted(expression_jobs - FORK_FALLBACK_JOBS)} would have "
         "no runner assertion at all"
     )
-    needing_ceilings = set(EXPECTED_PLACEMENT) - {CEILING_FREE_JOB}
+    needing_ceilings = set(EXPECTED_PLACEMENT)
     assert set(EXPECTED_CEILING_MINUTES) == needing_ceilings, (
-        "every placed job except the ceiling-free lane needs a reviewed "
+        "every placed job needs a reviewed "
         f"ceiling; missing {sorted(needing_ceilings - set(EXPECTED_CEILING_MINUTES))} "
         f"and stale {sorted(set(EXPECTED_CEILING_MINUTES) - needing_ceilings)}"
     )
@@ -313,28 +309,6 @@ def test_every_ubicloud_job_has_a_ceiling() -> None:
     ]
     assert not unbounded, (
         f"jobs on an Ubicloud runner without a ceiling: {sorted(unbounded)}"
-    )
-
-
-def test_the_delayed_comment_lane_declares_no_ceiling() -> None:
-    """Scenario: someone adds the "missing" ceiling to the delayed lane.
-
-    Invariant: that lane declares none. Its entire duration is a ``sleep`` of
-    the caller's ``delay_minutes`` input, so a fixed ceiling cancels a
-    legitimate longer delay: it would fire exactly when the delay became
-    interesting. The lane is GitHub-hosted, so the six-hour default costs
-    nothing. The absence is asserted rather than merely left, so it reads as
-    a decision and not as the gap the previous test looks for.
-    """
-    definition = jobs()[CEILING_FREE_JOB]
-    assert definition.get("timeout-minutes") is None, (
-        f"{CEILING_FREE_JOB[0]}:{CEILING_FREE_JOB[1]} must not declare a "
-        "ceiling: it sleeps for the caller's delay_minutes input, and a "
-        "ceiling would cancel a legitimate longer delay"
-    )
-    assert runner_value(definition) == GITHUB_HOSTED_LABEL, (
-        "the ceiling-free exception is only safe on a runner that does not "
-        f"bill per minute, so this lane must stay on {GITHUB_HOSTED_LABEL!r}"
     )
 
 

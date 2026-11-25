@@ -29,10 +29,6 @@ macro_rules! dynamic_span {
 }
 
 /// Create a span for the `connect` operation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion — five match arms are inherent"
-)]
 pub(crate) fn connect_span(config: &TracingConfig, peer_addr: &str) -> Span {
     dynamic_span!(
         config.connect_level,
@@ -42,10 +38,6 @@ pub(crate) fn connect_span(config: &TracingConfig, peer_addr: &str) -> Span {
 }
 
 /// Create a span for the `send` operation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn send_span(config: &TracingConfig, frame_bytes: usize) -> Span {
     dynamic_span!(config.send_level, "client.send", frame.bytes = frame_bytes)
 }
@@ -54,10 +46,6 @@ pub(crate) fn send_span(config: &TracingConfig, frame_bytes: usize) -> Span {
 ///
 /// The `frame.bytes` and `result` fields are recorded after the frame arrives
 /// using [`Span::record`].
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn receive_span(config: &TracingConfig) -> Span {
     dynamic_span!(
         config.receive_level,
@@ -68,10 +56,6 @@ pub(crate) fn receive_span(config: &TracingConfig) -> Span {
 }
 
 /// Create a span for the `send_envelope` operation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn send_envelope_span(
     config: &TracingConfig,
     correlation_id: u64,
@@ -89,10 +73,6 @@ pub(crate) fn send_envelope_span(
 ///
 /// The `result` field is recorded when the call completes using
 /// [`Span::record`].
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn call_span(config: &TracingConfig) -> Span {
     dynamic_span!(
         config.call_level,
@@ -105,10 +85,6 @@ pub(crate) fn call_span(config: &TracingConfig) -> Span {
 ///
 /// The `correlation_id` and `result` fields are recorded during the call
 /// using [`Span::record`].
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn call_correlated_span(config: &TracingConfig) -> Span {
     dynamic_span!(
         config.call_level,
@@ -119,10 +95,6 @@ pub(crate) fn call_correlated_span(config: &TracingConfig) -> Span {
 }
 
 /// Create a span for the `call_streaming` operation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn streaming_span(config: &TracingConfig, correlation_id: u64) -> Span {
     dynamic_span!(
         config.streaming_level,
@@ -133,10 +105,6 @@ pub(crate) fn streaming_span(config: &TracingConfig, correlation_id: u64) -> Spa
 }
 
 /// Create a span for the `close` operation.
-#[expect(
-    clippy::cognitive_complexity,
-    reason = "complexity from dynamic_span! macro expansion"
-)]
 pub(crate) fn close_span(config: &TracingConfig) -> Span {
     dynamic_span!(config.close_level, "client.close")
 }

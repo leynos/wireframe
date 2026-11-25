@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 
+use static_assertions::assert_impl_all;
 use tokio::sync::watch;
 use tokio_util::sync::{CancellationToken, DropGuard};
 
@@ -34,6 +35,9 @@ pub struct ServerShutdown {
     /// Shared control and terminal observation state.
     inner: Arc<ServerShutdownInner>,
 }
+
+// Callers move it across tasks and share it by reference; test-support handles will wrap it.
+assert_impl_all!(ServerShutdown: Send, Sync, Unpin);
 
 /// State shared by cloneable shutdown controls.
 struct ServerShutdownInner {

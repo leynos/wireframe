@@ -64,6 +64,8 @@ where
                 fragmentation: self.fragmentation,
                 protocol_hooks: self.protocol_hooks(),
                 memory_budgets: self.memory_budgets,
+                recovery_hook: self.recovery_hook.as_deref(),
+                recovery_config: self.recovery_config.clone(),
                 read_timeout_ms: self.read_timeout_ms,
                 shutdown: &shutdown,
                 push_queues: with_codec_frame_limit(

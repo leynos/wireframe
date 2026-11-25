@@ -114,6 +114,8 @@ where
         protocol_hooks: prepared.protocol_hooks(),
         memory_budgets: prepared.memory_budgets,
         read_timeout_ms: prepared.read_timeout_ms,
+        recovery_hook: prepared.recovery_hook.as_deref(),
+        recovery_config: prepared.recovery_config.clone(),
         shutdown,
         push_queues: prepared.push_queues(),
         session_registry: std::sync::Arc::clone(&prepared.session_registry),

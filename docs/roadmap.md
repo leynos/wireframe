@@ -494,8 +494,9 @@ starts. See `docs/frame-vec-u8-inventory.md` and ADRs 008 through 010.
   [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md), together
   with the per-seam copied-byte counts asserted by the test suite.
 - [ ] 10.2.2. Record benchmark acceptance thresholds that require removal of
-  the final default-path `Vec<u8>` copy between serialization and
-  `FrameCodec::wrap_payload`. Requires 10.2.1. Thresholds are proposed in the
+  the serializer materialization: the payload-sized `Vec<u8>` that
+  `Serializer::serialize` returns and that `FrameCodec::wrap_payload` then
+  wraps. Requires 10.2.1. Thresholds are proposed in the
   [zero-copy benchmark baselines](zero-copy-benchmark-baselines.md), including
   the pointer-identity and allocation gate that states the removal requirement;
   this item stays open until a performance reviewer agrees to them.

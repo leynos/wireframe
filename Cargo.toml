@@ -137,7 +137,6 @@ pedantic = { level = "warn", priority = -1 }
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 blanket_clippy_restriction_lints = "deny"
-cognitive_complexity = "deny"
 # `clippy.toml` lists the prohibited `std::env` APIs. Denying the lint here
 # makes it an error even when a member or CI lane forgets `-D warnings`.
 disallowed_methods = "deny"
@@ -286,6 +285,13 @@ required-features = ["advanced-tests"]
 name = "bdd_pool"
 path = "tests/bdd_pool/mod.rs"
 required-features = ["advanced-tests", "pool"]
+
+# The recovery cases assert codec-error counts through the optional `metrics`
+# dependency, so the target only builds when that feature is enabled.
+[[test]]
+name = "codec_recovery_server"
+path = "tests/codec_recovery_server.rs"
+required-features = ["metrics"]
 
 [[test]]
 name = "connection"

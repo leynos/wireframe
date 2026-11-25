@@ -41,8 +41,10 @@ use super::{
     super::{
         envelope::{Envelope, Packet},
         frame_handling::Dispatch,
+        recovery_codec::DecodedItem,
     },
     frames::InboundFrames,
+    recovery::{RecoveryCoordinator, report_pending_failure},
     stream_actions::{apply_memory_pressure, expire_finished_assemblies, finish_step},
     stream_diagnostics,
     stream_handles::{DispatchHandles, LoopState},
@@ -78,7 +80,7 @@ pub(super) struct Connection<'a, S, E, R, K, F>
 where
     S: Serializer + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
 {
@@ -88,7 +90,7 @@ where
     pub(super) sink: &'a mut K,
     /// Inbound framing state, including the frame buffered while the previous
     /// one was handled.
-    pub(super) inbound: &'a mut InboundFrames<F::Frame>,
+    pub(super) inbound: &'a mut InboundFrames<DecodedItem<F::Frame>, F::Frame>,
     /// Actor that schedules and delivers every reply.
     pub(super) actor: &'a mut ConnectionActor<Envelope, (), F::Frame>,
     /// Immutable connection inputs.
@@ -97,6 +99,8 @@ where
     pub(super) shutdown: &'a CancellationToken,
     /// Connection-wide token cancelled only by a clean peer EOF.
     pub(super) peer_eof: &'a CancellationToken,
+    /// Recovery policy this connection applies to decoder failures.
+    pub(super) recovery: RecoveryCoordinator<'a>,
     /// Maximum wait for a handler or a body send while teardown runs.
     pub(super) wait: Duration,
 }
@@ -113,29 +117,34 @@ where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
     F: FrameCodec,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    // Dropping the loop state on any return from here releases the
-    // parked-body gauge for whatever the connection still holds.
     let mut state = LoopState::new(QueuedBytes::new());
-    loop {
+    let outcome = loop {
         match connection.step(&mut state).await {
             Ok(Step::Continue) => {}
-            Ok(Step::Closed) => return Ok(()),
+            Ok(Step::Closed) => break Ok(()),
             // A failed step and a failed connection both end the loop with
             // the error they carry.
-            Ok(Step::Failed(error)) | Err(error) => return Err(error),
+            Ok(Step::Failed(error)) | Err(error) => break Err(error),
         }
-    }
+    };
+    // A failure still buffered when reading stops has no later read to apply
+    // its policy, so it is reported as the disconnect the ending is.
+    report_pending_failure(connection.inbound, &connection.recovery);
+    // Dropping the loop state releases the parked-body gauge for whatever the
+    // connection still holds.
+    drop(state);
+    outcome
 }
 
 impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,

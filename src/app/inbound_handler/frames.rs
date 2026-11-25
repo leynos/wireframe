@@ -20,7 +20,7 @@ use futures::{Stream, StreamExt};
 use tokio::time::{Instant, timeout};
 use tokio_util::sync::CancellationToken;
 
-use super::super::codec_driver::FramePipeline;
+use super::super::{codec_driver::FramePipeline, frame_handling};
 use crate::message_assembler::{MessageAssemblyState, StreamingAssemblyId};
 
 /// Outcome of waiting for the next inbound frame.
@@ -65,6 +65,15 @@ where
         Ok(None) => Ok(NextFrame::Closed),
         Err(_) => Ok(NextFrame::TimedOut),
     }
+}
+
+/// Drop expired fragmentation buffers and message assemblies.
+pub(super) fn purge_expired<T>(
+    pipeline: &mut FramePipeline<T>,
+    message_assembly: &mut Option<MessageAssemblyState>,
+) {
+    pipeline.purge_expired();
+    let _evicted = frame_handling::purge_expired_assemblies(message_assembly);
 }
 
 /// Deadline for the current silence, armed on first use.
@@ -143,11 +152,11 @@ impl<'a> InboundExpiry<'a> {
 /// state a read timeout purges. They are only ever touched together, and
 /// holding them as one value lets the loop read through a single call that also
 /// observes shutdown.
-pub(super) struct InboundFrames<T> {
+pub(super) struct InboundFrames<T, F> {
     /// Frame read while the previous one was still being handled.
     pub(super) pending: Option<T>,
     /// Fragmentation pipeline, whose expired buffers a timeout drops.
-    pub(super) pipeline: FramePipeline<T>,
+    pub(super) pipeline: FramePipeline<F>,
     /// Reassembled messages, likewise purged on a timeout.
     pub(super) message_assembly: Option<MessageAssemblyState>,
     /// Deadline at which the current silence purges expired state.
@@ -159,7 +168,7 @@ pub(super) struct InboundFrames<T> {
     pub(super) read_deadline: Option<Instant>,
 }
 
-impl<T> InboundFrames<T> {
+impl<T, F> InboundFrames<T, F> {
     /// Poll once for a frame the buffered slot or the reader already holds.
     ///
     /// The connection loop polls pushes and the reader in one biased select, so
@@ -221,7 +230,7 @@ impl<T> InboundFrames<T> {
 /// then measure *when* the purge runs rather than the assembly clock, which is
 /// a `std::time::Instant` that a paused runtime does not advance.
 #[cfg(test)]
-pub(super) fn incomplete_inbound<T>() -> InboundFrames<T> {
+pub(super) fn incomplete_inbound<T>() -> InboundFrames<T, T> {
     use crate::message_assembler::{
         EnvelopeRouting,
         FirstFrameHeader,
@@ -256,7 +265,7 @@ pub(super) fn incomplete_inbound<T>() -> InboundFrames<T> {
 
 /// Number of incomplete assemblies still buffered.
 #[cfg(test)]
-pub(super) fn buffered_assemblies<T>(inbound: &InboundFrames<T>) -> Option<usize> {
+pub(super) fn buffered_assemblies<T, F>(inbound: &InboundFrames<T, F>) -> Option<usize> {
     inbound
         .message_assembly
         .as_ref()

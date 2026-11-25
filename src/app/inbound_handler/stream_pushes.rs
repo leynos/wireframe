@@ -12,15 +12,17 @@
 
 use std::io;
 
-use futures::{Sink, Stream};
+use futures::{Sink, Stream, StreamExt};
 
 use super::{
     super::{
         PushWriteDiagnostics,
         envelope::{Envelope, Packet},
+        recovery_codec::DecodedItem,
     },
     frames::InboundExpiry,
     push_service::{PushBatch, PushTransport, deliver_pushes, drain_queued},
+    recovery::hold_or_end,
     stream_actions::finish_step,
     stream_dispatch::Connection,
     stream_handles::LoopState,
@@ -40,7 +42,7 @@ impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
@@ -75,8 +77,15 @@ where
                 sink,
                 inbound,
                 actor,
+                recovery,
                 ..
             } = self;
+            // A read made while the write is pending is buffered for the next
+            // dispatch, unless it reports the end of the stream: that ends the
+            // connection now, so a truncation is observed even mid-write.
+            let mut held = (&mut *reader).map(|read: io::Result<DecodedItem<F::Frame>>| {
+                read.and_then(|item| hold_or_end(item, recovery))
+            });
             let mut transport = PushTransport {
                 serializer,
                 codec,
@@ -87,7 +96,7 @@ where
             let batch = PushBatch {
                 frames: pushes.frames,
                 priority: pushes.priority,
-                reader,
+                reader: &mut held,
                 pending_frame: &mut inbound.pending,
                 expiry: InboundExpiry::new(
                     &mut inbound.message_assembly,

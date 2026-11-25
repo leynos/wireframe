@@ -75,7 +75,6 @@ EXPECTED_PLACEMENT: typ.Final = {
     ("coverage-main.yml", "coverage-warmup"): CI_UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("msrv.yml", "msrv"): GITHUB_HOSTED_LABEL,
-    ("delayed-pr-comment.yml", "delay_and_comment"): GITHUB_HOSTED_LABEL,
 }
 
 #: Ceilings, pinned by value rather than bounded, because a ceiling can drift
@@ -98,18 +97,12 @@ EXPECTED_CEILING_MINUTES: typ.Final = {
     ("msrv.yml", "msrv"): 45,
 }
 
-#: The one lane that must NOT declare a ceiling. Its whole duration is a
-#: ``sleep`` of the caller's ``delay_minutes`` input, so a fixed ceiling
-#: cancels a legitimate longer delay: it would fire exactly when the delay
-#: became interesting, which inverts the failure a ceiling exists to prevent.
-#: It is GitHub-hosted, so the six-hour default costs nothing.
-CEILING_FREE_JOB: typ.Final = ("delayed-pr-comment.yml", "delay_and_comment")
-
 #: Jobs this repository does not place: thin callers of reusable workflows,
 #: whose runner is the callee's to choose.
 DELEGATED_JOBS: typ.Final = {
     ("mutation-testing.yml", "mutation"),
     ("dependabot-automerge.yml", "automerge"),
+    ("delayed-pr-comment.yml", "delayed-comment"),
 }
 
 #: GitHub-hosted labels this repository may use without registering them with

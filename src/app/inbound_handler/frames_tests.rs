@@ -61,7 +61,7 @@ async fn the_read_probe_returns_a_ready_frame() -> io::Result<()> {
 }
 
 /// Arm the read deadline and let it pass without running the command.
-async fn let_the_read_deadline_pass(inbound: &mut InboundFrames<u8>) {
+async fn let_the_read_deadline_pass(inbound: &mut InboundFrames<u8, u8>) {
     let mut evicted = Vec::new();
     InboundExpiry::new(
         &mut inbound.message_assembly,
@@ -74,7 +74,7 @@ async fn let_the_read_deadline_pass(inbound: &mut InboundFrames<u8>) {
 }
 
 /// Run the expiry command once and return the streaming bodies it evicted.
-fn run_expiry(inbound: &mut InboundFrames<u8>, evicted: &mut Vec<StreamingAssemblyId>) {
+fn run_expiry(inbound: &mut InboundFrames<u8, u8>, evicted: &mut Vec<StreamingAssemblyId>) {
     InboundExpiry::new(
         &mut inbound.message_assembly,
         &mut inbound.read_deadline,
@@ -145,7 +145,7 @@ async fn the_expiry_reports_the_streaming_bodies_it_evicts() {
 ///
 /// The assembly timeout is zero so that the purge always drops it, matching
 /// [`incomplete_inbound`].
-fn streaming_inbound() -> InboundFrames<u8> {
+fn streaming_inbound() -> InboundFrames<u8, u8> {
     let mut assembly = MessageAssemblyState::new(
         std::num::NonZeroUsize::new(1024).unwrap_or(std::num::NonZeroUsize::MIN),
         Duration::ZERO,

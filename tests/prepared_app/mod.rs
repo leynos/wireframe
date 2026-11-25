@@ -66,7 +66,7 @@ use tokio::{
 use wireframe::{
     app::{Envelope, Handler, PreparedApp},
     serializer::BincodeSerializer,
-    server::WireframeServer,
+    server::{ServerError, WireframeServer},
 };
 use wireframe_testing::{
     TestResult,
@@ -155,12 +155,17 @@ async fn wait_for_counts(
     Ok(())
 }
 
-/// Runs server connections and waits for their startup instrumentation.
-async fn run_server_connections(
+/// A running test server: its address, shutdown trigger and supervisor task.
+struct RunningServer {
+    address: std::net::SocketAddr,
+    shutdown_tx: oneshot::Sender<()>,
+    task: tokio::task::JoinHandle<Result<(), ServerError>>,
+}
+
+/// Starts a single-worker server and waits until it reports readiness.
+async fn start_ready_server(
     app_factory: impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static,
-    instrumentation: &ConnectionStartupInstrumentation,
-    expected: &ConnectionStartupCounts,
-) -> TestResult<()> {
+) -> TestResult<RunningServer> {
     let server = WireframeServer::new(app_factory)
         .workers(1)
         .bind_existing_listener(unused_listener()?)?;
@@ -179,6 +184,15 @@ async fn run_server_connections(
     });
 
     wait_for_server_readiness(ready_rx).await?;
+    Ok(RunningServer {
+        address,
+        shutdown_tx,
+        task: server_task,
+    })
+}
+
+/// Opens the test connections and sends each one a startup frame.
+async fn open_startup_connections(address: std::net::SocketAddr) -> TestResult<Vec<TcpStream>> {
     let frame = build_frame(1, Vec::new())?;
     let mut connections = Vec::with_capacity(CONNECTIONS);
     for _ in 0..CONNECTIONS {
@@ -186,6 +200,21 @@ async fn run_server_connections(
         connection.write_all(&frame).await?;
         connections.push(connection);
     }
+    Ok(connections)
+}
+
+/// Runs server connections and waits for their startup instrumentation.
+async fn run_server_connections(
+    app_factory: impl Fn() -> TestResult<TestApp> + Clone + Send + Sync + 'static,
+    instrumentation: &ConnectionStartupInstrumentation,
+    expected: &ConnectionStartupCounts,
+) -> TestResult<()> {
+    let RunningServer {
+        address,
+        shutdown_tx,
+        task: server_task,
+    } = start_ready_server(app_factory).await?;
+    let connections = open_startup_connections(address).await?;
     let counts_result = wait_for_counts(instrumentation, expected).await;
     drop(connections);
     let shutdown_result = shutdown_tx

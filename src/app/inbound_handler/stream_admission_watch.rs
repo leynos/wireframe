@@ -16,7 +16,10 @@ use futures::{Sink, Stream};
 use tokio::time::Instant;
 
 use super::{
-    super::envelope::{Envelope, Packet},
+    super::{
+        envelope::{Envelope, Packet},
+        recovery_codec::DecodedItem,
+    },
     stream_actions::{AdmissionStep, drive_pending_admission},
     stream_dispatch::Connection,
     stream_handles::{ChunkBudget, LoopState},
@@ -46,7 +49,7 @@ impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
@@ -124,7 +127,9 @@ where
             // buffered frame cannot have changed.
             Watch::Admission(step) => settle_admission(step),
             Watch::Read(Event::Frame(Ok(Some(frame)))) => {
-                self.inbound.pending = Some(frame);
+                // The read half reports a decoded item, so the buffer keeps the
+                // item and the recovery decision is made when it is dispatched.
+                self.inbound.pending = Some(DecodedItem::Frame(frame));
                 AdmissionWait::Continue
             }
             // A read timeout is the loop's ordinary wake-up, so it resumes the

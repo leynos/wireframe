@@ -22,8 +22,12 @@ use futures::{Sink, Stream};
 use tokio_util::sync::CancellationToken;
 
 use super::{
-    super::envelope::{Envelope, Packet},
+    super::{
+        envelope::{Envelope, Packet},
+        recovery_codec::DecodedItem,
+    },
     frames::{InboundFrames, NextFrame},
+    recovery::{RecoveryCoordinator, resolve_read_item},
     stream_active::ActiveStream,
     stream_dispatch::Connection,
     stream_handles::LoopState,
@@ -42,7 +46,7 @@ impl<S, E, R, K, F> Connection<'_, S, E, R, K, F>
 where
     S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
     E: Packet,
-    R: Stream<Item = io::Result<F::Frame>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<F::Frame>>> + Unpin,
     K: Sink<F::Frame, Error = io::Error> + Unpin + Send,
     F: FrameCodec,
     Envelope: DecodeWith<S> + EncodeWith<S>,
@@ -62,9 +66,10 @@ where
         // The probe is the reader's turn, so it is spent whether or not it
         // produces a frame.
         if std::mem::take(&mut state.serve_read_first) {
-            return match self.inbound.try_next(self.reader).await {
+            let next = self.inbound.try_next(self.reader).await;
+            return match next {
                 Ok(NextFrame::TimedOut) => self.await_event(state, read_timeout_ms).await,
-                Ok(next) => frame_event(next, shutdown),
+                Ok(next) => frame_event(next, self.inbound, &mut self.recovery, shutdown).await,
                 Err(error) => Event::Frame(Err(error)),
             };
         }
@@ -85,11 +90,12 @@ where
             reader,
             inbound,
             actor,
+            recovery,
             ..
         } = self;
         let shutdown = self.shutdown;
         let push_lanes_open = actor.has_open_push_lanes();
-        let read = read_event(inbound, reader, read_timeout_ms, shutdown);
+        let read = read_event(inbound, reader, recovery, read_timeout_ms, shutdown);
         race_event(actor, state.streams.active.as_mut(), push_lanes_open, read).await
     }
 
@@ -98,6 +104,7 @@ where
         read_event(
             &mut *self.inbound,
             &mut *self.reader,
+            &mut self.recovery,
             read_timeout_ms,
             self.shutdown,
         )
@@ -141,18 +148,20 @@ async fn poll_live(active: Option<&mut ActiveStream>) -> Option<Bytes> {
     }
 }
 
-/// Read one frame from the peer and classify its outcome for the loop.
+/// Wait for the reader, then classify what it produced.
 async fn read_event<R, Fr>(
-    inbound: &mut InboundFrames<Fr>,
+    inbound: &mut InboundFrames<DecodedItem<Fr>, Fr>,
     reader: &mut R,
+    recovery: &mut RecoveryCoordinator<'_>,
     read_timeout_ms: u64,
     shutdown: &CancellationToken,
 ) -> Event<Fr>
 where
-    R: Stream<Item = io::Result<Fr>> + Unpin,
+    R: Stream<Item = io::Result<DecodedItem<Fr>>> + Unpin,
 {
-    match inbound.next_frame(reader, read_timeout_ms, shutdown).await {
-        Ok(next) => frame_event(next, shutdown),
+    let next = inbound.next_frame(reader, read_timeout_ms, shutdown).await;
+    match next {
+        Ok(next) => frame_event(next, inbound, recovery, shutdown).await,
         Err(error) => Event::Frame(Err(error)),
     }
 }
@@ -160,10 +169,24 @@ where
 /// Classify one read outcome for the loop.
 ///
 /// A shutdown that arrives during the read closes it, so it is reported as a
-/// stop rather than as a peer EOF: the peer may still be connected.
-fn frame_event<T>(next: NextFrame<T>, shutdown: &CancellationToken) -> Event<T> {
+/// stop rather than as a peer EOF: the peer may still be connected. A decoder
+/// failure is resolved by [`resolve_read_item`]: a discarded or quarantined
+/// failure resumes the read as an ordinary wake-up, and only a disconnect ends
+/// the connection, with the decoder's own error.
+async fn frame_event<T>(
+    next: NextFrame<DecodedItem<T>>,
+    inbound: &mut InboundFrames<DecodedItem<T>, T>,
+    recovery: &mut RecoveryCoordinator<'_>,
+    shutdown: &CancellationToken,
+) -> Event<T> {
     match next {
-        NextFrame::Ready(frame) => Event::Frame(Ok(Some(frame))),
+        NextFrame::Ready(item) => {
+            match resolve_read_item(item, inbound, recovery, shutdown).await {
+                Ok(Some(frame)) => Event::Frame(Ok(Some(frame))),
+                Ok(None) => Event::Tick,
+                Err(error) => Event::Frame(Err(error)),
+            }
+        }
         NextFrame::Closed if shutdown.is_cancelled() => Event::Shutdown,
         NextFrame::Closed => Event::Frame(Ok(None)),
         NextFrame::TimedOut => Event::Tick,
