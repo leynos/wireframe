@@ -455,12 +455,13 @@ Constraint 6 still forbids touching `src/`. It is
 to #655 and delivered in its own pull request before EP-M1.
 
 Delivered on 2026-11-25 as
-[#977](https://github.com/leynos/wireframe/pull/977), head `dcce5481`, with the
-second of #974's two candidate forms: the supervisor drops its listener handle
-after `await_supervisor_termination` returns and before `tracker.wait()`. That
-keeps the supervisor's ownership for the whole time it is running, which
-matches ADR 0014's figure, and releases the socket at the same point as the
-measured form. Its regression suite `tests/server_listener_release.rs` covers
+[#977](https://github.com/leynos/wireframe/pull/977), with the first of #974's
+two candidate forms: the supervisor drops its listener handle immediately after
+spawning the accept loops, which is the form #974 measured, so the socket's
+lifetime is exactly the accept loops' lifetime. A first revision used the
+second form, dropping before the tracker wait; review found that leaves the
+contract conditional, because the supervisor still holds its handle while it
+waits on the tracker when every loop ends unexpectedly. Its regression suite `tests/server_listener_release.rs` covers
 `stop()`, dropping the last control, and a resolved `run_with_shutdown` future,
 each with a response parked mid-stream; all three fail without the change. This
 branch is rebased onto it, so the harness is developed against the
