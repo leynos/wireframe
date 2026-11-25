@@ -9,36 +9,46 @@
 use std::io;
 
 use bytes::BytesMut;
+use rstest::rstest;
 
 use super::*;
 
-#[test]
-fn decoding_an_oversized_length_prefix_reports_a_framing_error() {
-    let limit = 128;
+/// Entry point a decoder reports the oversized prefix through.
+#[derive(Clone, Copy, Debug)]
+enum EntryPoint {
+    /// [`Decoder::decode`], the ordinary read path.
+    Decode,
+    /// [`Decoder::decode_eof`], the path taken once the peer stops sending.
+    DecodeEof,
+}
+
+/// Run one entry point against a decoder holding only an oversized prefix.
+fn decode_oversized_prefix(entry: EntryPoint, limit: usize, declared: usize) -> (io::Error, usize) {
     let codec = LengthDelimitedFrameCodec::new(limit);
+    // A fresh decoder per case, so neither entry point inherits state.
     let mut decoder = codec.decoder();
-    // Only the length prefix is needed: tokio-util rejects the frame before
-    // any payload has to arrive.
-    let declared = limit.saturating_add(1);
+    // Only the length prefix is needed: tokio-util rejects the frame before any
+    // payload has to arrive, so the close is the only thing that could differ.
     let prefix = u32::try_from(declared).expect("frame length should fit in u32");
     let mut buf = BytesMut::new();
     buf.extend_from_slice(&write_network_u32(prefix));
 
-    let err = decoder
-        .decode(&mut buf)
-        .expect_err("expected decode to fail for an oversized length prefix");
+    let result = match entry {
+        EntryPoint::Decode => decoder.decode(&mut buf),
+        EntryPoint::DecodeEof => decoder.decode_eof(&mut buf),
+    };
+    let error = result.expect_err("an oversized length prefix must not decode");
+    (error, buf.len())
+}
 
+/// Assert the shared classification contract for one entry point.
+fn assert_is_oversized_framing_error(error: &io::Error, declared: usize, limit: usize) {
     assert_eq!(
-        err.kind(),
+        error.kind(),
         io::ErrorKind::InvalidData,
-        "an oversized frame should remain an invalid-data error"
+        "an oversized frame must stay an invalid-data error"
     );
-    assert_eq!(
-        buf.len(),
-        4,
-        "the rejected frame must stay buffered so recovery sees zero consumption"
-    );
-    let classified = err
+    let classified = error
         .get_ref()
         .and_then(|inner| inner.downcast_ref::<CodecError>())
         .expect("the decoder should report a structured codec error");
@@ -52,48 +62,24 @@ fn decoding_an_oversized_length_prefix_reports_a_framing_error() {
     );
 }
 
-/// An oversized length prefix is still a framing failure when the peer closes.
+/// An oversized prefix is a framing failure on both entry points.
 ///
 /// The EOF path meets the same inner `InvalidData` failure as `decode`, and the
-/// wrapper must classify it instead of falling through to its plain
+/// wrapper must classify it rather than falling through to its plain
 /// end-of-file error. Reporting `io` rather than `framing` for the same bytes
 /// would apply the wrong policy.
-#[test]
-fn decoding_an_oversized_length_prefix_at_eof_reports_a_framing_error() {
-    let limit = 128;
-    let codec = LengthDelimitedFrameCodec::new(limit);
-    let mut decoder = codec.decoder();
-    // Only the prefix is buffered: the frame is rejected before any payload
-    // has to arrive, and the close is what ends the connection.
+#[rstest]
+#[case::decode(EntryPoint::Decode)]
+#[case::decode_eof(EntryPoint::DecodeEof)]
+fn an_oversized_length_prefix_reports_a_framing_error(#[case] entry: EntryPoint) {
+    let limit: usize = 128;
     let declared = limit.saturating_add(1);
-    let prefix = u32::try_from(declared).expect("frame length should fit in u32");
-    let mut buf = BytesMut::new();
-    buf.extend_from_slice(&write_network_u32(prefix));
 
-    let err = decoder
-        .decode_eof(&mut buf)
-        .expect_err("expected decode_eof to reject an oversized length prefix");
+    let (error, buffered) = decode_oversized_prefix(entry, limit, declared);
 
+    assert_is_oversized_framing_error(&error, declared, limit);
     assert_eq!(
-        err.kind(),
-        io::ErrorKind::InvalidData,
-        "an oversized frame at EOF must stay an invalid-data error"
-    );
-    assert_eq!(
-        buf.len(),
-        4,
-        "the rejected prefix must stay buffered so recovery sees zero consumption"
-    );
-    let classified = err
-        .get_ref()
-        .and_then(|inner| inner.downcast_ref::<CodecError>())
-        .expect("the decoder should report a structured codec error");
-    assert!(
-        matches!(
-            classified,
-            CodecError::Framing(FramingError::OversizedFrame { size, max })
-                if *size == declared && *max == limit
-        ),
-        "expected an oversized framing error for {declared} bytes, got {classified:?}"
+        buffered, 4,
+        "{entry:?} must leave the prefix buffered so recovery sees zero consumption"
     );
 }
