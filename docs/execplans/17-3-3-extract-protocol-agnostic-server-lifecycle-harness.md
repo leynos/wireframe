@@ -6,8 +6,8 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Conformance basis`, and `Verification plan` must be kept up to date as work
 proceeds.
 
-Status: DRAFT — every decision accepted, including D23 option 1 on 2026-11-24.
-Implementation is not authorized. EP-M1 also waits for PRE-1
+Status: APPROVED — every decision accepted, including D23 option 1 on
+2026-11-24. Implementation authorized on 2026-11-25. EP-M1 also waits for PRE-1
 ([#974](https://github.com/leynos/wireframe/issues/974)), the server change
 D23 selects, to land; see `Upstream prerequisite`.
 
@@ -160,8 +160,8 @@ touches this surface, so there is no further history to draw on.
       PRE-1.
 - [x] (2026-11-25) PRE-1 raised as
       [#974](https://github.com/leynos/wireframe/issues/974).
+- [x] (2026-11-25) Implementation authorized.
 - [ ] PRE-1 landed on `main`.
-- [ ] Implementation authorized.
 - [ ] EP-M0 Green baseline recorded.
 - [ ] EP-M1 Harness, options, spawn helpers, rstest and BDD coverage.
 - [ ] EP-M2 Exhaustive and property tests.
