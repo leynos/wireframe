@@ -1,0 +1,157 @@
+name: Release
+
+# Publishes the workspace when a version tag is pushed. Nothing else starts this
+# workflow: it has no `workflow_call` and no `workflow_dispatch`, so no caller
+# can ask it to publish.
+#
+# Adapted from `leynos/netsuke`. ADR 019 records what differs, and
+# docs/releasing-crates.md gives the procedure.
+
+on:
+  push:
+    tags:
+      - "v*.*.*"
+
+# A release never cancels a run in progress, which could abandon it half
+# published. A second push of the same tag waits instead.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  package:
+    permissions:
+      contents: read
+    uses: ./.github/workflows/release-package.yml
+    with:
+      release-tag: ${{ github.ref_name }}
+
+  publish-crates-io:
+    needs: package
+    if: needs.package.outputs.action == 'publish'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # crates.io accepts this workflow file and this environment, and nothing
+    # else. The environment's reviewers and tag rule are the human gate.
+    environment: crates-io
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      CARGO_TERM_COLOR: always
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          # The whole history, to find the commit on `main`.
+          fetch-depth: 0
+          persist-credentials: false
+      # `main` accepts only commits that passed the required checks. That is
+      # what makes skipping lading's pre-flight below safe.
+      - name: Require a commit that is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@b50fd9a2b2f2a096d64fe44593805dd2da7f9148
+      - name: Setup uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.14"
+          enable-cache: false
+      - name: Download the candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/release-candidate
+      # An upload cannot be undone, so prove first that this runner packages the
+      # candidate's exact bytes. lading packages from the same commit.
+      - name: Reproduce the candidate
+        run: |
+          set -euo pipefail
+          make package-crates
+          uv run --no-project --python 3.14 \
+            scripts/release/release_workspace_cli.py check \
+            --candidate "$RUNNER_TEMP/release-candidate/candidate.json" \
+            --package-directory target/package \
+            --commit "$GITHUB_SHA" \
+            --tag "$GITHUB_REF_NAME"
+      # Installed before the token exists, so the publishing step downloads
+      # nothing that could read it.
+      - name: Install the release tool
+        run: make install-lading
+      - name: Exchange the GitHub identity for a short-lived token
+        id: auth
+        uses: rust-lang/crates-io-auth-action@3268eb413133e2960fa4ae0e963ca76380c54cd9
+      - name: Publish the workspace with lading
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ steps.auth.outputs.token }}
+        run: make publish-crates
+
+  verify-crates-io:
+    # Runs when publication succeeded, or when every crate was already there, so
+    # an interrupted release can be completed by running the tag again.
+    needs: [package, publish-crates-io]
+    if: >-
+      !cancelled() &&
+      needs.package.result == 'success' &&
+      (needs.publish-crates-io.result == 'success' ||
+      (needs.publish-crates-io.result == 'skipped' &&
+      needs.package.outputs.action == 'skip'))
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Every byte read here is public, so this job holds no credential.
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@b50fd9a2b2f2a096d64fe44593805dd2da7f9148
+      - name: Setup uv
+        uses: astral-sh/setup-uv@68559e99cc807c1eb7e9238fd43a15bba460eec2
+        with:
+          python-version: "3.14"
+          enable-cache: false
+      - name: Download the candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/release-candidate
+      - name: Verify the published bytes
+        run: >-
+          uv run --no-project --python 3.14
+          scripts/release/release_workspace_cli.py verify
+          --candidate "$RUNNER_TEMP/release-candidate/candidate.json"
+      - name: Build a consumer from crates.io
+        env:
+          RELEASE_VERSION: ${{ needs.package.outputs.version }}
+        run: scripts/release/consumer-smoke.sh "$RELEASE_VERSION"
+
+  github-release:
+    # The GitHub release announces what crates.io serves, so it comes last.
+    needs: [package, verify-crates-io]
+    if: >-
+      !cancelled() &&
+      needs.package.result == 'success' &&
+      needs.verify-crates-io.result == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - name: Download the candidate
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/release-candidate
+      - name: Create the GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/release/github-release.sh "$GITHUB_REF_NAME" "$RUNNER_TEMP/release-candidate"

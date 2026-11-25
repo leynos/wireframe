@@ -31,12 +31,16 @@ record the consumer evidence, validation profiles, and delivery order.
 Namespace is retired. Each lane now sits where the kind of work decides, rather
 than all four repository-owned lanes sharing one profile.
 
-| Workflow                 | Job               | Trigger            | Runner                  | Ceiling |
-| ------------------------ | ----------------- | ------------------ | ----------------------- | ------- |
-| `ci.yml`                 | `build-test`      | pull request, push | `ubicloud-standard-2`   | 60 min  |
-| `coverage-main.yml`      | `coverage-upload` | push               | `ubicloud-standard-4`   | 20 min  |
-| `advanced-tests.yml`     | `advanced`        | schedule           | `ubuntu-latest`         | 60 min  |
-| `delayed-pr-comment.yml` | `delayed-comment` | dispatch           | callee: `ubuntu-latest` | callee  |
+| Workflow                 | Job                 | Trigger            | Runner                  | Ceiling |
+| ------------------------ | ------------------- | ------------------ | ----------------------- | ------- |
+| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2`   | 60 min  |
+| `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4`   | 20 min  |
+| `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`         | 60 min  |
+| `delayed-pr-comment.yml` | `delayed-comment`   | dispatch           | callee: `ubuntu-latest` | callee  |
+| `release-package.yml`    | `package`           | pull request, tag  | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `publish-crates-io` | tag                | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `verify-crates-io`  | tag                | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `github-release`    | tag                | `ubuntu-latest`         | 10 min  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
@@ -1955,6 +1959,28 @@ workflow declaring both since GitHub merges them, and refuses any other shape
 rather than reading it as "no triggers", which would let the workflow escape
 every clause. `workflow_reading_test.py` drives that reading with the shapes
 the repository's own workflows do not use.
+
+## Release workflows
+
+Three workflows cover a release, and their boundary is the point of the split:
+
+- `release-package.yml` is reusable and read-only. It packages the workspace,
+  records the candidate, surveys crates.io, and rehearses with lading.
+- `release-dry-run.yml` calls it for every pull request, on a GitHub-hosted
+  runner. It is not a required check, so nobody waits for it.
+- `release.yml` calls it for a version tag, and is the only workflow that can
+  publish. crates.io identifies a trusted publisher by the file that declares
+  the job, so the publishing job must stay in this file under this name.
+
+The publishing credential exists for one step. Every check, download, and
+installation precedes the exchange, and nothing follows the upload.
+`tests/workflow_contracts/release_workflow_test.py` holds these properties, and
+`make test-release-scripts` tests the scripts behind them.
+[ADR 019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
+gives the reasons, and [the release guide](releasing-crates.md) gives the
+procedure.
+
+Dependabot does not watch `tools/lading`, so move its pin by hand.
 
 ## Workflow pins and Dependabot
 

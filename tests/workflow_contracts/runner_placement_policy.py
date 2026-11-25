@@ -75,6 +75,10 @@ EXPECTED_PLACEMENT: typ.Final = {
     ("coverage-main.yml", "coverage-warmup"): CI_UBICLOUD_LABEL,
     ("advanced-tests.yml", "advanced"): GITHUB_HOSTED_LABEL,
     ("msrv.yml", "msrv"): GITHUB_HOSTED_LABEL,
+    ("release-package.yml", "package"): GITHUB_HOSTED_LABEL,
+    ("release.yml", "publish-crates-io"): GITHUB_HOSTED_LABEL,
+    ("release.yml", "verify-crates-io"): GITHUB_HOSTED_LABEL,
+    ("release.yml", "github-release"): GITHUB_HOSTED_LABEL,
 }
 
 #: Ceilings, pinned by value rather than bounded, because a ceiling can drift
@@ -95,6 +99,10 @@ EXPECTED_CEILING_MINUTES: typ.Final = {
     ("coverage-main.yml", "coverage-warmup"): 30,
     ("advanced-tests.yml", "advanced"): 60,
     ("msrv.yml", "msrv"): 45,
+    ("release-package.yml", "package"): 30,
+    ("release.yml", "publish-crates-io"): 30,
+    ("release.yml", "verify-crates-io"): 30,
+    ("release.yml", "github-release"): 10,
 }
 
 #: Jobs this repository does not place: thin callers of reusable workflows,
@@ -102,6 +110,8 @@ EXPECTED_CEILING_MINUTES: typ.Final = {
 DELEGATED_JOBS: typ.Final = {
     ("mutation-testing.yml", "mutation"),
     ("dependabot-automerge.yml", "automerge"),
+    ("release-dry-run.yml", "package"),
+    ("release.yml", "package"),
     ("delayed-pr-comment.yml", "delayed-comment"),
 }
 
