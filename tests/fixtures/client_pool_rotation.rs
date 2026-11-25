@@ -183,26 +183,49 @@ impl ClientPoolRotationWorld {
         let second = pool.acquire().await?;
         let first_pong: Pong = first.call(&Ping(1)).await?;
         let second_pong: Pong = second.call(&Ping(2)).await?;
-        if first_pong != Pong(1) || second_pong != Pong(2) {
-            return Err("a concurrent rotation lease returned an unexpected response".into());
-        }
+        Self::ensure_expected_lease_pongs(&first_pong, &second_pong)?;
 
-        let waiter_pool = Arc::clone(pool);
-        let mut waiter = tokio::spawn(async move { waiter_pool.acquire().await });
         let dropped_slot = first.slot_id();
-        let waiter_stayed_pending = wait_until_parked(&churn).await
-            && timeout(SATURATION_GRACE, &mut waiter).await.is_err();
-
-        drop(first);
-        let recovered = timeout(RECOVERY_GRACE, waiter).await???;
-        let recovered_pong: Pong = recovered.call(&Ping(3)).await?;
+        let (waiter_stayed_pending, recovered_slot, recovered_lease_usable) =
+            Self::park_waiter_then_release(pool, &churn, first).await?;
         Ok(ConcurrentRotationOutcome {
             dropped_slot,
             retained_slot: second.slot_id(),
             waiter_stayed_pending,
-            recovered_slot: recovered.slot_id(),
-            recovered_lease_usable: recovered_pong == Pong(3),
+            recovered_slot,
+            recovered_lease_usable,
         })
+    }
+
+    /// Park a third acquisition, drop `first_lease` to free its slot, and
+    /// report whether the waiter stayed pending, the slot it recovered and
+    /// whether that lease answered a ping.
+    async fn park_waiter_then_release<L>(
+        pool: &Arc<TestClientPool>,
+        churn: &PoolTaskChurnObserver,
+        first_lease: L,
+    ) -> Result<(bool, usize, bool), TestError> {
+        let waiter_pool = Arc::clone(pool);
+        let mut waiter = tokio::spawn(async move { waiter_pool.acquire().await });
+        let waiter_stayed_pending =
+            wait_until_parked(churn).await && timeout(SATURATION_GRACE, &mut waiter).await.is_err();
+
+        drop(first_lease);
+        let recovered = timeout(RECOVERY_GRACE, waiter).await???;
+        let recovered_pong: Pong = recovered.call(&Ping(3)).await?;
+        Ok((
+            waiter_stayed_pending,
+            recovered.slot_id(),
+            recovered_pong == Pong(3),
+        ))
+    }
+
+    /// Require both concurrent leases to have echoed their own ping.
+    fn ensure_expected_lease_pongs(first: &Pong, second: &Pong) -> Result<(), TestError> {
+        if *first != Pong(1) || *second != Pong(2) {
+            return Err("a concurrent rotation lease returned an unexpected response".into());
+        }
+        Ok(())
     }
 
     /// Run three acquire-then-release rounds and record the granted slots.

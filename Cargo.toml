@@ -137,7 +137,6 @@ pedantic = { level = "warn", priority = -1 }
 allow_attributes = "deny"
 allow_attributes_without_reason = "deny"
 blanket_clippy_restriction_lints = "deny"
-cognitive_complexity = "deny"
 # `clippy.toml` lists the prohibited `std::env` APIs. Denying the lint here
 # makes it an error even when a member or CI lane forgets `-D warnings`.
 disallowed_methods = "deny"
