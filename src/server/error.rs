@@ -2,6 +2,7 @@
 
 use std::{error::Error, io, sync::Arc};
 
+use static_assertions::assert_impl_all;
 use thiserror::Error;
 
 use crate::app::PrepareError;
@@ -36,3 +37,6 @@ pub enum ServerError {
         source: Option<Arc<Self>>,
     },
 }
+
+// Shared through Arc and across tasks; a non-Send or non-Sync payload would break callers.
+assert_impl_all!(ServerError: Send, Sync);

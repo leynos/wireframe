@@ -1022,6 +1022,13 @@ drained its tracker. Clones converge on that one terminal outcome. Dropping the
 final `ServerShutdown` clone also requests shutdown; keep a clone alive and
 await `drained()` when the terminal outcome matters.
 
+The `Send`, `Sync`, and `Unpin` auto traits on `ServerShutdown` are pinned by a
+compile-time assertion beside the type definition, as are `Send` and `Sync` on
+`ServerError`. Callers move the control across tasks and share it by reference,
+and the planned test-support lifecycle handle will inherit those traits, so a
+payload that silently dropped one must break this repository's build rather
+than a downstream call site.
+
 `spawn()` reports the typed application factory and preparation errors before
 returning a control handle. After it succeeds, `drained()` returns either clean
 completion or `ServerError::AbnormalTermination`, which contains the captured
