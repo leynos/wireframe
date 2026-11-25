@@ -6,6 +6,11 @@
 //! `Framed`. That keeps the read half's buffer accessible: when a peer
 //! disconnects mid-frame, the connection reports the protocol `on_eof` hook
 //! with exactly the bytes buffered for the frame that never completed.
+//!
+//! The decoder half is wrapped by [`RecoveryDecoder`], so a decoder failure
+//! arrives as a stream item rather than terminating the stream, and the
+//! connection loop can consult the application's recovery hook. The encoder
+//! half is the codec's own, so the sink still writes `F::Frame` unchanged.
 
 use std::pin::Pin;
 
@@ -13,7 +18,7 @@ use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite, ReadHalf, WriteHalf};
 use tokio_util::codec::{FramedRead, FramedWrite};
 
-use super::super::codec_driver::FramePipeline;
+use super::super::{codec_driver::FramePipeline, recovery_codec::RecoveryDecoder};
 use crate::codec::{EofError, FrameCodec, MAX_FRAME_LENGTH, clamp_frame_length, eof_condition};
 
 /// Write half of a framed connection transport.
@@ -27,10 +32,10 @@ pub(super) type TransportSink<W, F> =
 /// Read half of a framed connection transport.
 ///
 /// Pinned for the same reason as [`TransportSink`]. `FramedRead` keeps decoded
-/// leftovers in its own buffer, which
-/// [`FramedRead::read_buffer`] exposes to the EOF hook.
+/// leftovers in its own buffer, which [`FramedRead::read_buffer`] exposes to
+/// the EOF hook, and its decoder reports failures as in-band items.
 pub(super) type TransportStream<W, F> =
-    Pin<Box<FramedRead<ReadHalf<W>, <F as FrameCodec>::Decoder>>>;
+    Pin<Box<FramedRead<ReadHalf<W>, RecoveryDecoder<<F as FrameCodec>::Decoder>>>>;
 
 /// The bytes a framed reader still holds for a frame the peer abandoned.
 ///
@@ -52,11 +57,8 @@ impl<'a> TruncatedFrame<'a> {
 }
 
 /// Read what the framed reader still holds for an abandoned frame.
-pub(super) fn truncated_frame<W, F>(
-    reader: &FramedRead<ReadHalf<W>, F::Decoder>,
-) -> TruncatedFrame<'_>
+pub(super) fn truncated_frame<W, D>(reader: &FramedRead<ReadHalf<W>, D>) -> TruncatedFrame<'_>
 where
-    F: FrameCodec,
     W: AsyncRead + AsyncWrite + Unpin,
 {
     TruncatedFrame(reader.read_buffer().as_ref())
@@ -74,14 +76,14 @@ where
 /// it is included, while a decoder that consumes bytes before reporting its
 /// condition yields only what it left behind.
 pub(super) fn report_truncation<W, F>(
-    reader: &FramedRead<ReadHalf<W>, F::Decoder>,
+    reader: &FramedRead<ReadHalf<W>, RecoveryDecoder<<F as FrameCodec>::Decoder>>,
     pipeline: &mut FramePipeline<F::Frame>,
     error: &io::Error,
 ) where
     F: FrameCodec,
     W: AsyncRead + AsyncWrite + Unpin,
 {
-    let partial = truncated_frame::<W, F>(reader);
+    let partial = truncated_frame::<W, _>(reader);
     match eof_condition(error) {
         Some(eof @ (EofError::MidHeader { .. } | EofError::MidFrame { .. })) => {
             tracing::debug!(
@@ -107,7 +109,7 @@ where
     pub(super) codec: F,
     /// Writer built from the codec's encoder.
     pub(super) sink: TransportSink<W, F>,
-    /// Reader built from the codec's decoder.
+    /// Reader built from the codec's recovery-aware decoder.
     pub(super) stream: TransportStream<W, F>,
 }
 
@@ -140,8 +142,11 @@ where
         );
     }
     let (read_half, write_half) = tokio::io::split(stream);
-    let framed_read =
-        FramedRead::with_capacity(read_half, connection_codec.decoder(), max_frame_length);
+    let framed_read = FramedRead::with_capacity(
+        read_half,
+        RecoveryDecoder::new(connection_codec.decoder()),
+        max_frame_length,
+    );
     let sink = FramedWrite::new(write_half, connection_codec.encoder());
     ConnectionFraming {
         codec: connection_codec,

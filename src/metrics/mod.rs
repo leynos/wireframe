@@ -302,8 +302,11 @@ pub fn inc_pool_bookkeeping_poison_recoveries() {}
 /// * `error_type` - The category of error: `"framing"`, `"protocol"`, `"io"`, or `"eof"`.
 /// * `recovery_policy` - The recovery action taken: `"drop"`, `"quarantine"`, or `"disconnect"`.
 ///
-/// The connection runtime does not call this helper yet, so this counter moves
-/// only when application code records it.
+/// The connection runtime calls this helper exactly once for every decoder
+/// failure it observes on a live connection. `recovery_policy` is the policy
+/// the loop applied, which can differ from the policy a
+/// [`RecoveryPolicyHook`](crate::codec::RecoveryPolicyHook) selected after a
+/// fallback escalates the failure to a disconnect.
 ///
 /// # Examples
 ///

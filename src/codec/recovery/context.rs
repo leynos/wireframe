@@ -7,6 +7,18 @@ use std::net::SocketAddr;
 /// This struct captures connection-specific information to include in
 /// structured logs and metrics when codec errors occur.
 ///
+/// # Runtime population
+///
+/// The inbound connection loop fills [`peer_address`](Self::peer_address)
+/// when the transport exposes it, which [`WireframeServer`] does for accepted
+/// TCP connections. The other fields stay empty in that path: a decoder
+/// failure happens before a frame exists, so there is no
+/// [`correlation_id`](Self::correlation_id) to report, and no per-connection
+/// identifier or generic [`codec_state`](Self::codec_state) is tracked. They
+/// remain available for hooks that supply their own state.
+///
+/// [`WireframeServer`]: crate::server::WireframeServer
+///
 /// # Examples
 ///
 /// ```

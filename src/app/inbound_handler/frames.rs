@@ -134,11 +134,16 @@ impl<'a> InboundExpiry<'a> {
 /// state a read timeout purges. They are only ever touched together, and
 /// holding them as one value lets the loop read through a single call that also
 /// observes shutdown.
-pub(super) struct InboundFrames<T> {
+///
+/// `T` is what the reader yields and `F` is the outbound codec frame type. They
+/// differ because the recovery-aware decoder reports a failure as an item, so
+/// the reader yields [`DecodedItem<F>`](super::super::recovery_codec::DecodedItem)
+/// while the pipeline still buffers real frames.
+pub(super) struct InboundFrames<T, F> {
     /// Frame read while the previous one was still being handled.
     pub(super) pending: Option<T>,
     /// Fragmentation pipeline, whose expired buffers a timeout drops.
-    pub(super) pipeline: FramePipeline<T>,
+    pub(super) pipeline: FramePipeline<F>,
     /// Reassembled messages, likewise purged on a timeout.
     pub(super) message_assembly: Option<MessageAssemblyState>,
     /// Deadline at which the current silence purges expired state.
@@ -150,7 +155,7 @@ pub(super) struct InboundFrames<T> {
     pub(super) read_deadline: Option<Instant>,
 }
 
-impl<T> InboundFrames<T> {
+impl<T, F> InboundFrames<T, F> {
     /// Apply memory pressure before reading the next inbound frame.
     ///
     /// The read pauses for the configured interval while soft limits are
@@ -290,7 +295,7 @@ impl<T> InboundFrames<T> {
 /// then measure *when* the purge runs rather than the assembly clock, which is
 /// a `std::time::Instant` that a paused runtime does not advance.
 #[cfg(test)]
-pub(super) fn incomplete_inbound<T>() -> InboundFrames<T> {
+pub(super) fn incomplete_inbound<T>() -> InboundFrames<T, T> {
     use crate::message_assembler::{
         EnvelopeRouting,
         FirstFrameHeader,
@@ -325,7 +330,7 @@ pub(super) fn incomplete_inbound<T>() -> InboundFrames<T> {
 
 /// Number of incomplete assemblies still buffered.
 #[cfg(test)]
-pub(super) fn buffered_assemblies<T>(inbound: &InboundFrames<T>) -> Option<usize> {
+pub(super) fn buffered_assemblies<T, F>(inbound: &InboundFrames<T, F>) -> Option<usize> {
     inbound
         .message_assembly
         .as_ref()

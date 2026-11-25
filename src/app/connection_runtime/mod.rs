@@ -104,7 +104,7 @@ use super::{
     memory_budgets::MemoryBudgets,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
@@ -152,6 +152,10 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
 }
 
 /// Panic payload recovered by [`futures::FutureExt::catch_unwind`].
@@ -266,6 +270,8 @@ where
             push_queues,
             session_registry,
             peer_addr,
+            recovery_hook,
+            recovery_config,
         } = config;
         process_stream(
             stream,
@@ -282,6 +288,8 @@ where
                 push_queues,
                 session_registry,
                 peer_addr,
+                recovery_hook,
+                recovery_config,
             },
         )
         .await

@@ -27,7 +27,7 @@ use super::{
     memory_budgets::MemoryBudgets,
 };
 use crate::{
-    codec::{FrameCodec, LengthDelimitedFrameCodec},
+    codec::{FrameCodec, LengthDelimitedFrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::WireframeProtocol,
     message::{DecodeWith, EncodeWith},
@@ -102,6 +102,10 @@ pub struct PreparedApp<
     pub(in crate::app) read_timeout_ms: u64,
     /// Optional byte caps protecting message and connection memory usage.
     pub(in crate::app) memory_budgets: Option<MemoryBudgets>,
+    /// Optional hook consulted when a decoder fails on a live connection.
+    pub(in crate::app) recovery_hook: Option<Arc<dyn RecoveryPolicyHook>>,
+    /// Global recovery settings copied into each connection.
+    pub(in crate::app) recovery_config: RecoveryConfig,
 }
 
 /// Supplies elapsed durations for preparation instrumentation.
@@ -198,6 +202,8 @@ where
             message_assembler,
             read_timeout_ms,
             memory_budgets,
+            recovery_hook,
+            recovery_config,
         } = self;
         // Preparation consumes the builder, so each handler's existing `Arc`
         // moves into its prepared service rather than being cloned. The
@@ -218,6 +224,8 @@ where
             fragmentation,
             read_timeout_ms,
             memory_budgets,
+            recovery_hook,
+            recovery_config,
         })
     }
 }
@@ -339,6 +347,8 @@ where
                 session_registry: Arc::clone(&self.session_registry),
                 peer_addr,
                 shutdown,
+                recovery_hook: self.recovery_hook.as_deref(),
+                recovery_config: self.recovery_config.clone(),
             },
         )
         .instrument(span.clone())

@@ -84,6 +84,8 @@ where
         // These cases drive a duplex stream rather than an accepted socket,
         // so there is no peer address to report.
         peer_addr: None,
+        recovery_hook: prepared.recovery_hook.as_deref(),
+        recovery_config: prepared.recovery_config.clone(),
     }
 }
 

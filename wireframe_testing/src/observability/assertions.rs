@@ -5,6 +5,7 @@
 //! `.expect(...)` for clear failure diagnostics.
 
 use log::Level;
+use metrics::Key;
 use metrics_util::debugging::DebugValue;
 
 use super::{Labels, ObservabilityHandle, SnapshotEntry};
@@ -281,4 +282,14 @@ pub(super) fn find_counter(snapshot: &[SnapshotEntry], name: &str, labels: &[(&s
             _ => None,
         })
         .sum()
+}
+
+/// Read one label value from a metric key, or an empty string when absent.
+///
+/// An absent label yields an empty string rather than dropping the series, so
+/// a caller comparing complete label sets still sees the entry.
+pub(super) fn label_value(key: &Key, name: &str) -> String {
+    key.labels()
+        .find(|label| label.key() == name)
+        .map_or_else(String::new, |label| label.value().to_owned())
 }

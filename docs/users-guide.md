@@ -822,6 +822,85 @@ impl RecoveryPolicyHook for StrictRecovery {
 }
 ```
 
+Install the hook on the application builder. `with_recovery_hook` stores the
+hook for every connection the application serves, and `recovery_config` sets
+the global limits: how many consecutive frames a `Drop` may discard and whether
+dropped frames are logged. The configured fallback quarantine pause is
+currently inactive, because an installed hook supplies the pause through
+`RecoveryPolicyHook::quarantine_duration` and a missing hook disconnects:
+
+<!-- tested-example: users-guide-069 -->
+```rust
+use std::time::Duration;
+
+use wireframe::{
+    app::WireframeApp,
+    codec::{
+        CodecError, CodecErrorContext, RecoveryConfig, RecoveryPolicy, RecoveryPolicyHook,
+    },
+};
+
+struct QuarantineProtocolErrors;
+
+impl RecoveryPolicyHook for QuarantineProtocolErrors {
+    fn recovery_policy(&self, error: &CodecError, _ctx: &CodecErrorContext) -> RecoveryPolicy {
+        match error {
+            CodecError::Protocol(_) => RecoveryPolicy::Quarantine,
+            other => other.default_recovery_policy(),
+        }
+    }
+
+    fn quarantine_duration(&self, _error: &CodecError, _ctx: &CodecErrorContext) -> Duration {
+        Duration::from_secs(5)
+    }
+}
+
+let app: WireframeApp = WireframeApp::new()
+    .expect("build the application")
+    .with_recovery_hook(QuarantineProtocolErrors)
+    .recovery_config(RecoveryConfig::default().max_consecutive_drops(3));
+let _ = app;
+```
+
+**How a decode failure is handled:**
+
+When a decoder on a live connection served by `WireframeApp` returns an error,
+the connection loop applies this order:
+
+1. With no hook installed, the connection disconnects and the original error
+   reaches the teardown path. Nothing else is consulted.
+2. Otherwise the hook's `recovery_policy` selects a policy.
+3. The loop overrides that selection in three cases. A failure from
+   `decode_eof` always disconnects, because the peer has stopped sending.
+   `Drop` or `Quarantine` chosen for a failure that consumed no bytes
+   disconnects, because the same malformed prefix would be decoded again. A
+   `Drop` beyond `RecoveryConfig::max_consecutive_drops` disconnects, and the
+   counter restarts whenever a frame decodes successfully.
+4. For an applied `Quarantine`, the hook's `quarantine_duration` supplies the
+   pause, so a hook that varies its pause per error is honoured.
+   `RecoveryConfig::quarantine_duration` is a fallback that never takes effect
+   today, because a quarantine can only be applied when a hook selects it.
+5. The hook's `on_error` receives the error and the *applied* policy,
+   immediately before the loop acts on it.
+
+An applied `Drop` discards the malformed frame and keeps reading. An applied
+`Quarantine` pauses the connection, purges expired assembly state, and then
+keeps reading. An applied `Disconnect` returns the original error and ends the
+connection. A clean close at a frame boundary is not a failure: it ends the
+connection without a recovery decision.
+
+A `decode_eof` failure ends the connection even when it is read while a
+response or a queued push write is still pending. That read is normally
+buffered for the next frame, but the peer has already stopped sending, so there
+is no next frame to buffer it for; the failure is reported as the disconnect it
+is and the connection ends. This is what lets the protocol's `on_eof` hook
+observe a peer that truncates mid-frame while a handler is still running.
+
+Recovery only works when the decoder consumes the malformed frame and leaves
+its framing state valid before returning the error. A decoder that returns an
+error without consuming any bytes would be offered the same input again, so the
+loop escalates that case to a disconnect.
+
 `CodecErrorContext` provides connection metadata for policy decisions:
 
 <!-- tested-example: users-guide-020 -->
@@ -833,6 +912,13 @@ let ctx = CodecErrorContext::new()
     .with_correlation_id(123)
     .with_codec_state("seq=5");
 ```
+
+The connection loop fills `peer_address` when the server accepted a TCP
+connection, so a hook can attribute a decode failure to the peer that caused
+it. The other fields stay empty on that path: a decode failure happens before a
+frame exists, so there is no correlation identifier to report, and the
+connection loop tracks neither a per-connection identifier nor generic codec
+state.
 
 **Protocol hooks for truncation:**
 
@@ -1026,15 +1112,30 @@ impl WireframeProtocol for MyProtocol {
 
 **Metrics:**
 
-When the `metrics` feature is enabled, codec errors increment the
-`wireframe_codec_errors_total` counter with `error_type` and `recovery_policy`
-labels:
+When the `metrics` feature is enabled, every decode failure increments the
+`wireframe_codec_errors_total` counter exactly once, with `error_type` and
+`recovery_policy` labels. The `recovery_policy` label carries the policy the
+connection loop applied, not the policy the hook selected, so it never reports
+a drop or quarantine that was escalated to a disconnect:
 
 <!-- tested-example: users-guide-022 -->
 ```text
 wireframe_codec_errors_total{error_type="framing",recovery_policy="drop"} 5
 wireframe_codec_errors_total{error_type="eof",recovery_policy="disconnect"} 2
 ```
+
+The label also reports a disconnect for a failure the connection could no
+longer act on, such as one buffered while a response ran that then ended the
+connection, or one still buffered when shutdown ended the read: no selected
+policy was applied, so none is reported.
+
+A decoder that reports a structured `CodecError` is classified from that value,
+so its `error_type` label names the real category. The built-in
+`LengthDelimitedFrameCodec` is no exception: a length prefix beyond
+`max_frame_length` is recorded as `error_type="framing"`, not `"io"`. Because
+that decoder leaves the offending header unconsumed, the zero-consumption
+fallback escalates the default `Drop` for an oversized frame to a disconnect,
+and the metric reports the applied policy.
 
 ## Packets, payloads, and serialization
 
@@ -3933,7 +4034,7 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
 [^4]: Implemented in `src/app/builder.rs` (lines 326-344).
 [^5]: Implemented in `src/error.rs` (lines 1-68).
-[^6]: Implemented in `src/app/prepared_app.rs` and
+[^6]: Implemented in `src/app/prepared_app/` and
       `src/app/inbound_handler/mod.rs`.
 [^7]: Implemented in `src/app/inbound_handler/core.rs`.
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).

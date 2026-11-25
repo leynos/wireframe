@@ -12,6 +12,9 @@ use super::{
     examples::{HotlineFrameCodec, MysqlFrameCodec},
     *,
 };
+use crate::byte_order::write_network_u32;
+
+mod oversized;
 
 #[test]
 fn length_delimited_codec_clamps_max_frame_length() {

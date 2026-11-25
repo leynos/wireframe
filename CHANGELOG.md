@@ -4,6 +4,19 @@ All notable changes to this project will be documented in this file.
 
 ## Unreleased
 
+- Consult `RecoveryPolicyHook` on decoder failures from live server
+  connections and, with the default `metrics` feature, emit
+  `wireframe_codec_errors_total` once per failure, labelled with the error type
+  and the applied policy. With no hook installed the applied policy remains
+  disconnect, and a failure buffered when reading stops for a reason other than
+  that failure — a response that ended the connection, a server shutdown, or
+  memory pressure — is reported as that disconnect without consulting the hook.
+  An end-of-stream (`decode_eof`) failure read while a response or a queued
+  push write is still pending also ends the connection, rather than waiting for
+  a frame that can never arrive, so the protocol's `on_eof` hook still observes
+  a peer that truncates mid-frame. The built-in length-delimited codec now
+  classifies an oversized frame as `error_type="framing"` instead of `"io"`.
+  ([#878](https://github.com/leynos/wireframe/issues/878))
 - **Breaking:** Collapse the avoidable inner sharing beneath `PreparedApp`.
   `Arc<PreparedApp>` is the one shared root for every connection, so the
   prepared application now boxes its serializer, lifecycle callbacks, and
@@ -140,10 +153,9 @@ All notable changes to this project will be documented in this file.
   `wireframe_testing`.
 
 - Correct rustdoc that overstated runtime integration: streaming request
-  bodies, extractors and `app_data` are not delivered to route handlers,
-  `RecoveryPolicyHook` and `on_eof` are not consulted by the connection loop,
-  the runtime does not emit `wireframe_codec_errors_total`, `read_timeout_ms`
-  does not close idle connections, and pool sockets open on first use. Mark
+  bodies, extractors and `app_data` are not delivered to route handlers, and
+  `on_eof` is not consulted by the connection loop. `read_timeout_ms` does not
+  close idle connections, and pool sockets open on first use. Mark
   `WireframeApp::handle_connection*` deprecated since 0.4.0, the release that
   deprecates them, and reopen roadmap item 8.1.4.
 

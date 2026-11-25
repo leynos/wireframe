@@ -21,7 +21,7 @@
 use std::io;
 
 use bytes::{Bytes, BytesMut};
-use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec};
+use tokio_util::codec::{Decoder, Encoder, LengthDelimitedCodec, LengthDelimitedCodecError};
 
 use crate::byte_order::read_network_u32;
 
@@ -185,9 +185,11 @@ impl Decoder for LengthDelimitedDecoder {
             // A complete frame is available, or the declared length is too
             // large. Delegating the oversized case preserves the framing error
             // and its `Drop` recovery policy instead of reporting truncation.
-            BufferState::Complete | BufferState::Oversized => {
-                self.inner.decode(src).map(|opt| opt.map(BytesMut::freeze))
-            }
+            BufferState::Complete | BufferState::Oversized => self
+                .inner
+                .decode(src)
+                .map(|opt| opt.map(BytesMut::freeze))
+                .map_err(|error| as_framing_error(error, src, self.max_frame_length)),
         }
     }
 
@@ -216,7 +218,8 @@ impl Decoder for LengthDelimitedDecoder {
             BufferState::Complete | BufferState::Oversized => self
                 .inner
                 .decode_eof(src)
-                .map(|opt| opt.map(BytesMut::freeze)),
+                .map(|opt| opt.map(BytesMut::freeze))
+                .map_err(|error| as_framing_error(error, src, self.max_frame_length)),
         }
     }
 }
@@ -276,6 +279,33 @@ fn declared_payload_length(src: &BytesMut) -> Option<usize> {
     let header = src.get(..LENGTH_HEADER_SIZE)?;
     let bytes = <[u8; LENGTH_HEADER_SIZE]>::try_from(header).ok()?;
     usize::try_from(read_network_u32(bytes)).ok()
+}
+
+/// Reclassify `tokio_util`'s oversize error as a structured framing error.
+///
+/// The inner codec reports a length prefix beyond `max` as an [`io::Error`] of
+/// kind `InvalidData` whose source is [`LengthDelimitedCodecError`]. Reported
+/// unchanged, the recovery coordinator would present it to a
+/// [`RecoveryPolicyHook`] as [`CodecError::Io`] and record `error_type="io"`,
+/// so an operator could not tell a framing failure apart from a transport
+/// failure.
+///
+/// The declared length is still in `src` because the inner decoder returns
+/// before it consumes the header. If it cannot be read, the error is passed
+/// through untouched rather than reporting a size that was never observed.
+fn as_framing_error(error: io::Error, src: &BytesMut, max: usize) -> io::Error {
+    let is_oversize = error.kind() == io::ErrorKind::InvalidData
+        && error
+            .get_ref()
+            .and_then(|inner| inner.downcast_ref::<LengthDelimitedCodecError>())
+            .is_some();
+    if !is_oversize {
+        return error;
+    }
+
+    declared_payload_length(src).map_or(error, |size| {
+        CodecError::Framing(FramingError::OversizedFrame { size, max }).into()
+    })
 }
 
 /// Recover the structured EOF condition from a decoder's I/O error.

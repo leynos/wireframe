@@ -30,6 +30,7 @@ mod outbound_response;
 mod prepared_app;
 mod prepared_push;
 mod push_diagnostics;
+mod recovery_codec;
 
 pub use builder::WireframeApp;
 pub use envelope::{Envelope, Packet, PacketParts};

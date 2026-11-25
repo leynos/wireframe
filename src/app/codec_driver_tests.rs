@@ -17,8 +17,8 @@ use tokio_util::codec::Framed;
 
 use super::*;
 use crate::{
-    app::combined_codec::CombinedCodec,
-    codec::{FrameCodec, LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
+    app::combined_codec::{ConnectionCodec, connection_codec},
+    codec::{LengthDelimitedFrameCodec, MIN_FRAME_LENGTH},
     hooks::{ConnectionContext, CustomProtocolHooks},
     serializer::{BincodeSerializer, Serializer},
 };
@@ -49,12 +49,8 @@ fn pipeline_selects_the_preserving_terminator_policy() {
 
 /// Codec used by the pipeline tests.
 type TestCodec = LengthDelimitedFrameCodec;
-/// Decoder half paired with [`TestCodec`].
-type TestDecoder = <TestCodec as FrameCodec>::Decoder;
-/// Encoder half paired with [`TestCodec`].
-type TestEncoder = <TestCodec as FrameCodec>::Encoder;
 /// Framed duplex stream wired to the test codec.
-type TestFramed = Framed<DuplexStream, CombinedCodec<TestDecoder, TestEncoder>>;
+type TestFramed = Framed<DuplexStream, ConnectionCodec<TestCodec>>;
 
 /// Framed client/server pair sharing the same codec configuration.
 struct FramedPair {
@@ -69,8 +65,8 @@ fn framed_pair() -> FramedPair {
     let codec = TestCodec::default();
     let (client, server) = tokio::io::duplex(1024);
     FramedPair {
-        server: Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder())),
-        client: Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder())),
+        server: Framed::new(server, connection_codec(&codec)),
+        client: Framed::new(client, connection_codec(&codec)),
     }
 }
 
@@ -112,8 +108,8 @@ fn growing_hooks(extra: usize) -> ProtocolHooks<Bytes, ()> {
 /// Read every frame the server wrote before closing the transport.
 async fn collect_frames(client: &mut TestFramed) -> Vec<Bytes> {
     let mut frames = Vec::new();
-    while let Some(frame) = client.next().await {
-        frames.push(frame.expect("client decode should succeed"));
+    while let Some(item) = client.next().await {
+        frames.push(item.expect("client decode should succeed").expect_frame());
     }
     frames
 }
@@ -303,10 +299,8 @@ async fn before_send_output_over_the_frame_limit_fails_the_send() {
 
     let codec = TestCodec::new(MIN_FRAME_LENGTH);
     let (client, server) = tokio::io::duplex(1024);
-    let mut server_framed =
-        Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
-    let mut client_framed =
-        Framed::new(client, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut server_framed = Framed::new(server, connection_codec(&codec));
+    let mut client_framed = Framed::new(client, connection_codec(&codec));
     let mut transport = OutboundTransport {
         serializer: &BincodeSerializer,
         codec: &codec,

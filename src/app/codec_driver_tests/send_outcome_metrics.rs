@@ -55,7 +55,7 @@ where
     Envelope: EncodeWith<S>,
 {
     let (client, server) = tokio::io::duplex(1024);
-    let mut framed = Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+    let mut framed = Framed::new(server, connection_codec(codec));
     let mut transport = OutboundTransport {
         serializer,
         codec,
@@ -137,8 +137,7 @@ fn closed_peer_records_transport_failure() {
             let codec = TestCodec::default();
             let (client, server) = tokio::io::duplex(1024);
             drop(client);
-            let mut server_framed =
-                Framed::new(server, CombinedCodec::new(codec.decoder(), codec.encoder()));
+            let mut server_framed = Framed::new(server, connection_codec(&codec));
             let mut transport = OutboundTransport {
                 serializer: &BincodeSerializer,
                 codec: &codec,

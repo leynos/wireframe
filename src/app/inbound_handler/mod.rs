@@ -55,9 +55,12 @@ mod peer_watch;
 mod push_service;
 
 mod push_write;
+mod recovery;
 
 use std::{collections::HashMap, net::SocketAddr, sync::Arc};
 
+#[cfg(feature = "test-support")]
+pub use dispatch::benchmark_decode_envelope;
 use log::warn;
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
@@ -72,7 +75,7 @@ use super::{
     middleware_types::Middleware,
 };
 use crate::{
-    codec::FrameCodec,
+    codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::ProtocolHooks,
     message::{DecodeWith, EncodeWith},
@@ -82,37 +85,6 @@ use crate::{
     serializer::Serializer,
     session::SessionRegistry,
 };
-
-/// Benchmark entry point for the inbound decode seam.
-///
-/// Mirrors the crate-internal envelope decoder for harnesses that live outside
-/// the crate. It exists only with the `test-support` feature and returns the
-/// decoded envelope rather than any internal state, so a caller cannot depend
-/// on how the decode is staged.
-///
-/// # Errors
-///
-/// Returns the decoder's error when `payload` is not a complete envelope, or
-/// when trailing bytes follow it.
-///
-/// # Examples
-///
-/// ```ignore
-/// let (envelope, consumed) = benchmark_decode_envelope(&BincodeSerializer, &frame_payload)?;
-/// assert_eq!(envelope.payload_bytes().len(), payload_len);
-/// ```
-#[cfg(feature = "test-support")]
-#[doc(hidden)]
-pub fn benchmark_decode_envelope<S>(
-    serializer: &S,
-    payload: &[u8],
-) -> std::result::Result<(Envelope, usize), Box<dyn std::error::Error + Send + Sync>>
-where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
-    Envelope: DecodeWith<S>,
-{
-    dispatch::parse_envelope(serializer, payload)
-}
 
 /// Maximum consecutive deserialization failures before closing a connection.
 pub(super) const MAX_DESER_FAILURES: u32 = 10;
@@ -157,6 +129,10 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
 }
 
 /// Drive a connection using immutable application inputs and prepared routes.
@@ -198,6 +174,8 @@ where
         push_queues,
         session_registry,
         peer_addr,
+        recovery_hook,
+        recovery_config,
     } = context;
 
     let mut runtime = ConnectionRuntime::new(
@@ -215,6 +193,8 @@ where
             push_queues,
             session_registry,
             peer_addr,
+            recovery_hook,
+            recovery_config,
         },
     );
 
@@ -347,6 +327,8 @@ where
                 // This compatibility path is handed a stream rather than an
                 // accepted socket, so it has no peer address to report.
                 peer_addr: None,
+                recovery_hook: self.recovery_hook.as_deref(),
+                recovery_config: self.recovery_config.clone(),
             },
         )
         .await

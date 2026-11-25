@@ -1,6 +1,6 @@
 //! Codec and serializer configuration for `WireframeApp`.
 
-use super::{WireframeApp, core::RebuildParams};
+use super::{WireframeApp, rebuild::RebuildParams};
 use crate::{
     app::Packet,
     codec::{FrameCodec, LengthDelimitedFrameCodec, clamp_frame_length},
@@ -40,6 +40,8 @@ where
             on_disconnect,
             push_dlq,
             read_timeout_ms,
+            recovery_hook,
+            recovery_config,
             ..
         } = self;
         WireframeApp {
@@ -57,6 +59,8 @@ where
             fragmentation: None,
             message_assembler,
             memory_budgets,
+            recovery_hook,
+            recovery_config,
         }
     }
 
