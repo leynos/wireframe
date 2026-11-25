@@ -2500,12 +2500,15 @@ asynchronous attempts increment `wireframe_pool_acquisitions_total`. An
 asynchronous acquisition cancelled while waiting is excluded. The metric has
 two bounded labels, so pool activity cannot create new time series:
 
-- `mode` records which path made the attempt: `immediate` for the synchronous
-  fast path, or `permit_race` for asynchronous acquisition, including its
-  immediate probe and any subsequent race across slots.
+- `mode` records which scheduler step made the attempt: `immediate` for the
+  actor's inline grant sweep, or `permit_race` for its blocked race once every
+  slot is busy.
 - `outcome` records the result: `granted`, `exhausted`, `shutdown`, or `error`.
 
-`exhausted` only applies to `immediate`; the asynchronous path either gains a
+Both modes are decided inside the pool's one scheduler task; neither is a
+caller-side bypass. `exhausted` records an inline sweep that found no free
+slot; because one sweep can serve several queued waiters, it counts a capacity
+observation rather than one caller's result. The blocked race either gains a
 permit (`granted`), reports that a slot failed while the pool was live
 (`error`), or is rejected because the pool is shutting down (`shutdown`). The
 pool never adds slot identifiers, caller details, or error strings as labels.
@@ -2515,19 +2518,26 @@ rising `outcome="exhausted"` rate means acquisitions are arriving faster than
 the configured permits can serve them, and a rising `outcome="error"` rate on
 the `permit_race` mode means slots are failing instead of granting capacity.
 
-When the asynchronous probe finds every slot busy,
-`wireframe_pool_permit_races_started_total` counts the start of a blocked race.
-`wireframe_pool_permit_races_total` records one terminal outcome: `granted`,
-`shutdown`, `error`, or `cancelled` when the acquisition is dropped before
-completion. `wireframe_pool_permit_race_duration_seconds` is a histogram of
-blocked-race waits in seconds with those terminal outcome labels. Immediate
-probes that find capacity do not start a blocked-race observation.
+When the actor's inline sweep finds every slot busy,
+`wireframe_pool_permit_races_started_total` counts the start of the pool's
+shared blocked race. The pool holds at most one such race, so a caller that
+drops its acquisition leaves the queue but does not end the race.
+
+`wireframe_pool_permit_races_total` records one terminal outcome for the shared
+race: `granted`, `shutdown`, `error`, or `cancelled`. `granted`, `shutdown`, and
+`error` describe completed races. `cancelled` is recorded only when the
+scheduler drops the race without a terminal outcome, for example when the task
+terminates after every pool handle is gone. A caller's own cancellation does
+not record `cancelled`; its request is pruned and the race continues.
+`wireframe_pool_permit_race_duration_seconds` is a histogram of blocked-race
+waits in seconds with the same terminal outcome labels. Immediate probes that
+find capacity do not start a blocked-race observation.
 
 Compare the rates of starts and terminal outcomes to investigate races that
 remain active, and graph duration and cancellation rates to understand
 contention. A `shutdown` outcome indicates pool closure; `cancelled` indicates
-an acquisition dropped while the pool was still open. These metrics use fixed
-labels and do not identify slots or callers.
+the scheduler dropped a shared race while the pool was still open. These
+metrics use fixed labels and do not identify slots or callers.
 
 ### Client preamble exchange
 
@@ -4005,7 +4015,7 @@ bridge behind the non-default `serializer-serde` feature — is exercised during
 mutation runs rather than being hidden by default-feature builds, so its
 survivors reflect real assertion gaps instead of compiled-out tests.
 
-Three scaffolding paths are excluded from mutation: `src/test_helpers.rs`,
+Scaffolding is excluded from mutation: `src/test_helpers/**`,
 `src/connection/test_support.rs`, and `src/codec/examples.rs`. These contain
 test support and illustrative codecs rather than shipped behaviour, so
 survivors there would be noise rather than signal. Survivors reported for the
@@ -4031,8 +4041,8 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^1]: Implemented in `src/lib.rs` (lines 2-33).
 [^2]: Implemented in `src/app/builder/lifecycle.rs` and
       `src/app/connection_runtime/mod.rs`.
-[^3]: Implemented in `src/app/builder.rs` (lines 100-121, 347-360).
-[^4]: Implemented in `src/app/builder.rs` (lines 326-344).
+[^3]: Implemented in `src/app/builder/`.
+[^4]: Implemented in `src/app/builder/`.
 [^5]: Implemented in `src/error.rs` (lines 1-68).
 [^6]: Implemented in `src/app/prepared_app/` and
       `src/app/inbound_handler/mod.rs`.
@@ -4040,8 +4050,8 @@ directories (one per shard on full dispatch runs) for offline triage.
 [^8]: Implemented in `src/app/envelope.rs` (lines 11-172).
 [^9]: Implemented in `src/frame/metadata.rs` (lines 1-40).
 [^10]: Implemented in `src/message.rs` (lines 4-41).
-[^11]: Implemented in `src/middleware.rs` (lines 13-206).
-[^12]: Implemented in `src/middleware.rs` (lines 252-347).
+[^11]: Implemented in `src/middleware/`.
+[^12]: Implemented in `src/middleware/`.
 [^14]: Implemented in `src/hooks.rs` (lines 18-175).
 [^15]: Implemented in `src/server/config/mod.rs` (lines 47-152).
 [^16]: Implemented in `src/server/runtime/mod.rs` (lines 46-83).
@@ -4058,30 +4068,30 @@ directories (one per shard on full dispatch runs) for offline triage.
     (`push_with_priority`, `reserve_capacity`, `wait_for_permit`).
 [^26]: Implemented in `src/push/queues/handle/mod.rs` (`try_push`).
 [^27]: Implemented in `src/push/queues/mod.rs` (lines 255-318).
-[^28]: Implemented in `src/connection.rs` (lines 69-205).
+[^28]: Implemented in `src/connection/`.
 [^29]: Implemented in `src/fairness.rs` (lines 1-79).
-[^30]: Implemented in `src/connection.rs` (lines 240-441).
-[^31]: Implemented in `src/connection.rs` (lines 22-46).
+[^30]: Implemented in `src/connection/`.
+[^31]: Implemented in `src/connection/`.
 [^33]: Implemented in `src/metrics/mod.rs` (lines 21-111).
 [^34]: Implemented in `src/response.rs` (lines 46-151).
 [^35]: Implemented in `src/response.rs` (lines 156-209).
 [^36]: Demonstrated in `examples/async_stream.rs` (lines 1-23).
-[^37]: Implemented in `src/preamble.rs` (lines 1-128).
+[^37]: Implemented in `src/preamble/`.
 [^38]: Implemented in `src/rewind_stream.rs` (lines 14-76).
 [^39]: Implemented in `src/panic.rs` (lines 1-18).
 [^40]: Implemented in `src/session.rs` (lines 13-255).
 [^41]: Implemented in `src/fragment/mod.rs` and supporting submodules.
 [^42]: Exercised in `tests/features/fragment.feature`.
 [^43]: Step definitions in `tests/steps/fragment_steps.rs`.
-[^44]: Implemented in `src/client/runtime.rs`, `src/client/builder.rs`,
+[^44]: Implemented in `src/client/runtime.rs`, `src/client/builder/`,
     `src/client/config.rs`, and `src/client/error.rs`.
 [^45]: Implemented in `src/request/mod.rs`.
 [^46]: See ADR 0002 for design rationale:
     `docs/adrs/adr-0002-streaming-requests-and-shared-message-assembly.md`.
-[^47]: Client preamble support implemented in `src/client/builder.rs`
-    (lines 288-566) and `src/client/mod.rs` (callback types).
+[^47]: Client preamble support implemented in `src/client/builder/` and
+    `src/client/mod.rs` (callback types).
 [^48]: Client lifecycle hooks implemented in `src/client/hooks.rs`,
-    `src/client/builder.rs` (lifecycle methods), and `src/client/runtime.rs`
+    `src/client/builder/` (lifecycle methods), and `src/client/runtime.rs`
     (hook invocation). Behaviour-driven development (BDD) tests in
     `tests/features/client_lifecycle.feature`.
 

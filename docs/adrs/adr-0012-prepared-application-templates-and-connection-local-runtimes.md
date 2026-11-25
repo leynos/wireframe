@@ -22,10 +22,13 @@ pipeline, fragment reassembly, message-assembly state, the deserialization
 failure counter, resolved budgets, the read timeout, and connection setup state
 — together with the centralized lifecycle finalization described in section 5.
 [#644](https://github.com/leynos/wireframe/issues/644) implements the protocol
-ownership and hook-dispatch consolidation in section 6. Other ownership listed
-under `ConnectionRuntime` in section 1, including outbound connection-actor
-state, peer metadata, and the teardown guard, remains sequenced work. The
-broader ownership decision remains proposed while that work continues.
+ownership and hook-dispatch consolidation in section 6, and
+[#648](https://github.com/leynos/wireframe/issues/648) completes the nested
+ownership collapse. The connection-local runtime now covers the ownership
+listed under `ConnectionRuntime` in section 1, including the connection
+context, outbound connection-actor state, peer metadata, and the teardown
+guard. The dated addenda below record the final hook, lifecycle, and nested
+ownership contracts.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on

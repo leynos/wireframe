@@ -25,7 +25,8 @@ server.run().await?;
 ## Binding flow
 
 The sequence below details how a server binds to an address, prepares its
-application, and signals readiness before accepting connections.
+application, installs its accept loops, and signals readiness once those
+workers exist. Readiness does not mean the listener has accepted a connection.
 
 <!-- tested-example: configuration-002 -->
 ```mermaid
@@ -61,7 +62,7 @@ sequenceDiagram
   WSB->>Workers: spawn with shared root
   WSB->>Ready: send readiness
   Workers->>Hooks: process preamble events
-  note over Ready,Workers: Accept loops run only after preparation and readiness
+  note over Prepared,Workers: Accept loops are spawned after preparation, then readiness is signalled
 ```
 
 _Figure 1: Server binding, application preparation, worker startup, and

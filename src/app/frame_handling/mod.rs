@@ -1,6 +1,6 @@
 //! Shared helpers for frame decoding, reassembly, and response forwarding.
 //!
-//! Extracted from `connection.rs` to keep modules small and focused.
+//! Extracted from `src/connection/` to keep modules small and focused.
 
 mod assembly;
 mod backpressure;
