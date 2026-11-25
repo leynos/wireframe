@@ -7,14 +7,15 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 proceeds.
 
 Status: DRAFT — every decision accepted, including D23 option 1 on 2026-11-24.
-Implementation is not authorized. EP-M1 also waits for PRE-1, the server change
-D23 selects, to land beneath this branch; see `Upstream prerequisite`.
+Implementation is not authorized. EP-M1 also waits for PRE-1
+([#974](https://github.com/leynos/wireframe/issues/974)), the server change
+D23 selects, to land; see `Upstream prerequisite`.
 
-The branch is stacked on [#962](https://github.com/leynos/wireframe/pull/962),
-which pins `ServerShutdown`'s auto traits for
+[#962](https://github.com/leynos/wireframe/pull/962), merged on 2026-11-25, pins
+`ServerShutdown`'s auto traits for
 [#956](https://github.com/leynos/wireframe/issues/956). Line citations are to
-`10809b0d`, that pull request's head; the measurements ran on its
-patch-identical predecessor `a4d2218b`, with the same `src/server/`.
+`10809b0d`, that pull request's head before it merged; the measurements ran on
+its patch-identical predecessor `a4d2218b`, with the same `src/server/`.
 
 This revision replaces the 2026-08-23 design wholesale. That design wrapped a
 raw `JoinHandle` and a `oneshot` shutdown sender, ran a detached cleanup task
@@ -157,7 +158,9 @@ touches this surface, so there is no further history to draw on.
       in-flight listener behaviour measured. D23 raised.
 - [x] (2026-11-24) D23 accepted: option 1. D18 and D20 stand again, subject to
       PRE-1.
-- [ ] PRE-1 raised as an issue, reviewed, and landed beneath this branch.
+- [x] (2026-11-25) PRE-1 raised as
+      [#974](https://github.com/leynos/wireframe/issues/974).
+- [ ] PRE-1 landed on `main`.
 - [ ] Implementation authorized.
 - [ ] EP-M0 Green baseline recorded.
 - [ ] EP-M1 Harness, options, spawn helpers, rstest and BDD coverage.
@@ -422,15 +425,19 @@ Upstream artefacts at `a7eecaff`:
 ### Upstream prerequisite
 
 PRE-1 is the server change accepted in D23. It is not part of this plan, whose
-Constraint 6 still forbids touching `src/`. It needs its own issue, which has
-not been raised, and its own pull request beneath this branch in the stack.
+Constraint 6 still forbids touching `src/`. It is
+[#974](https://github.com/leynos/wireframe/issues/974), raised as a follow-up
+to #655 and delivered in its own pull request before EP-M1.
 
 - Change: in `PreparedServerRuntime::run_with_shutdown`
   (`src/server/runtime/server/mod.rs`), drop the supervisor's own listener
   handle once every accept loop holds its clone. The measured form was
   `drop(self.listener)` before the startup duration is recorded at line 148.
-  Correct the field's comment at line 70, and the description of `drained()`
-  and drop behaviour in `docs/users-guide.md` and `docs/developers-guide.md`.
+  #974 also offers dropping it after the stop request and before the tracker
+  wait, which keeps the supervisor's ownership while running but has not been
+  measured. Either form satisfies this plan. Correct the field's comment at
+  line 70, and the description of `drained()` and drop behaviour in
+  `docs/users-guide.md` and `docs/developers-guide.md`.
 - Acceptance: with a request held in flight, the listener refuses connections
   after `stop()`, after the last control is dropped, and after a
   `run_with_shutdown` future is asked to stop, each before the request finishes;
@@ -872,10 +879,10 @@ text (D19):
 ### EP-M0 — re-derived plan, accepted decisions, green baseline
 
 - Outcome: this plan re-derived against `a7eecaff` (done 2026-11-22); every
-  decision accepted (done 2026-11-24); PRE-1 landed beneath this branch, with
-  fact 13 and AXIOM-7 re-read against it; implementation authorized;
-  `make check-fmt`, `make lint`, and `make test` recorded green on an
-  unmodified tree; the Stage A auto-trait probe recorded (done 2026-11-24).
+  decision accepted (done 2026-11-24); PRE-1 landed on `main`, with fact 13 and
+  AXIOM-7 re-read against it; implementation authorized; `make check-fmt`,
+  `make lint`, and `make test` recorded green on an unmodified tree; the Stage
+  A auto-trait probe recorded (done 2026-11-24).
 - Acceptance evidence: gate transcripts under `/tmp`; the probe's outcome in
   `Surprises & discoveries`.
 - Conformance check: confirm RFC 0001, ADR 0014, and the cited server API are
@@ -980,8 +987,8 @@ full. Record a green baseline of `make check-fmt`, `make lint`, and `make test`.
 The auto-trait probe is done. On 2026-11-24 a scratch test asserted with
 `static_assertions::assert_impl_all!` that `WireframePair` and `ServerShutdown`
 are `Send`, `Sync`, and `Unpin`; it compiled. EP-M3 adds the permanent
-assertions for the `wireframe_testing` types. #962, beneath this branch in the
-stack, adds them for `ServerShutdown` and `ServerError`.
+assertions for the `wireframe_testing` types. #962 adds them for
+`ServerShutdown` and `ServerError`.
 
 ### Stage B0 — compiling stubs
 
@@ -1520,16 +1527,16 @@ disproved, and accepted again the same day with D23, which makes that premise
 true.
 
 - Decision (D23): release the listener while a request is in flight by changing
-  the server (option 1), delivered as PRE-1 beneath this branch. Accepted by
-  leynos on 2026-11-24; options 2 and 3 are rejected. Without that change the
-  listener stays bound until the request finishes (Table 5). That contradicts
-  D18 and D20, and makes EP-M3 regress a reachable behaviour of
-  `WireframePair`, breaching Constraint 1. Affected: RFC-5.3, RFC-5.5, INV-4,
-  D17, D18, D20, EP-M3.
+  the server (option 1), delivered as PRE-1 (#974). Accepted by leynos on
+  2026-11-24; options 2 and 3 are rejected. Without that change the listener
+  stays bound until the request finishes (Table 5). That contradicts D18 and
+  D20, and makes EP-M3 regress a reachable behaviour of `WireframePair`,
+  breaching Constraint 1. Affected: RFC-5.3, RFC-5.5, INV-4, D17, D18, D20,
+  EP-M3.
   - Option 1, accepted: change the server to drop its own listener handle
     once the accept loops are spawned. One line, and every probe in Table 5
-    then passes. It lies in `src/`, outwith Constraint 6, so it needs its own
-    issue and pull request beneath this branch. `drained()` still waits for the
+    then passes. It lies in `src/`, outwith Constraint 6, so it has its own issue,
+    #974, and needs its own pull request. `drained()` still waits for the
     request, so D18 and D20 become true as written.
   - Option 2, rejected: drive `run_with_shutdown` in a harness-owned task and
     abort it after a grace period, as the pair does today. No server change, but
@@ -1735,3 +1742,5 @@ Reserved for transcripts. At minimum, capture:
   drop and shutdown-bound tests and a pair characterization case; moved the
   tolerance base to the branch beneath. Effect on remaining work: no open
   decision; EP-M1 waits for PRE-1 and for authorization to implement.
+- 2026-11-25: PRE-1 raised as #974, to land before EP-M1 rather than beneath the
+  plan's own branch; recorded that #962 merged.
