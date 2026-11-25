@@ -67,7 +67,7 @@ struct PreparedServerRuntime<
     on_preamble_failure: Option<PreambleFailure>,
     /// Optional readiness notification sent after accept loops are spawned.
     ready_tx: Option<oneshot::Sender<()>>,
-    /// Listener retained until every accept loop exits.
+    /// Listener shared with every accept loop; the supervisor drops its own handle.
     listener: Arc<TcpListener>,
     /// Retry policy copied into each accept loop.
     backoff_config: BackoffConfig,
@@ -162,6 +162,7 @@ where
             &supervisor.lifecycle,
         )
         .await;
+        drop(self.listener); // The accept loops hold their own clones.
         supervisor.tracker.wait().await;
         Ok(())
     }

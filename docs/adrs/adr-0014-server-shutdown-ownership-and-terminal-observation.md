@@ -376,6 +376,46 @@ behaviour.
 
 The rest of this ADR is unchanged.
 
+## Addendum: 2026-11-25 — the listener is released when the accept loops exit
+
+Issue [#974](https://github.com/leynos/wireframe/issues/974), a follow-up to
+the roadmap 17.3.3 plan in
+[#655](https://github.com/leynos/wireframe/pull/655), found that this ADR's
+decision-2 sentence "a successful result proves every accept loop has exited
+and the listener has been released" was true only in part. The supervisor held
+its own `Arc<TcpListener>` for the whole of `run_with_shutdown`, including the
+final tracker wait, so the listener stayed bound after every accept loop had
+exited whenever a request was still in flight. Its figure and its drain section
+accordingly showed the supervisor owning the listener for the entire run, and
+neither said when the socket closed relative to in-flight work.
+
+The supervisor now drops its own listener handle after the accept loops have
+exited and before the tracker wait. Each accept loop holds its own clone, so
+this is the point at which the socket has no remaining user: no loop is
+accepting on it, and none will.
+
+This addendum supersedes the ownership shown in decision 2's figure and its
+"the listener has been released" clause, and the corresponding sentence in
+section 2:
+
+- the listener is released when the accept loops exit, before in-flight
+  connection tasks finish;
+- a handler that never returns therefore no longer pins the port, and
+  connections made during the drain are refused instead of sitting unaccepted
+  in the backlog;
+- `drained()` is unchanged: a clean outcome still proves the tracker drained,
+  so it still waits for in-flight requests, and the release it reports has
+  already happened.
+
+The trade-off is deliberate and narrow. If every accept loop ended unexpectedly
+while the supervisor was still running, the socket now closes where it
+previously stayed bound with nothing accepting on it; a bound socket that
+nobody accepts on is the worse of the two states. The graceful drain is
+unchanged, so this is a statement about when the socket closes, not about
+whether in-flight work completes.
+
+The rest of this ADR is unchanged.
+
 ## References
 
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)

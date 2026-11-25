@@ -1151,6 +1151,15 @@ drained its tracker. Clones converge on that one terminal outcome. Dropping the
 final `ServerShutdown` clone also requests shutdown; keep a clone alive and
 await `drained()` when the terminal outcome matters.
 
+The listener is released when the accept loops exit, before the tracker wait
+that covers in-flight connection tasks. `PreparedServerRuntime` clones its
+`Arc<TcpListener>` into every accept loop and then drops its own handle, so no
+supervisor copy survives the loops; otherwise a handler that never returns
+would keep the port bound until the runtime ended, and connections made
+meanwhile would sit unaccepted in the backlog instead of being refused. This
+changes only when the socket closes. The graceful drain is unchanged: an
+in-flight request still completes, and `drained()` still waits for it.
+
 The `Send`, `Sync`, and `Unpin` auto traits on `ServerShutdown` are pinned by a
 compile-time assertion beside the type definition, as are `Send` and `Sync` on
 `ServerError`. Callers move the control across tasks and share it by reference,
