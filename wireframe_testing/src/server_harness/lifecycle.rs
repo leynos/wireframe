@@ -30,58 +30,72 @@ use wireframe::{
 use super::{handle::RunningWireframeServer, options::ServerHarnessOptions};
 use crate::{TestError, TestResult, integration_helpers::unused_listener};
 
-/// Start an unbound server on a reserved loopback listener.
+/// Emit one public spawn entry point with the server's `spawn` bounds.
 ///
-/// The server is configured entirely by the caller; this helper only reserves
-/// the listener, binds it, and waits for readiness.
-///
-/// # Errors
-///
-/// Returns [`TestError::Io`] if the listener cannot be reserved or its address
-/// read, [`TestError::Server`] if binding or startup fails, and
-/// [`TestError::Timeout`] if readiness is not observed within the configured
-/// bound.
-pub async fn spawn_wireframe_server<F, T, Ser, Ctx, E, Codec>(
-    server: WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>,
-) -> TestResult<RunningWireframeServer>
-where
-    F: AppFactory<Ser, Ctx, E, Codec>,
-    T: Preamble,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    Ctx: Send + 'static,
-    E: Packet + 'static,
-    Codec: FrameCodec,
-    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
-{
-    spawn_wireframe_server_on(server, unused_listener()?).await
+/// Both entry points share the same seven generic predicates, which the
+/// server's `spawn` impl requires verbatim. Writing them once here keeps the
+/// public signatures identical while avoiding a second copy of the clause.
+macro_rules! spawn_entry_point {
+    (
+        $(#[$docs:meta])*
+        fn $name:ident($server:ident $(, $listener:ident : $listener_ty:ty)?) $body:block
+    ) => {
+        $(#[$docs])*
+        pub async fn $name<F, T, Ser, Ctx, E, Codec>(
+            $server: WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>,
+            $($listener: $listener_ty,)?
+        ) -> TestResult<RunningWireframeServer>
+        where
+            F: AppFactory<Ser, Ctx, E, Codec>,
+            T: Preamble,
+            Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
+            Ctx: Send + 'static,
+            E: Packet + 'static,
+            Codec: FrameCodec,
+            Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
+        {
+            $body
+        }
+    };
 }
 
-/// Start an unbound server on a caller-supplied listener.
-///
-/// Use this when the test must know the address before the server starts, for
-/// example to pass it to a peer that connects during setup.
-///
-/// # Errors
-///
-/// Returns [`TestError::Io`] if the listener's address cannot be read,
-/// [`TestError::Server`] if binding or startup fails, and
-/// [`TestError::Timeout`] if readiness is not observed within the configured
-/// bound.
-pub async fn spawn_wireframe_server_on<F, T, Ser, Ctx, E, Codec>(
-    server: WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>,
-    listener: StdTcpListener,
-) -> TestResult<RunningWireframeServer>
-where
-    F: AppFactory<Ser, Ctx, E, Codec>,
-    T: Preamble,
-    Ser: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    Ctx: Send + 'static,
-    E: Packet + 'static,
-    Codec: FrameCodec,
-    Envelope: DecodeWith<Ser> + EncodeWith<Ser>,
-{
-    spawn_wireframe_server_with_options(server, Some(listener), ServerHarnessOptions::default())
+spawn_entry_point! {
+    /// Start an unbound server on a reserved loopback listener.
+    ///
+    /// The server is configured entirely by the caller; this helper only
+    /// reserves the listener, binds it, and waits for readiness.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TestError::Io`] if the listener cannot be reserved or its
+    /// address read, [`TestError::Server`] if binding or startup fails, and
+    /// [`TestError::Timeout`] if readiness is not observed within the
+    /// configured bound.
+    fn spawn_wireframe_server(server) {
+        spawn_wireframe_server_on(server, unused_listener()?).await
+    }
+}
+
+spawn_entry_point! {
+    /// Start an unbound server on a caller-supplied listener.
+    ///
+    /// Use this when the test must know the address before the server starts,
+    /// for example to pass it to a peer that connects during setup.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`TestError::Io`] if the listener's address cannot be read,
+    /// [`TestError::Server`] if binding or startup fails, and
+    /// [`TestError::Timeout`] if readiness is not observed within the
+    /// configured bound.
+    fn spawn_wireframe_server_on(server, listener: StdTcpListener) {
+        spawn_wireframe_server_with_options(
+            server,
+            Some(listener),
+            ServerHarnessOptions::default(),
+        )
         .await
+    }
 }
 
 /// Start an unbound server with an explicit listener and timeout policy.
