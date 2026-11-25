@@ -20,6 +20,10 @@ All notable changes to this project will be documented in this file.
   factory, middleware-transform, scheduler-spawn, and allocation evidence.
   ([#649](https://github.com/leynos/wireframe/issues/649))
 
+- Package and rehearse workspace releases with lading v0.4.0-beta1, through
+  `make package-crates` and `make publish-check`. See
+  [Releasing the Wireframe crates](docs/releasing-crates.md).
+
 - Consult `RecoveryPolicyHook` on decoder failures from live server
   connections and, with the default `metrics` feature, emit
   `wireframe_codec_errors_total` once per failure, labelled with the error type

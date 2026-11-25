@@ -160,6 +160,8 @@ the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md
   source, tooling, and documentation areas.
 - [Developers' guide](developers-guide.md) Canonical architectural vocabulary
   and naming invariants.
+- [Releasing the Wireframe crates](releasing-crates.md) How a release of the
+  workspace is prepared, checked, and published.
 - [Frame = `Vec<u8>` inventory](frame-vec-u8-inventory.md) Inventory of frame-
   and payload-shaped APIs that still rely on owned byte vectors.
 - [Formal verification methods](formal-verification-methods-in-wireframe.md)
