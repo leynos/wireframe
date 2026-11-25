@@ -1400,8 +1400,10 @@ CodeScene's ceiling. `dylint.toml` opts in with the `experimental` key in its
 `[whitaker]` table, and `make lint-whitaker` runs under `-D warnings`, so a
 finding fails the build. Fix a finding by extracting named helpers, never by
 raising the threshold. A Whitaker suite installed before the lint existed does
-not register it and silently leaves the gate inactive, so rerun
-`make install-whitaker` to refresh the suite after updating a checkout.
+not register it and silently leaves the gate inactive. The Makefile's
+`WHITAKER_SUITE_REV` pin sits at or after the suite commit that added the lint,
+so rerun `make install-whitaker` to refresh the suite after updating a
+checkout, and never bump the pin to an earlier revision.
 
 Repository-wide exclusions for Whitaker lints live in the root `dylint.toml`.
 It holds no exclusions: add an `excluded_paths` entry only with a reproduced
