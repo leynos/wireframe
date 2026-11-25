@@ -41,6 +41,7 @@ fn compile_tests() {
     t.pass("tests/ui/connection_context_default_construction.rs");
     t.compile_fail("tests/ui/connection_context_is_non_exhaustive.rs");
     t.pass("tests/ui/protocol_hooks_construction.rs");
+    t.pass("tests/ui/server_shutdown_auto_traits.rs");
     // Trybuild forwards this build's features to the fixture, so the pool
     // accessors only exist here when `test-support` is enabled. `make test`
     // runs with `--all-features`, which is where this case gets its coverage.
