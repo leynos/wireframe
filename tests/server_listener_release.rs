@@ -250,9 +250,11 @@ async fn stop_releases_listener_before_the_request_finishes() -> TestResult {
     )?;
 
     finish_request(client, &release).await?;
-    timeout(NOT_YET, control.drained()).await.map_err(|_| {
-        TestError::Msg("the drain did not complete after the request finished".into())
-    })??;
+    timeout(FRAME_TIMEOUT, control.drained())
+        .await
+        .map_err(|_| {
+            TestError::Msg("the drain did not complete after the request finished".into())
+        })??;
     Ok(())
 }
 
