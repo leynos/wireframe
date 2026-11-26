@@ -65,3 +65,24 @@ fn registering_one_identifier_twice_is_rejected(
         "a duplicate identifier must be reported as DuplicateRoute, got {error:?}"
     );
 }
+
+/// Replacing the codec keeps every registered streaming route.
+///
+/// A `StreamingHandler` takes the request parts and the body stream and
+/// returns bytes, so it names no frame type. A codec change therefore has no
+/// reason to unregister it, and silently doing so would drop a route the
+/// caller registered before the call.
+#[test]
+fn replacing_the_codec_keeps_streaming_routes() {
+    let app: WireframeApp = WireframeApp::new()
+        .expect("the default application should build")
+        .streaming_route(ROUTE_ID, streaming_handler())
+        .expect("the streaming route should register");
+
+    let replaced = app.with_codec(crate::codec::LengthDelimitedFrameCodec::new(4096));
+
+    assert!(
+        replaced.streaming_handlers.contains_key(&ROUTE_ID),
+        "a codec change must not unregister a streaming route"
+    );
+}

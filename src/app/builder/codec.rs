@@ -1,7 +1,5 @@
 //! Codec and serializer configuration for `WireframeApp`.
 
-use std::collections::HashMap;
-
 use super::{WireframeApp, rebuild::RebuildParams};
 use crate::{
     app::Packet,
@@ -36,6 +34,7 @@ where
         // configuration are deliberately dropped.
         let Self {
             handlers,
+            streaming_handlers,
             middleware,
             serializer,
             on_connect,
@@ -48,7 +47,11 @@ where
         } = self;
         WireframeApp {
             handlers,
-            streaming_handlers: HashMap::new(),
+            // A streaming handler takes `RequestParts` and a body stream and
+            // returns bytes, so it names no frame type and survives a codec
+            // change. Resetting it would silently unregister routes the
+            // caller registered before this call.
+            streaming_handlers,
             middleware,
             serializer,
             on_connect,
