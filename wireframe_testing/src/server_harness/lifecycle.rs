@@ -108,9 +108,13 @@ spawn_entry_point! {
 /// Returns [`TestError::Io`] if the listener cannot be reserved or its address
 /// read, [`TestError::Server`] if binding or startup fails, and
 /// [`TestError::Timeout`] if readiness is not observed within the configured
-/// bound. A readiness wait that fails because the sender dropped reports
-/// [`TestError::Msg`] when the server then drains cleanly, and passes through
-/// the cleanup's own [`TestError::Server`] when it does not.
+/// bound. An elapsed readiness wait reports [`TestError::Timeout`] when the
+/// cleanup succeeds, and [`TestError::Msg`] naming both causes when it fails.
+/// A readiness wait that fails because the sender dropped reports
+/// [`TestError::Msg`] when the server then drains cleanly, and otherwise passes
+/// through the cleanup's own error, which is [`TestError::Server`] for an
+/// abnormal termination or [`TestError::Timeout`] when the cleanup bound
+/// elapses.
 pub async fn spawn_wireframe_server_with_options<F, T, Ser, Ctx, E, Codec>(
     server: WireframeServer<F, T, Unbound, Ser, Ctx, E, Codec>,
     listener: Option<StdTcpListener>,

@@ -377,10 +377,10 @@ measured.
     2026-11-25 against PRE-1, `dcce5481`). Before PRE-1 the supervisor kept its
     own `Arc` to the listener for the whole of `run_with_shutdown`, including
     the final `tracker.wait()`, so the accept loops exiting was not enough to
-    release it. PRE-1 drops that handle once
-    `await_supervisor_termination` returns and before the tracker wait, so the
-    socket now closes when the last accept loop exits and an in-flight request
-    keeps only its connection task alive. Table 5 records the measurement that
+    release it. PRE-1 drops that handle immediately after spawning the accept
+    loops, before readiness is signalled, so the socket's lifetime is the
+    loops' lifetime and an in-flight request keeps only its connection task
+    alive. Table 5 records the measurement that
     motivated the change, and PRE-1's own
     `tests/server_listener_release.rs` is the permanent evidence for the new
     behaviour.
