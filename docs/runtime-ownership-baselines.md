@@ -1490,9 +1490,9 @@ The evidence supports four claims:
    implementation does neither.
 
 The four claims are separable. The first two are exact counts and are the
-architectural result. The third is inconclusive on timings and shows added
-allocation for added functionality. The fourth is a large observed difference
-from one uncontrolled pair, filed as
+architectural result. The third is inconclusive on timings and records an
+observed allocation increase without a causal attribution. The fourth is a
+large observed difference from one uncontrolled pair, filed as
 [#945](https://github.com/leynos/wireframe/issues/945) so it is not lost.
 
 One liveness gap was found while adding retained-lease coverage: a cancelled
