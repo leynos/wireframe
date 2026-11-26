@@ -899,10 +899,15 @@ or transport error, or because a handler panicked. The transport is released
 first, so teardown may wait for the peer to notice. A handler panic is raised
 again after teardown, so it is still logged and counted.
 
-Some endings cannot run it to completion: setup that failed or never finished,
-a connection task that is cancelled, a teardown callback that itself panics,
-which is not retried, and a build with `panic = "abort"`. Put a resource that
-must be released even then behind a `Drop` guard.
+Stopping the server does not skip it: the connection notices the stop, ends the
+way it would after any other error, and runs teardown. Some endings cannot run
+it to completion: setup that failed or never finished, a connection future that
+is dropped or aborted, a panic the connection runtime cannot recover, a
+teardown callback that itself panics, which is not retried, and a build with
+`panic = "abort"`. Put a resource that must be released after a dropped future
+or an unrecovered panic behind a `Drop` guard. A `panic = "abort"` build runs
+no destructors at all, so cleanup that must survive an abort needs something
+outside the process, such as a supervisor or a lease on the external resource.
 
 ### Sharing state with handlers
 

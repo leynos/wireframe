@@ -478,9 +478,10 @@ The [users' guide](users-guide.md#protocol-hooks) has the whole contract.
   for every ending the connection task survives. A handler panic is raised
   again once teardown succeeds, so it is still logged and counted.
 - **Teardown has limits.** It does not run if setup was absent, failed, or never
-  finished, or if the connection task is cancelled first. A teardown that
-  panics is not retried, and `panic = "abort"` builds cannot recover a handler
-  panic.
+  finished, or if the connection future is dropped or aborted first. Stopping
+  the server is not one of those: the connection ends and teardown runs. A
+  teardown that panics is not retried, and `panic = "abort"` builds neither
+  recover a handler panic nor run destructors.
 
 ### Push queues and sessions
 
