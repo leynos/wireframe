@@ -58,9 +58,10 @@ pub(crate) fn inc_pool_pending_response_discard() {}
 /// outcome.
 ///
 /// Both labels use fixed vocabularies, so pool activity cannot create new
-/// series. The `mode` label is `"immediate"` for the synchronous fast path and
-/// `"permit_race"` for the asynchronous race; the `outcome` label is one of
-/// `"granted"`, `"exhausted"`, `"shutdown"`, or `"error"`.
+/// series. The `mode` label is `"immediate"` for the scheduler's inline grant
+/// sweep and `"permit_race"` for its blocked race; both are decided inside the
+/// one scheduler task, not by a caller-side fast path. The `outcome` label is
+/// one of `"granted"`, `"exhausted"`, `"shutdown"`, or `"error"`.
 ///
 /// ```plaintext
 /// # HELP wireframe_pool_acquisitions_total Count of client-pool acquisition attempts by mode and outcome.

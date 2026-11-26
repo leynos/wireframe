@@ -56,8 +56,10 @@ where
     /// The assembler parses protocol-specific frame headers for multi-frame
     /// request assembly on the inbound pipeline. Wireframe applies the hook
     /// after any transport fragmentation reassembly and before handler
-    /// dispatch, producing either buffered requests or streaming request
-    /// bodies.
+    /// dispatch, producing one buffered request per completed assembly. The
+    /// runtime creates no streaming request body from an assembled message, so
+    /// handlers never receive `RequestParts` plus a body stream from this
+    /// hook.
     ///
     /// # Examples
     ///

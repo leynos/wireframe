@@ -65,16 +65,16 @@ published. `PacketParts` has no such derive, so it is the easier of the two.
 
 ### Middleware surfaces
 
-| Item                          | Current signature                                                 | Location                | Planned change                                          |
-| ----------------------------- | ----------------------------------------------------------------- | ----------------------- | ------------------------------------------------------- |
-| `ServiceRequest::new`         | `pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self` | `src/middleware.rs:50`  | Takes the stable wrapper                                |
-| `ServiceRequest::frame`       | `pub fn frame(&self) -> &[u8]`                                    | `src/middleware.rs:59`  | Unchanged; read-only borrow stays zero-copy             |
-| `ServiceRequest::frame_mut`   | `pub fn frame_mut(&mut self) -> &mut Vec<u8>`                     | `src/middleware.rs:74`  | **Removed**; replaced by the edit-on-demand operation   |
-| `ServiceRequest::into_inner`  | `pub fn into_inner(self) -> Vec<u8>`                              | `src/middleware.rs:78`  | Removed or returns the wrapper; see the ambiguity below |
-| `ServiceResponse::new`        | `pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self` | `src/middleware.rs:93`  | As the request counterpart                              |
-| `ServiceResponse::frame`      | `pub fn frame(&self) -> &[u8]`                                    | `src/middleware.rs:102` | Unchanged                                               |
-| `ServiceResponse::frame_mut`  | `pub fn frame_mut(&mut self) -> &mut Vec<u8>`                     | `src/middleware.rs:106` | **Removed**                                             |
-| `ServiceResponse::into_inner` | `pub fn into_inner(self) -> Vec<u8>`                              | `src/middleware.rs:121` | As the request counterpart                              |
+| Item                          | Current signature                                                 | Location          | Planned change                                          |
+| ----------------------------- | ----------------------------------------------------------------- | ----------------- | ------------------------------------------------------- |
+| `ServiceRequest::new`         | `pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self` | `src/middleware/` | Takes the stable wrapper                                |
+| `ServiceRequest::frame`       | `pub fn frame(&self) -> &[u8]`                                    | `src/middleware/` | Unchanged; read-only borrow stays zero-copy             |
+| `ServiceRequest::frame_mut`   | `pub fn frame_mut(&mut self) -> &mut Vec<u8>`                     | `src/middleware/` | **Removed**; replaced by the edit-on-demand operation   |
+| `ServiceRequest::into_inner`  | `pub fn into_inner(self) -> Vec<u8>`                              | `src/middleware/` | Removed or returns the wrapper; see the ambiguity below |
+| `ServiceResponse::new`        | `pub fn new(frame: Vec<u8>, correlation_id: Option<u64>) -> Self` | `src/middleware/` | As the request counterpart                              |
+| `ServiceResponse::frame`      | `pub fn frame(&self) -> &[u8]`                                    | `src/middleware/` | Unchanged                                               |
+| `ServiceResponse::frame_mut`  | `pub fn frame_mut(&mut self) -> &mut Vec<u8>`                     | `src/middleware/` | **Removed**                                             |
+| `ServiceResponse::into_inner` | `pub fn into_inner(self) -> Vec<u8>`                              | `src/middleware/` | As the request counterpart                              |
 
 ADR 009 is explicit that middleware `&mut Vec<u8>` editors are removed rather
 than deprecated. Middleware authors therefore get a hard break in the payload

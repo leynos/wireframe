@@ -16,6 +16,22 @@ All notable changes to this project will be documented in this file.
   [users' guide](docs/users-guide.md#streaming-request-body-consumption).
   ([#876](https://github.com/leynos/wireframe/issues/876))
 
+- Publish the runtime-ownership decisions as accepted architecture records.
+  [ADR 011](docs/adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
+  fixes the task-lifetime and shared-root rules,
+  [ADR 012](docs/adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  fixes one prepared application per server run with one connection-local
+  runtime per connection, and
+  [ADR 013](docs/adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+  fixes the persistent single-owner client-pool scheduler and index-based slot
+  graph. ADRs 011 and 012 record the completed #644, #648, and #879
+  refinements, and the
+  [developers' guide](docs/developers-guide.md#ownership-and-async-lifetime-checklist)
+  carries the review checklist derived from them. The
+  [runtime-ownership baselines](docs/runtime-ownership-baselines.md) record the
+  factory, middleware-transform, scheduler-spawn, and allocation evidence.
+  ([#649](https://github.com/leynos/wireframe/issues/649))
+
 - Consult `RecoveryPolicyHook` on decoder failures from live server
   connections and, with the default `metrics` feature, emit
   `wireframe_codec_errors_total` once per failure, labelled with the error type

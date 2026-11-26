@@ -774,13 +774,14 @@ helpers live in `src/app/builder/rebuild.rs`.
 
 ## Runtime ownership model
 
-Three decision records govern runtime ownership and task-lifetime boundaries
-for Epic 635:
+Three accepted decision records govern runtime ownership and task-lifetime
+boundaries for Epic 635:
 
 - [ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
   defines ownership rules R1-R7 (shared roots, borrowed handles, sole-owner
-  moves, and actor coordination) with mechanical lint enforcement for the
-  grep-able rules.
+  moves, and actor coordination). R1, R2, and R5-R7 are review-enforced; R3 and
+  R4 are recorded lint candidates and are also review-enforced through the
+  [checklist below](#ownership-and-async-lifetime-checklist).
 - [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
   splits `WireframeApp` into a registration builder, an immutable `PreparedApp`
   template shared by connection tasks, and a per-connection `ConnectionRuntime`.
@@ -795,13 +796,19 @@ for Epic 635:
   fairness queues; a cloneable `SchedulerHandle` owns only the command sender
   and the shared lifecycle record, so no strong cycle retains the pool.
 
-The first implementation slice is now in place: consuming
-`WireframeApp::prepare().await` returns an immutable `PreparedApp` or a typed
-`PrepareError`. Preparation consumes route and middleware registrations and
-builds each route chain once. Connection tasks borrow the prepared route table,
-so a single prepared application can serve multiple connections without
-repeating middleware transforms. `WireframeApp` remains the registration
-builder, and its direct connection methods are compatibility APIs.
+The implementation is complete. Consuming `WireframeApp::prepare().await`
+returns an immutable `PreparedApp` or a typed `PrepareError`. Preparation
+consumes route and middleware registrations and builds each route chain once.
+Connection tasks borrow the prepared route table, so a single prepared
+application can serve multiple connections without repeating middleware
+transforms. `WireframeApp` remains the registration builder, and its direct
+connection methods are compatibility APIs. The Phase 4 refinements have landed:
+[#644](https://github.com/leynos/wireframe/issues/644)
+gives each connection one protocol owner and hook-dispatch boundary,
+[#648](https://github.com/leynos/wireframe/issues/648) collapses the nested
+application-owned `Arc` layers beneath `PreparedApp`, and
+[#879](https://github.com/leynos/wireframe/issues/879) dispatches `on_eof` for
+truncated frames.
 
 The server runtime now evaluates its factory once per run, prepares the
 resulting application before spawning accept loops, and signals readiness only
@@ -810,6 +817,129 @@ preparation failures are returned as typed `ServerError` variants. The
 `WireframeServer::from_app` constructor supplies an already-built application;
 callers still initialize tracing, create the Tokio runtime, and configure the
 server explicitly.
+
+Readiness means "preparation succeeded and the worker tasks are installed", not
+"the listener has accepted a connection". The accept loops are spawned before
+the readiness signal is sent, and no loop can exist before preparation
+succeeds, because the spawn takes the prepared root by value.
+
+### Ownership and async-lifetime checklist
+
+[ADR 011](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md) is
+the source of truth for runtime ownership. This checklist is its review
+artefact and applies to every change that adds a task, an `Arc`, a `'static`
+bound, a trait-object callback, or a cleanup path. The single litmus question
+behind rules R2, R4, and R6 is: **can this value escape its owner
+independently? If not, it does not get its own `Arc`.**
+
+#### Decide the lifetime first
+
+Ask these questions in order. Question 1 chooses the task boundary; questions 2
+to 4 classify each value inside it.
+
+1. **Does the work outlive the current call scope, need independent
+   cancellation or supervision, must execute independently across Tokio worker
+   threads, or run as a long-lived component?** If yes, spawn it and give it one
+   `Arc` root for the object graph it needs (R1, R2). If no, keep it as a
+   scoped future and borrow through `join!`, `try_join!`, `select!`, or
+   `FuturesUnordered` (R1).
+2. **Is the shared value mutable coordination with one conceptual authority?**
+   If yes, make one task own it and send commands; do not wrap it in
+   `Arc<Mutex<_>>` (R5). A plain owned struct with `&mut self` methods is
+   enough unless the state carries at least two coupled invariants or a
+   shutdown protocol.
+3. **Can the value escape its owner independently?**
+   If yes, shared ownership is legitimate: use `Arc` or a cloneable handle and
+   state the reason (R6). If no, store it by value or behind `Box`, even when
+   the type is internally thread-safe (R2, R4).
+4. **Does the current owner already hold the handle?**
+   If yes, call the borrowed API — `CancellationToken::cancelled()`,
+   `mpsc::Sender::send(&self, ...)`, a borrowed route table — instead of
+   cloning it into an owned future (R3). If no, acquire or clone once at the
+   boundary, not once per iteration.
+
+#### Task lifetime
+
+A task deserves its own lifetime when it may outlive the call that created it,
+must be cancelled or supervised independently, must run independently across
+Tokio worker threads, or is a long-lived runtime component. Connection tasks
+and one pool scheduler task per pool meet that test; per-message servicing and
+per-release cleanup do not. A spawn that exists only to satisfy a `'static`
+bound is a defect in the API shape, not a design choice.
+
+A scope-bound future should borrow because the borrow is what proves the
+lifetime. `cancelled_owned()` is for a genuine hand-off to another task, such
+as the server supervisor's one-time shutdown future; it is not for a token the
+current task already owns.
+
+#### Shared roots and nested ownership
+
+One `Arc` belongs at the root of each independently owned graph:
+`Arc<PreparedApp>` for the application template and `Arc<PoolCore>` for the
+pool's fixed slots. Values reachable only through that root are stored by value
+or behind `Box`; the
+[inventory below](#application-owned-values-beneath-preparedapp) records each
+one. A nested `Arc` is justified only when the child can escape by itself, such
+as a public cloneable handle, or when a `'static` trait-object boundary
+genuinely outlives the root — and that second case is a review flag, not a
+default.
+
+#### Actors for one-authority mutable state
+
+When mutable state has one conceptual owner, give it one task and a command
+protocol. The client-pool scheduler is the reference case: the task owns the
+waiter queues, fairness rotation, and admission state, and leases hold no
+scheduler sender. The command handle may be cloneable; the state itself should
+not be.
+
+#### Legitimate shared handles
+
+Shared ownership is correct for `PushHandle` and channel senders used by
+independent producers, `SessionRegistry` weak references that must not extend a
+connection's lifetime, `OwnedSemaphorePermit` and the semaphore state it
+references, the one prepared-application root, the one client-pool core root,
+and the public `Handler` alias that a caller may clone. These are R6 handles:
+preserve their clone semantics.
+
+#### `'static` trait objects and owned inputs
+
+A `'static` trait-object field or future default forces its inputs to be owned.
+Prefer a borrowed parameter for the duration of a call, or a boxed definition
+owned by the prepared root and borrowed per connection. If an owned input is
+unavoidable, say why at the type boundary rather than cloning at each call
+site. The serializer, lifecycle callbacks, and message assembler under
+`PreparedApp` are the current examples of root-owned, borrowed definitions.
+
+#### Finalization, not `Drop`
+
+Async cleanup cannot run in `Drop`, and a panic during unwinding cannot await.
+Finalization is therefore an explicit async method with an at-most-once state
+machine, called on every terminal path: clean completion, decode, protocol,
+assembly, transport, cancellation, and a handler panic recovered inside the
+connection task. The connection runtime's `ConnectionFinalizer` is the
+reference implementation. A `Drop` implementation may release synchronous
+ownership (a permit, a sender, a slot guard), but it must not await or invoke a
+user callback.
+
+#### Review checklist
+
+- [ ] Every `tokio::spawn` has an independent-lifetime reason, not merely a
+      `'static` requirement.
+- [ ] One `Arc` roots each independently owned object graph; every nested `Arc`
+      has a named independent lifetime.
+- [ ] No unnecessary per-message or per-iteration reference-count traffic on
+      an event-loop or push hot path. Clones made only to construct a
+      scope-bound future are prohibited; other clones need an ownership
+      justification (R3, R6).
+- [ ] Sole-owned values are stored directly or boxed, not behind `Arc`.
+- [ ] Mutable state with one authority lives in one actor, not a shared lock.
+- [ ] Legitimate shared handles listed above remain cloneable.
+- [ ] A `'static` trait-object field does not force owned inputs; borrowed or
+      root-owned definitions are preferred.
+- [ ] No `Drop` implementation performs async cleanup; finalization is an
+      explicit async method.
+- [ ] Finalization runs at most once, including after a recovered panic.
+- [ ] The change does not substitute `Rc` to avoid atomics (R7).
 
 ### Connection-local runtime
 
@@ -1731,7 +1861,8 @@ and its rationale). Key points for contributors:
   `serializer-serde` bridge round-trips) run against mutants, and excludes the
   example/test-support scaffolding whose survivors are noise — both per issue
   #571: `src/codec/examples.rs`, `src/test_helpers.rs`, `src/test_helpers/**`
-  (the module-root glob does not match the directory's submodules),
+  (`src/test_helpers/**` covers the module root and its submodules; the legacy
+  module-file glob is retained to match the pinned contract),
   `src/connection/test_support.rs`, and `src/**/tests.rs` (cfg(test) companion
   files that cargo-mutants cannot detect as test code, #599). The contract test
   `tests/workflow_contracts/mutation_testing_test.py` (run via

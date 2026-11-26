@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed.
+Accepted on 2026-11-26 by the repository maintainer following implementation
+review in [#649](https://github.com/leynos/wireframe/issues/649). The decision
+text below is retained unchanged; the resolved questions, implemented topology,
+corrections, and deferred follow-up are recorded in
+[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-26).
 
 First proposed on 2026-08-08 in issue
 [#638](https://github.com/leynos/wireframe/issues/638); imported and refined on
@@ -722,3 +726,199 @@ The following earlier open questions are now resolved in the text:
 
 [^4]: Alice Ryhl,
     [Actors with Tokio](https://ryhl.io/blog/actors-with-tokio/).
+
+## Acceptance and implementation outcome (2026-11-26)
+
+### Status and decision-maker
+
+- **Status:** Accepted.
+- **Acceptance date:** 2026-11-26.
+- **Decision-maker:** the Wireframe maintainer (`leynos`), owner of Epic
+  [#635](https://github.com/leynos/wireframe/issues/635), acting on the
+  implementation review recorded by
+  [#649](https://github.com/leynos/wireframe/issues/649).
+- **Sign-off:** the maintainer's publication instruction in issue #649 and
+  PR [#946](https://github.com/leynos/wireframe/pull/946). The maintainer
+  authored the publishing branch, so no separate GitHub review submission
+  records it.
+- **Accepted architecture:** Option B. One persistent scheduler task per pool
+  owns the waiter queues, fairness rotation, admission, and shutdown state;
+  slots are stored by value in `PoolCore` and leases identify them by index.
+
+### Resolved outstanding decisions
+
+- **[#535](https://github.com/leynos/wireframe/issues/535) is closed as
+  completed** (PR [#694](https://github.com/leynos/wireframe/pull/694)). Its
+  transition helpers were the right simplification of the mutex-based
+  scheduler, and the persistent actor subsequently subsumed them: the actor's
+  command handlers are now the only transition surface, so no smaller helper
+  remains to retain. Nothing from #535 is rejected; its scope is finished.
+- **The command mailbox is unbounded**, and `DeregisterHandle` uses the same
+  non-blocking `send` as `Acquire`. A send can fail only when the actor is
+  gone, at which point there is no scheduler state left to clean up. The
+  loss-tolerant delayed-cleanup path described during design is therefore not
+  needed and was not implemented. Logical handle registration is lazy on the
+  first acquisition for an identifier, and deregistration is idempotent.
+- **Pruning scope is the policy queues, not the handle registry.**
+  `prune_cancelled_waiters` retains live senders in the FIFO queue and in each
+  per-handle queue; it does not scan registered handles that have no queued
+  request. Admission checks the bound after pruning, so a cancelled waiter
+  frees its place for a live one. Waiter selection also skips cancelled senders
+  and requests from deregistered handles, so a permit is never sent to a
+  receiver nobody owns.
+- **Capacity release is level-triggered.** A lease drop releases only its
+  `OwnedSemaphorePermit`; the actor's single pending race observes the released
+  capacity, and the actor re-runs its inline sweep after every command. There
+  is no release command, no per-release task, and no lease-held sender.
+
+### Implemented topology
+
+- `WireframeClientPool` owns the `Arc<PoolCore>` root, the cloneable
+  `SchedulerHandle`, and the scheduler `JoinHandle`.
+- `PoolCore` owns the fixed `Box<[PoolSlot]>` storage and the pool-wide
+  shutdown flag and notification. Each slot keeps an `Arc<Semaphore>` because an
+  `OwnedSemaphorePermit` genuinely owns capacity independently of the
+  acquisition future.
+- `SchedulerHandle` owns only an unbounded command sender and an
+  `Arc<SchedulerStatus>`. The status holds the logical-handle counter, the
+  lifecycle, the per-pool churn counters, and the pool identity. It holds no
+  core, receiver, waiter queue, or join handle, so no strong cycle retains the
+  pool.
+- `SchedulerTask` owns the receiver, the fairness queues, the fairness policy,
+  admission state, and one loop-scoped pending permit race. It holds one
+  `Arc<PoolCore>` for its lifetime. The race borrows that local clone, so the
+  task stores no self-referential borrow and no servicing flag exists to be
+  left set.
+
+### Acquisition path and measured latency
+
+Every acquisition is a mailbox command, including the uncontended case. The
+design considered a caller-side `try_acquire_permit` fast path that bypassed
+the actor and chose against it, because admission and fairness must stay with
+one owner. The actor handles the command by running an inline grant sweep over
+the rotated slots; a request still queued after that sweep waits for the
+blocked race or a later release. The latency cost of that choice is recorded in
+[#639](https://github.com/leynos/wireframe/issues/639)
+rather than bounded by a numeric target, because
+[#647](https://github.com/leynos/wireframe/issues/647) did not set one. The
+final capture is recorded in
+[Runtime-ownership baselines](../runtime-ownership-baselines.md#final-runtime-ownership-capture-2026-11-26),
+including the machine and load caveats that apply to its timings. It measures
+a 256-acquisition uncontended burst at 3.2001 ms after the actor against 151.94
+µs before it, or about 12.5 µs per acquisition against 0.59 µs: a roughly 21×
+observed difference on the single-caller path. The captures use different
+toolchains and shared-host loads, so the size and cause are recorded as
+observations, not as a controlled regression measurement. Contended bursts
+improved at the same time, completing 20 of 20 attempts at every measured size
+while the before capture still lost bursts to the spurious disconnect, and
+reporting zero scheduler spawns per run. The trade is visible in both
+directions and is not described as neutral.
+[#945](https://github.com/leynos/wireframe/issues/945) carries the follow-up: a
+future change should restore a caller-side fast path or state and meet a
+latency budget.
+
+### Shutdown and drop semantics
+
+- `close(self).await` marks the shared lifecycle closed, publishes shutdown on
+  `PoolCore`, drops the pool's sender and core reference, and awaits the
+  scheduler `JoinHandle`. Queued and later acquisitions resolve with
+  `ClientError::PoolClosed`. A task join error is logged; abnormal termination
+  detected inside the task publishes `SchedulerFailed` and increments
+  `wireframe_pool_scheduler_failures_total`.
+- Dropping every public pool and handle reference without `close()` closes the
+  mailbox, which is the implicit shutdown signal. The actor observes the closed
+  mailbox and exits, releasing its core reference; every live waiter
+  necessarily went with the sender that owned it, so no reply is stranded. A
+  final sender drop is not an error.
+- Neither path revokes an outstanding lease. A lease keeps the core and its
+  slots alive until it is dropped, and its permit release needs no scheduler
+  observation because capacity is level-triggered.
+
+### Cancellation and dirty sockets
+
+The [#548](https://github.com/leynos/wireframe/issues/548) socket-safety
+invariant is implemented and preserved. A pooled socket is armed as broken when
+checked out; a completed operation disarms it, while a future dropped in flight
+leaves it armed, so its `SlotConnection` marks the socket broken and clears the
+lease's pending-response count. A lease dropped with an unread split-phase
+response discards the next checkout instead. The scheduler never treats the
+release of admission capacity as proof that a socket is clean.
+
+The retained-lease coverage added under #649 found a separate **liveness** gap
+that does not contradict the socket invariant. Cancelling a whole-request
+`call` (or a `send`), or cancelling a call blocked in `slot.checkout`, leaves
+the slot's protocol-gate permit stored in the lease's own
+`pending_response_permit` mutex, because `finish_protocol_permit` runs only on
+completion. The next operation on that lease sees no pending response, asks the
+slot for the protocol gate again, and waits on capacity the lease already
+holds; other leases on the same slot block behind it until the lease is
+dropped. The four existing cancellation tests pass, and the two new cases that
+reproduce the self-wait were withheld from this change rather than committed as
+failing tests. The reproduction, `lease.rs`/`slot.rs` analysis, and two
+suggested fix shapes are recorded in
+[#943](https://github.com/leynos/wireframe/issues/943).
+
+### Corrections and annotations
+
+- The design text says admission "visits every queued waiter and every
+  registered handle". The implemented pruning visits the policy queues only, as
+  recorded above; handle bookkeeping is removed by `DeregisterHandle`, which is
+  delivered whenever the actor is alive.
+- The design text refers to a discarded `DeregisterHandle` degrading to delayed
+  cleanup. The implemented mailbox is unbounded and the send is non-blocking,
+  so a discard means the actor is already gone; no cleanup remains.
+- The phase-2 `PoolSchedulerControl` and the lease's release-notification
+  handle were scaffolding and no longer exist, as the migration plan required.
+- `wireframe_pool_acquisitions_total`'s `mode="immediate"` label names the
+  actor's inline grant sweep, not a caller-side synchronous path. The users'
+  guide and the metric rustdoc now say so.
+
+### Deferred follow-up
+
+- **Acquisition deadline.** `ClientError::AcquireTimeout` and a configured
+  maximum wait are still outstanding. Bounded waiter admission limits queue
+  growth but does not bound how long an admitted caller waits.
+- **Pool telemetry.** Per-pool gauges or counters for queued waiters,
+  admission rejections, and scheduler-task liveness are not implemented. The
+  existing metrics cover acquisitions, permit races, discards, and scheduler
+  failures, so "is the actor alive and is the queue draining?" is not yet
+  answerable from metrics alone.
+- **Loom pool model.** The Loom suites cover push queues and connection-gauge
+  transitions; they do not model the client pool. Deterministic current-thread
+  tests and bounded enumeration cover the implemented race, but a scheduler
+  state-machine model remains future work.
+- **Retained-lease protocol-gate self-wait.**
+  [#943](https://github.com/leynos/wireframe/issues/943) carries the
+  reproduction and fix direction. It is a liveness gap distinct from #548's
+  socket-safety invariant.
+- **Uncontended acquisition latency.**
+  [#945](https://github.com/leynos/wireframe/issues/945) records the measured
+  difference and the fast-path or latency-budget options. This is a performance
+  follow-up, not a correctness gap.
+
+### Public API and semver consequences
+
+- `ClientError` is `#[non_exhaustive]` and gains `PoolSaturated { limit }`,
+  `PoolClosed`, and `SchedulerFailed`. Downstream exhaustive matches need a
+  wildcard arm; `PoolClosed` and `SchedulerFailed` report
+  `should_recycle_connection() == false`.
+- `ClientPoolConfig::max_waiters` is additive, defaults to `64`, and clamps
+  values below one to `1`.
+- `WireframeClientPool::close(self).await` and the awaitable scheduler
+  lifetime are behaviour changes in 0.4.0: a queued acquisition resolves with a
+  typed error, and a lease is not revoked.
+- The public `WireframeClientPool`, `PoolHandle`, and `PooledClientLease`
+  method signatures are otherwise unchanged.
+- `PoolTaskChurnObserver` is exported for tests, and
+  `selected_slot_index()` is crate-visible under `cfg(test)` or
+  `feature = "test-support"`. Neither is part of the stable API promise.
+
+### Issue dispositions
+
+| Issue                                                                                             | Final disposition                                                                                                                                                   | Evidence                                                                                                                                                                                                                                                                                                                                                                               |
+| ------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#535](https://github.com/leynos/wireframe/issues/535), simplify waiter state transitions         | Completed (closed 2026-10-11, PR [#694](https://github.com/leynos/wireframe/pull/694)); subsumed by the persistent actor                                            | The actor's command handlers are the single transition surface; no separate helper remains                                                                                                                                                                                                                                                                                             |
+| [#539](https://github.com/leynos/wireframe/issues/539), pool poison-recovery integration          | Completed (closed 2026-10-18, PR [#695](https://github.com/leynos/wireframe/pull/695)); then superseded                                                             | [#647](https://github.com/leynos/wireframe/issues/647) removed `std::sync::Mutex` from scheduler state, so poison recovery no longer applies. Abnormal task termination now reports `SchedulerFailed`, logs the pool identity, and increments `wireframe_pool_scheduler_failures_total`                                                                                                |
+| [#548](https://github.com/leynos/wireframe/issues/548), cancelled operations return dirty sockets | Completed (closed 2026-10-19, PR [#764](https://github.com/leynos/wireframe/pull/764)); invariant preserved by [#647](https://github.com/leynos/wireframe/pull/846) | Armed checkout guard plus pending-response discard; `src/client/pool/lease_tests.rs` covers a cancelled in-flight call, a cancelled blocked receive checkout, an idle timeout with a pending reply, and a dropped lease with an unread reply. The retained-lease self-wait found under #649 is a distinct liveness gap filed as [#943](https://github.com/leynos/wireframe/issues/943) |
+| [#550](https://github.com/leynos/wireframe/issues/550), unbounded blocked waiters                 | Completed (closed 2026-10-16, PR [#765](https://github.com/leynos/wireframe/pull/765))                                                                              | `max_waiters` (default 64, clamped to 1) and `ClientError::PoolSaturated { limit }`; cancelled waiters are pruned before the bound check. The acquisition deadline remains deferred                                                                                                                                                                                                    |
+| [#593](https://github.com/leynos/wireframe/issues/593), pool lifecycle and rotation mutants       | Completed (closed 2026-10-20, PR [#776](https://github.com/leynos/wireframe/pull/776))                                                                              | `src/client/tests/pool_lifecycle.rs` covers shutdown refusal, queued-waiter drain, and round-robin rotation across configured slots. The `has_waiters` interleaving survivor is retired because [#647](https://github.com/leynos/wireframe/issues/647) removed that state                                                                                                              |
