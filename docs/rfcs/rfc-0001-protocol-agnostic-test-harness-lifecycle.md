@@ -594,3 +594,77 @@ Accept the layered lifecycle design and schedule roadmap items `17.3.3` through
 retain the existing pair API as a wrapper, prove a custom preamble and codec
 through a caller-supplied connector, and make `wireframe_testing` a required
 quality-gate target.
+
+## Revision note: 2026-11-25 — implementation settled
+
+This section records where the implemented harness departs from the text above.
+Roadmap item 17.3.3 delivered sections 5.2, 5.3, 5.5, 5.6, 6, 7.1 except its
+connector bullets, and 7.5; the connector itself is 17.3.4. The governing
+decisions are D17 to D23 in
+`docs/execplans/17-3-3-extract-protocol-agnostic-server-lifecycle-harness.md`.
+
+### §5.2 — running server handle
+
+The handle holds the bound address, exactly one
+`wireframe::server::ServerShutdown`, the timeout policy, and the recorded
+outcome. Step 4 of the startup sequence is now "start the server with
+`WireframeServer::spawn`", which reports factory and preparation failures
+before a control exists. The requirement that the spawned future be
+`Send + 'static` is gone with the spawned task, as is the 100-millisecond
+`Drop` grace period. The bound list gains `E: Packet + 'static`, matching the
+`spawn` impl the helper drives.
+
+### §5.3 — lifecycle guarantees
+
+Shutdown bounds the drain of `ServerShutdown::drained` after `stop()`; there is
+no task to abort, so the earlier "bounds the join and aborts the task only
+after timeout" wording no longer applies. After a timeout, a later call
+re-checks with a zero bound rather than blocking again, so it reports the
+drain's current state without adding a wait. `Drop` is a synchronous shutdown
+request: it drops the only control, whose own guard cancels the supervisor, and
+it behaves identically inside and outside a runtime with no detached cleanup. A
+failed readiness wait stops the server and awaits its drain before returning,
+because a live server never drains unasked; a cleanliness failure that also
+fails to clean up is reported as one message naming both causes.
+
+### §5.5 — existing pair compatibility
+
+`spawn_wireframe_pair` builds its default server and delegates to the harness
+with both bounds set to `None` until 17.3.4 supplies the connector. The pair's
+reachable failure variants and message shapes are unchanged; the cell-by-cell
+obligation is Table 1 of the plan.
+
+### §5.6 — module boundaries
+
+`server_harness` now contains `handle.rs`, `lifecycle.rs`, `options.rs`, and
+`outcome.rs`; `connector.rs` arrives with 17.3.4. `client_pair` keeps only the
+default-client façade and no lifecycle code of its own.
+
+### §6 — behavioural and diagnostic requirements
+
+The invariant "each running handle owns at most one shutdown sender and at most
+one task handle" becomes "exactly one `ServerShutdown`, never cloned or
+exposed". "Join the server task" becomes "await the drain". The requirement
+that error text identify the lifecycle stage is met by the operation and typed
+variant together, as tabulated in §6 of the plan rather than encoded in prose.
+A supervisor panic now surfaces as `ServerError::AbnormalTermination` with
+`source: None`, not as a `JoinError`; the pair maps that class back to its
+historical join-error message.
+
+### §7.1 — lifecycle integration tests
+
+The drop bullet's detached-task and grace-period clauses are replaced by
+"`Drop` returns without waiting and the listener is released inside and outside
+a runtime". In-flight variants cover a response parked mid-stream, because a
+handler that produced nothing at all is abandoned by the stop instead.
+
+### §7.5 — property-based invariant coverage
+
+The first two bullets are stated over one shutdown request and one released
+listener rather than one joined task and its sender/handle pair.
+
+### §11 — open implementation questions
+
+Question 1 is resolved in favour of a small `ServerHarnessOptions` type with
+two optional bounds; the pair passes `None` for both. Question 2, the combined
+connector-and-cleanup error shape, remains open for 17.3.4.

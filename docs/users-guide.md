@@ -2025,6 +2025,18 @@ connections retain the same graceful-drain policy as `run_with_shutdown`.
 Dropping the final `ServerShutdown` clone also requests shutdown; retain a
 clone and await `drained()` when the terminal outcome matters.
 
+Tests that need a running server under their own configuration can use
+`wireframe_testing::spawn_wireframe_server`, which wraps this lifecycle: it
+accepts a configured but unbound `WireframeServer` of any serializer, codec,
+preamble, and worker count, and returns a `RunningWireframeServer` with the
+bound address and an idempotent `shutdown().await`. Two constraints apply. The
+helper overwrites `ready_signal`, and the server exposes no accessor that would
+reveal a caller-set sender, so a receiver installed before the call never
+fires; do not configure `ready_signal` on a server you pass to it. And the
+handle's `Drop` is a synchronous shutdown request rather than a wait: dropping
+it releases the port once the accept loops exit, without waiting for in-flight
+requests, so call `shutdown().await` when the terminal outcome matters.
+
 `spawn_connection_task` wraps each accepted stream in `read_preamble` and
 `RewindStream`, records connection panics, and logs failures without crashing
 worker tasks.[^20][^37][^38] `ServerError` surfaces bind, factory-build, and

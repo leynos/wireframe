@@ -837,7 +837,7 @@ document so larger deployments can adopt the library confidently.
   protocols remain ergonomic.
 - [x] 17.3.2. Publish reusable test harnesses that spin up an in-process server
   and client pair, allowing downstream crates to verify compatibility.
-- [ ] 17.3.3. Extract a protocol-agnostic server lifecycle harness that
+- [x] 17.3.3. Extract a protocol-agnostic server lifecycle harness that
   accepts a fully configured, unbound `WireframeServer`, binds a reserved
   loopback listener, waits for readiness, and returns an idempotently stoppable
   `RunningWireframeServer`. Preserve the existing pair helpers as additive,

@@ -19,6 +19,25 @@ All notable changes to this project will be documented in this file.
   [runtime-ownership baselines](docs/runtime-ownership-baselines.md) record the
   factory, middleware-transform, scheduler-spawn, and allocation evidence.
   ([#649](https://github.com/leynos/wireframe/issues/649))
+||||||| parent of d152c60f (Document the protocol-agnostic lifecycle harness)
+- Add `wireframe_testing::server_harness`, a protocol-agnostic lifecycle
+  harness. It accepts a fully configured but unbound `WireframeServer` of any
+  serializer, codec, preamble, and worker count, binds a reserved loopback
+  listener, waits for readiness, and returns a non-generic
+  `RunningWireframeServer` with its bound address and an idempotent
+  `shutdown().await`. `ServerHarnessOptions` bounds readiness and the drain, and
+  `ShutdownOutcome` reports `Completed`, `AbnormalTermination`, or `TimedOut`.
+  The helper reserves the server's `ready_signal`, and dropping the handle is a
+  synchronous shutdown request rather than a wait. `spawn_wireframe_pair` and
+  `spawn_wireframe_pair_default` now delegate to the harness with unbounded
+  waits; their reachable failure variants and message shapes are unchanged.
+
+- Release the server's listener when its accept loops exit rather than after
+  in-flight requests drain. After a stop request, dropping the last
+  `ServerShutdown`, or resolving a `run_with_shutdown` future, the address now
+  refuses new connections while a request is still in flight; `drained()` still
+  waits for that request. A handler that never returns therefore no longer pins
+  the port. See the ADR 0014 addendum of 2026-11-25.
 
 - Consult `RecoveryPolicyHook` on decoder failures from live server
   connections and, with the default `metrics` feature, emit

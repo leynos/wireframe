@@ -30,6 +30,8 @@ pub mod benchmark_alloc_support;
 // Loom removes client/server APIs, so keep network-backed support out too.
 #[cfg(not(loom))]
 pub mod client_pair;
+#[cfg(not(loom))]
+mod client_pair_errors;
 pub mod codec_benchmarks;
 pub mod echo_server;
 pub mod helpers;
@@ -41,6 +43,8 @@ pub mod observability;
 pub mod reassembly;
 #[cfg(all(feature = "runtime-benchmarks", not(loom)))]
 pub mod runtime_ownership_benchmarks;
+#[cfg(not(loom))]
+pub mod server_harness;
 
 #[cfg(not(loom))]
 pub use client_pair::{WireframePair, spawn_wireframe_pair, spawn_wireframe_pair_default};
@@ -124,3 +128,12 @@ pub use logging::{LoggerHandle, logger};
 #[doc(inline)]
 pub use multi_packet::collect_multi_packet;
 pub use observability::{Labels, ObservabilityHandle, obs_handle};
+#[cfg(not(loom))]
+pub use server_harness::{
+    RunningWireframeServer,
+    ServerHarnessOptions,
+    ShutdownOutcome,
+    spawn_wireframe_server,
+    spawn_wireframe_server_on,
+    spawn_wireframe_server_with_options,
+};
