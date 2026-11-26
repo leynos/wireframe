@@ -1987,12 +1987,16 @@ and waits for tracked work when the supplied future resolves.[^18] Dropping the
 `run_with_shutdown` future, including by aborting its `JoinHandle`, also
 cancels the accept loops and eventually releases the listener. This cleanup is
 eventual rather than synchronous: the loops must be scheduled to observe the
-cancellation. In-flight connection tasks are not cancelled and may continue
-until they finish. Each worker runs `accept_loop`, which clones the prepared
-application root, rewinds leftover preamble bytes, and hands the stream to it.
-Transient accept failures trigger exponential backoff capped by the configured
-maximum delay.[^18][^19] Preamble hooks support asynchronous success handlers
-and asynchronous failure callbacks that receive the stream, enabling replies or
+cancellation. Each accepted connection task receives a child of the worker
+shutdown token, so the same shutdown reaches in-flight connections: the
+connection loop observes it at the frame-read boundary between frames, and a
+write or response wait that cannot make progress is abandoned rather than
+pinning the drain. The server still waits for every tracked connection task to
+return. Each worker runs `accept_loop`, which clones the prepared application
+root, rewinds leftover preamble bytes, and hands the stream to it. Transient
+accept failures trigger exponential backoff capped by the configured maximum
+delay.[^18][^19] Preamble hooks support asynchronous success handlers and
+asynchronous failure callbacks that receive the stream, enabling replies or
 decode-error logging before the application runs. A success handler that
 returns an error fails closed: the error is logged, the connection is closed,
 and `WireframeApp` never receives the stream. Write any rejection response
@@ -3420,14 +3424,18 @@ registry. It invokes `on_eof` when the peer abandons a frame part-way through,
 and never for a clean close at a frame boundary. Cleanup that must run on every
 close still belongs in the application's `on_connection_teardown` hook, because
 a truncation is only one of the ways a connection ends. Teardown is not
-guaranteed, though: a connection task that is cancelled or panics may never
-reach it, so a resource that must be released on those paths needs
-runtime-level finalization, such as a `Drop` guard or a value the task owns and
-releases when it ends. The application-level setup and teardown hooks are
-separate from the protocol and run once per connection, with teardown running
-only when setup produced state. Without an installed protocol the response
-callbacks are no-ops. The terminator is written without decoding, so a write
-failure ends the connection like any other failed response write.
+guaranteed on every terminal path. Cooperative cancellation and a handler panic
+recovered inside the connection runtime finalize through the same path and run
+teardown exactly once. A connection future that is dropped or aborted before it
+can resume, a setup that panics or never completes, an unrecoverable panic
+outside that recovery point, and a `panic = "abort"` build cannot await
+teardown. A resource that must be released on those paths needs runtime-level
+finalization, such as a `Drop` guard or a value the task owns and releases when
+it ends. The application-level setup and teardown hooks are separate from the
+protocol and run once per connection, with teardown running only when setup
+produced state. Without an installed protocol the response callbacks are
+no-ops. The terminator is written without decoding, so a write failure ends the
+connection like any other failed response write.
 
 #### Deferred response bodies and middleware
 

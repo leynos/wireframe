@@ -1418,12 +1418,13 @@ unchanged at 40 and 56, while the actor row moved from 2133 to 3101. That rise
 is outside the spread earlier captures showed for this scope; it is recorded
 without attribution rather than assigned to the ownership change.
 
-Every acquisition now allocates a command, a oneshot channel, and a lease that
-the actor sends back, so the uncontended pool window reads 2053 against
-1028-1177, and the contended windows read 2200-5873 against 1013-1731. That is
-the actor's command/reply machinery, not a change in the pool's socket work.
-The startup scopes are excluded from this table because #648 re-measured that
-question with a controlled pair; see
+The uncontended pool window reads 2053 against 1028-1177, and the contended
+windows read 2200-5873 against 1013-1731. The acquisition path now constructs a
+command and a oneshot reply channel, and the scheduler constructs the lease and
+sends it through that reply. The process-global counter sees that machinery and
+the runtime work around it; the table records the measured increase, not a
+separate per-value allocation attribution. The startup scopes are excluded from
+this table because #648 re-measured that question with a controlled pair; see
 [Issue #648: prepared ownership](#issue-648-prepared-ownership).
 
 The task-count assertions in
