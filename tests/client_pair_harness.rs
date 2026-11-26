@@ -240,9 +240,9 @@ async fn drop_with_request_in_flight_releases_listener() -> TestResult {
 ///
 /// Before the delegation the pair started the server in a task, so a factory
 /// panic surfaced as a join error rather than unwinding into the caller.
-/// Startup is now awaited in the caller's future and the panic is captured
-/// there, which keeps the same message shape and lets a cancelled startup
-/// drop the bound server instead of detaching it.
+/// Startup still runs in a task, wrapped in a guard that aborts it if the pair
+/// future is cancelled, so the join-error text survives and a cancelled startup
+/// cannot detach a listener-owning task.
 #[rstest]
 #[tokio::test]
 async fn panicking_factory_reports_a_startup_failure() -> TestResult {
@@ -256,8 +256,11 @@ async fn panicking_factory_reports_a_startup_failure() -> TestResult {
         .ok_or("a panicking factory must fail the pair startup")?;
     match error {
         TestError::Msg(message) => {
-            if !message.starts_with("server task failed to start: ") {
-                return Err(format!("unexpected startup message: {message}").into());
+            if !message.starts_with("server task failed to start: task ") {
+                return Err(format!("unexpected startup prefix: {message}").into());
+            }
+            if !message.contains("panicked with message \"factory refused by the test\"") {
+                return Err(format!("the join error text was not preserved: {message}").into());
             }
         }
         other => return Err(format!("expected a message failure, got {other:?}").into()),

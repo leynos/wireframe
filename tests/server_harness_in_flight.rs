@@ -54,6 +54,8 @@ const MAX_FRAME_LENGTH: usize = 2048;
 const STEP_TIMEOUT: Duration = Duration::from_secs(5);
 /// Window used to show that something did not wait.
 const NOT_YET: Duration = Duration::from_millis(100);
+/// Bound for a repeated shutdown after a timeout, as the plan specifies.
+const RETRY_WITHIN: Duration = Duration::from_millis(50);
 
 /// Fail the test when `condition` does not hold.
 fn ensure(condition: bool, message: impl Into<String>) -> TestResult {
@@ -241,7 +243,7 @@ async fn timeout_shutdown_case(
         "a repeated call after a timeout must re-check without blocking",
     )?;
     ensure(
-        repeated_at.elapsed() < NOT_YET,
+        repeated_at.elapsed() < RETRY_WITHIN,
         "the repeated call must not add a blocking wait",
     )?;
 

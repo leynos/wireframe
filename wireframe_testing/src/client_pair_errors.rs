@@ -1,19 +1,8 @@
 //! Startup and shutdown error mapping for the client pair.
 
-use std::any::Any;
-
 use wireframe::server::ServerError;
 
 use crate::TestError;
-
-/// Render a caught panic payload as the pair's startup failure text.
-pub(super) fn panic_message(payload: &(dyn Any + Send)) -> &str {
-    payload
-        .downcast_ref::<&str>()
-        .copied()
-        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
-        .unwrap_or("unknown panic payload")
-}
 
 /// Re-wrap a startup failure as the pair's historical message shape.
 ///

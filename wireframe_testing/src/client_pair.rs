@@ -39,7 +39,6 @@
 
 use std::net::SocketAddr;
 
-use futures::FutureExt;
 use wireframe::{
     app::Packet,
     client::{WireframeClient, WireframeClientBuilder},
@@ -52,7 +51,7 @@ use wireframe::{
 use crate::{
     TestError,
     TestResult,
-    client_pair_errors::{map_pair_shutdown_error, map_pair_startup_error, panic_message},
+    client_pair_errors::{map_pair_shutdown_error, map_pair_startup_error},
     integration_helpers::unused_listener,
     server_harness::{
         RunningWireframeServer,
@@ -155,6 +154,13 @@ impl WireframePair {
     }
 }
 
+/// Abort a startup task when the future awaiting it is dropped.
+struct AbortOnDrop<T>(tokio::task::JoinHandle<T>);
+
+impl<T> Drop for AbortOnDrop<T> {
+    fn drop(&mut self) { self.0.abort(); }
+}
+
 /// Start a server and connect a client, returning a [`WireframePair`].
 ///
 /// This is the primary entry point for in-process pair tests. It reserves a
@@ -239,18 +245,15 @@ where
     let server = WireframeServer::new(app_factory).workers(1);
     let (bound, addr, ready_rx) = bind_with_readiness(server, listener)?;
 
-    // Catch a panic during startup so it surfaces as the pair's historical
-    // message instead of unwinding into the caller. Catching it in place, not
-    // in a spawned task, also means a cancelled pair future drops the bound
-    // server rather than detaching a task that still owns the listener.
-    let startup = std::panic::AssertUnwindSafe(start_bound(bound, addr, ready_rx, options))
-        .catch_unwind()
-        .await;
-    let running_server = match startup {
-        Err(payload) => {
+    // Startup runs in a task, as it did before the delegation, so a panic
+    // surfaces as the historical join-error message. The guard aborts the task
+    // if this future is cancelled, so a cancelled startup drops the bound
+    // server instead of detaching a task that still owns the listener.
+    let mut startup = AbortOnDrop(tokio::spawn(start_bound(bound, addr, ready_rx, options)));
+    let running_server = match (&mut startup.0).await {
+        Err(join_error) => {
             return Err(TestError::Msg(format!(
-                "server task failed to start: {}",
-                panic_message(payload.as_ref())
+                "server task failed to start: {join_error}"
             )));
         }
         Ok(result) => result.map_err(map_pair_startup_error)?,

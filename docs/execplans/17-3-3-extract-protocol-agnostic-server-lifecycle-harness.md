@@ -1269,19 +1269,19 @@ Re-derived from `wireframe_testing/src/client_pair.rs` at `a7eecaff`.
 
 <!-- markdownlint-disable MD013 -->
 
-| Failure path                   | Today (`client_pair.rs`)                           | Reachable | After EP-M3                                    |
-| ------------------------------ | -------------------------------------------------- | --------- | ---------------------------------------------- |
-| listener reservation           | `:294` `TestError::Io`                             | yes       | `TestError::Io` (unchanged)                    |
-| binding                        | `:295-297` `TestError::Server`                     | no        | `TestError::Server` (unchanged)                |
-| address readback               | `:298-300` `Msg` on `None`                         | no        | `TestError::Io` from the std listener          |
-| application startup error      | `:327-329` `Msg("server failed to start: …")`      | yes       | `Msg("server failed to start: …")` (unchanged) |
-| readiness: task join error     | `:323-326` `Msg("server task failed to start: …")` | no        | removed; no task handle exists                 |
-| readiness: exited before ready | `:330-332` `Msg`                                   | no        | `Msg` (defensive arm, same text)               |
-| readiness: guard already taken | `:320-322` `Msg`                                   | no        | removed with `PendingServer`                   |
-| client connect                 | `:337-338` `TestError::Client`                     | yes       | `TestError::Client` (unchanged)                |
-| shutdown: server error         | `:156` `Msg("server error: …")`                    | no        | `Msg("server error: …")` (same text)           |
-| drop with a request in flight  | `:167-210` listener released in about 200 ms       | yes       | released promptly, given PRE-1                 |
-| shutdown: join error           | `:153-155` `Msg("server task join error: …")`      | no        | `Msg("server task join error: …")` (same text) |
+| Failure path                   | Today (`client_pair.rs`)                           | Reachable                                | After EP-M3                                           |
+| ------------------------------ | -------------------------------------------------- | ---------------------------------------- | ----------------------------------------------------- |
+| listener reservation           | `:294` `TestError::Io`                             | yes                                      | `TestError::Io` (unchanged)                           |
+| binding                        | `:295-297` `TestError::Server`                     | no                                       | `TestError::Server` (unchanged)                       |
+| address readback               | `:298-300` `Msg` on `None`                         | no                                       | `TestError::Io` from the std listener                 |
+| application startup error      | `:327-329` `Msg("server failed to start: …")`      | yes                                      | `Msg("server failed to start: …")` (unchanged)        |
+| readiness: task join error     | `:323-326` `Msg("server task failed to start: …")` | yes (a panicking factory or preparation) | unchanged text; startup runs in an abort-on-drop task |
+| readiness: exited before ready | `:330-332` `Msg`                                   | no                                       | `Msg` (defensive arm, same text)                      |
+| readiness: guard already taken | `:320-322` `Msg`                                   | no                                       | removed with `PendingServer`                          |
+| client connect                 | `:337-338` `TestError::Client`                     | yes                                      | `TestError::Client` (unchanged)                       |
+| shutdown: server error         | `:156` `Msg("server error: …")`                    | no                                       | `Msg("server error: …")` (same text)                  |
+| drop with a request in flight  | `:167-210` listener released in about 200 ms       | yes                                      | released promptly, given PRE-1                        |
+| shutdown: join error           | `:153-155` `Msg("server task join error: …")`      | no                                       | `Msg("server task join error: …")` (same text)        |
 
 <!-- markdownlint-enable MD013 -->
 
@@ -1780,7 +1780,9 @@ Assessment-driven evidence, 2026-11-26:
   `merge_outcome_is_monotone` fail; returning `TestError::Msg` for a server
   error made `classify_drain_distinguishes_every_class` fail; returning the
   configured bound after a timeout made
-  `drain_bound_never_blocks_after_timeout` fail on its assertion.
+  `drain_bound_never_blocks_after_timeout` fail on its assertion. The runtime
+  half, `shutdown_bound_is_reported`, asserts the repeated call within 50 ms
+  against a 300 ms configured bound.
 - INV-4 seeded fault: `std::mem::forget(control.clone())` in `start_bound` made
   both `drop_inside_runtime_releases_listener` cases and both
   `drop_outside_runtime_releases_listener` cases fail; the leak keeps the
@@ -1817,7 +1819,7 @@ Evidence gaps, recorded rather than claimed:
   three named witnesses; the idle-peer witness belongs to INV-6.
 
 **Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
-branch `426edda1`, the delivered diff adds 2,362 net Rust and feature-file
+branch `426edda1`, the delivered diff adds 2,364 net Rust and feature-file
 lines across 27 files, above both the `Code` tolerance of 1,500 and the 26-file
 tolerance. The documentation is 249 net lines after excluding this plan, within
 its 450 budget. The overage is concentrated in the integration, behavioural,
