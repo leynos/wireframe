@@ -1738,15 +1738,16 @@ the handle, options, pure outcome functions, and three spawn helpers;
 `spawn_wireframe_pair` delegates to it; RFC 0001 carries a dated revision note
 for D17 to D21; and roadmap 17.3.3 is ticked. The Stage E amendment list is
 discharged against RFC 0001's new `Revision note: 2026-11-25` section, which
-also records that only the second of #974's two forms was implemented (the
-supervisor keeps the listener while running and releases it before the tracker
-wait).
+also records the form that was implemented: the supervisor drops its own
+listener immediately after spawning the accept loops, before readiness, so the
+socket's lifetime is exactly the accept loops' lifetime.
 
 What changed against the plan's estimates: the integration cases were split
 across `server_harness_lifecycle.rs` and `server_harness_in_flight.rs` exactly
 as the plan permitted, and the pure-function tests live in `outcome.rs` rather
-than a sibling file because they fit the budget. `client_pair.rs` shrank to 369
-lines. EP-M0's "PRE-1 landed on `main`" is the main unmet item: PRE-1 is
+than a sibling file because they fit the budget. `client_pair.rs` shrank from
+387 to 307 lines, with its error mapping and cancellation tests in sibling
+modules. EP-M0's "PRE-1 landed on `main`" is the main unmet item: PRE-1 is
 delivered as prerequisite PR #977, which this branch is based on, but this
 assignment carries no merge authority. The residual evidence gaps recorded
 below are the other unmet items, and the code-size breach is an open escalation.
@@ -1783,10 +1784,11 @@ Assessment-driven evidence, 2026-11-26:
 - Cancelled startup: `cancelled_preparing_startup_releases_listener` blocks
   `WireframeApp` preparation in a public middleware transform with a known
   listener, polls the startup future once, drops it without crossing the
-  barrier, and requires the listener to be refused. It passes, so the
-  detached-task defect has a deterministic regression test after all: an
-  in-crate preparation barrier fixture already existed, and the same blocking
-  shape is expressible through the public middleware API.
+  barrier, and requires the listener to be refused. A second test,
+  `client_pair::startup_cancellation_tests::cancelled_pair_startup_releases_
+  listener`,
+  does the same through the pair's private startup core, so the pair-specific
+  path is covered too. Both pass.
 - INV-5 classification counts by trace class were not recorded; the property
   generates `Shutdown` and `CancelledShutdown` uniformly over a `0..=5` trace
   with a uniform terminal `Shutdown` or `Drop`, for 16 cases per run.
@@ -1800,8 +1802,8 @@ Evidence gaps, recorded rather than claimed:
   generated cases plus the two named witnesses and the idle-peer witness.
 
 **Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
-branch `426edda1`, the delivered diff adds 2,131 net Rust and feature-file
-lines across 25 files, above the `Code` tolerance of 1,500. The documentation
+branch `426edda1`, the delivered diff adds 2,247 net Rust and feature-file
+lines across 26 files, above the `Code` tolerance of 1,500. The documentation
 is about 330 net lines after excluding this plan, within its 450 budget. The
 overage is concentrated in the integration, behavioural, and property tests and
 in the harness's exhaustive unit tests: the plan's estimate of about 1,250 code

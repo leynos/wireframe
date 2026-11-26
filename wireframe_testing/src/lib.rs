@@ -30,6 +30,8 @@ pub mod benchmark_alloc_support;
 // Loom removes client/server APIs, so keep network-backed support out too.
 #[cfg(not(loom))]
 pub mod client_pair;
+#[cfg(not(loom))]
+mod client_pair_errors;
 pub mod codec_benchmarks;
 pub mod echo_server;
 pub mod helpers;
