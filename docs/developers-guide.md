@@ -1587,9 +1587,10 @@ depend on it. Override it only to pass flags a release build genuinely needs.
 
 lading was chosen because it publishes a workspace's crates in a declared order
 and skips a crate that is already published; `rstest-bdd` releases its
-workspace with it. So far it only rehearses a release, so the choice is
-recorded here rather than in an architectural decision record. It becomes an
-architectural decision once a workflow uploads with it.
+workspace with it.
+[ADR 0019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
+records the decision to publish with it, and the cost of letting Cargo build
+each package while the upload credential is present.
 
 ### Release verification scripts
 
