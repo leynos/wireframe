@@ -1819,7 +1819,7 @@ Evidence gaps, recorded rather than claimed:
   three named witnesses; the idle-peer witness belongs to INV-6.
 
 **Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
-branch `a95303e7`, the delivered diff adds 2,361 net Rust and feature-file
+branch `5a5f02d6`, the delivered diff adds 2,361 net Rust and feature-file
 lines across 28 files, above both the `Code` tolerance of 1,500 and the 26-file
 tolerance. The documentation is 249 net lines after excluding this plan, within
 its 450 budget. The overage is concentrated in the integration, behavioural,
