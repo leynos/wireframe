@@ -42,9 +42,11 @@ run uses the same bytes. To move the pin, edit `pyproject.toml`, run
 ## Publishing
 
 Push an annotated tag for the merged commit. Its name is `v` followed by the
-version, and the commit must be on `main`:
+version, and the commit must be on `main`. Fetch `main` first, so that
+`origin/main` names the merged commit rather than an earlier one:
 
 ```bash
+git fetch origin main
 git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" origin/main
 git push origin v0.4.0-alpha1
 ```
@@ -53,11 +55,13 @@ The `Release` workflow then runs these jobs:
 
 1. `package` packages both crates, records their digests, checks that crates.io
    permits the version, and rehearses the publication.
-2. `publish-crates-io` waits for the `crates-io` environment's approval,
+2. `require-main` checks that the tagged commit is on `main`. Every later job
+   needs it.
+3. `publish-crates-io` waits for the `crates-io` environment's approval,
    reproduces the recorded archives, and publishes them with lading.
-3. `verify-crates-io` compares what crates.io serves with the record, and
+4. `verify-crates-io` compares what crates.io serves with the record, and
    builds a consumer from crates.io.
-4. `github-release` creates the GitHub release, and attaches both archives and
+5. `github-release` creates the GitHub release, and attaches both archives and
    their checksums. A version with a hyphen is marked as a pre-release.
 
 Nothing can undo an upload. A version published in error can only be yanked.

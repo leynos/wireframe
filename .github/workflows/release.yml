@@ -28,8 +28,28 @@ jobs:
     with:
       release-tag: ${{ github.ref_name }}
 
+  # Every later job needs this one, so a commit that is not on `main` is never
+  # published, verified or announced, even when every crate is already on
+  # crates.io and publication is skipped.
+  require-main:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          # The whole history, to find the commit on `main`.
+          fetch-depth: 0
+          persist-credentials: false
+      # `main` accepts only commits that passed the required checks. That is
+      # what makes skipping lading's pre-flight in `publish-crates-io` safe.
+      - name: Require a commit that is on main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
+
   publish-crates-io:
-    needs: package
+    needs: [package, require-main]
     if: needs.package.outputs.action == 'publish'
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -45,13 +65,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:
           ref: ${{ github.sha }}
-          # The whole history, to find the commit on `main`.
-          fetch-depth: 0
           persist-credentials: false
-      # `main` accepts only commits that passed the required checks. That is
-      # what makes skipping lading's pre-flight below safe.
-      - name: Require a commit that is on main
-        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main
       - name: Setup Rust
         uses: leynos/shared-actions/.github/actions/setup-rust@b50fd9a2b2f2a096d64fe44593805dd2da7f9148
       - name: Setup uv
@@ -91,10 +105,11 @@ jobs:
   verify-crates-io:
     # Runs when publication succeeded, or when every crate was already there, so
     # an interrupted release can be completed by running the tag again.
-    needs: [package, publish-crates-io]
+    needs: [package, require-main, publish-crates-io]
     if: >-
       !cancelled() &&
       needs.package.result == 'success' &&
+      needs.require-main.result == 'success' &&
       (needs.publish-crates-io.result == 'success' ||
       (needs.publish-crates-io.result == 'skipped' &&
       needs.package.outputs.action == 'skip'))

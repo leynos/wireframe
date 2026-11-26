@@ -38,6 +38,7 @@ than all four repository-owned lanes sharing one profile.
 | `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`         | 60 min  |
 | `delayed-pr-comment.yml` | `delayed-comment`   | dispatch           | callee: `ubuntu-latest` | callee  |
 | `release-package.yml`    | `package`           | pull request, tag  | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `require-main`      | tag                | `ubuntu-latest`         | 5 min   |
 | `release.yml`            | `publish-crates-io` | tag                | `ubuntu-latest`         | 30 min  |
 | `release.yml`            | `verify-crates-io`  | tag                | `ubuntu-latest`         | 30 min  |
 | `release.yml`            | `github-release`    | tag                | `ubuntu-latest`         | 10 min  |

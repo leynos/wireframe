@@ -60,15 +60,18 @@ bytes on both sides of the upload.
 2. `release.yml` starts only for a `v*.*.*` tag push. It has no `workflow_call`
    and no `workflow_dispatch`, so Netsuke's write-authorization policy, which
    guards a reusable release workflow, is not needed.
-3. `publish-crates-io` requires a commit on `main`, packages the crates again,
-   and requires the recorded digests. Only then does it exchange its identity
-   for a token, and only the step that runs lading receives it. The job is
-   declared in `release.yml` itself and names the `crates-io` environment,
-   because crates.io identifies a publisher by both.
-4. `verify-crates-io` downloads what crates.io serves, requires the recorded
+3. `require-main` requires a commit on `main`. Every later job needs it, so a
+   run in which every crate is already published still cannot verify or
+   announce a commit that is not on `main`.
+4. `publish-crates-io` packages the crates again, and requires the recorded
+   digests. Only then does it exchange its identity for a token, and only the
+   step that runs lading receives it. The job is declared in `release.yml`
+   itself and names the `crates-io` environment, because crates.io identifies a
+   publisher by both.
+5. `verify-crates-io` downloads what crates.io serves, requires the recorded
    digests, and builds a consumer on the minimum Rust version. It holds no
    credential.
-5. `github-release` announces the release last, with the archives attached.
+6. `github-release` announces the release last, with the archives attached.
 
 An archive that Cargo packages twice from one commit with one toolchain is
 byte-identical, and `wireframe_testing` embeds the digest of the `wireframe`
