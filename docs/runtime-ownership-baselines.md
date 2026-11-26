@@ -1394,7 +1394,11 @@ the attribution stays a hypothesis.
 ### Allocations and task counts
 
 Counts are process-global deltas over four iterations and include runtime and
-harness work; compare them only across runs of the same binary.
+harness work. Compare them only across runs of the same benchmark binary and
+the same workload labels: the harness is unchanged between these captures, so a
+cross-revision comparison measures the library change rather than a harness
+change, while a different harness, workload, or iteration count makes the
+counts incomparable.
 
 | Scope                                                                            | Before      | After |
 | -------------------------------------------------------------------------------- | ----------- | ----- |
