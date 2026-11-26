@@ -15,11 +15,13 @@ use std::{
     time::Duration,
 };
 
+use async_trait::async_trait;
 use futures::poll;
 use rstest::rstest;
 use tokio::{net::TcpStream, time::timeout};
 use wireframe::{
-    app::WireframeApp,
+    app::{Envelope, Handler, WireframeApp},
+    middleware::{HandlerService, Transform},
     server::{ServerError, WireframeServer},
 };
 use wireframe_testing::{
@@ -195,4 +197,64 @@ async fn parallel_handles_use_distinct_listeners() -> TestResult {
     TcpStream::connect(third.local_addr()).await?;
     second.shutdown().await?;
     third.shutdown().await
+}
+
+/// Middleware that holds application preparation until released.
+struct PreparationBarrier {
+    /// Fires when preparation reaches this transform.
+    entered: Arc<tokio::sync::Notify>,
+    /// The test and the transform meet here.
+    barrier: Arc<tokio::sync::Barrier>,
+}
+
+#[async_trait]
+impl Transform<HandlerService<Envelope>> for PreparationBarrier {
+    type Output = HandlerService<Envelope>;
+
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
+        self.entered.notify_one();
+        self.barrier.wait().await;
+        service
+    }
+}
+
+/// Cancelling a startup that is still preparing releases the listener.
+///
+/// Preparation blocks in a middleware transform, so the startup future is
+/// provably in flight when it is dropped. The listener must then be released
+/// without the barrier ever being crossed: the startup future owns the bound
+/// server, and dropping it drops the server and its listener.
+#[rstest]
+#[tokio::test]
+async fn cancelled_preparing_startup_releases_listener() -> TestResult {
+    let entered = Arc::new(tokio::sync::Notify::new());
+    let barrier = Arc::new(tokio::sync::Barrier::new(2));
+    let handler: Handler<Envelope> = Arc::new(|_: &Envelope| Box::pin(async {}));
+    let app = wireframe_testing::TestApp::new()?
+        .route(1, Arc::clone(&handler))?
+        .wrap(PreparationBarrier {
+            entered: Arc::clone(&entered),
+            barrier: Arc::clone(&barrier),
+        })?;
+    let listener = unused_listener()?;
+    let addr = listener.local_addr()?;
+    let server = WireframeServer::from_app(app).workers(1);
+
+    {
+        let startup = spawn_wireframe_server_on(server, listener);
+        let mut pinned = std::pin::pin!(startup);
+        let entered_wait = entered.notified();
+        let first_poll = poll!(pinned.as_mut());
+        ensure(
+            first_poll.is_pending(),
+            "startup must still be preparing at the first poll",
+        )?;
+        timeout(PROMPT, entered_wait)
+            .await
+            .map_err(|_| TestError::Msg("preparation never reached the barrier".into()))?;
+        // Dropping the future drops the bound server; the barrier is never
+        // crossed.
+    }
+
+    wait_for_listener_release(addr).await
 }

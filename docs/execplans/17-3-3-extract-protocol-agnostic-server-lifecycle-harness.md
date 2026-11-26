@@ -1746,9 +1746,10 @@ What changed against the plan's estimates: the integration cases were split
 across `server_harness_lifecycle.rs` and `server_harness_in_flight.rs` exactly
 as the plan permitted, and the pure-function tests live in `outcome.rs` rather
 than a sibling file because they fit the budget. `client_pair.rs` shrank to 369
-lines. The only unmet item is the wording of EP-M0's "PRE-1 landed on `main`":
-PRE-1 is delivered as prerequisite PR #977, which this branch is based on, but
-this assignment carries no merge authority.
+lines. EP-M0's "PRE-1 landed on `main`" is the main unmet item: PRE-1 is
+delivered as prerequisite PR #977, which this branch is based on, but this
+assignment carries no merge authority. The residual evidence gaps recorded
+below are the other unmet items, and the code-size breach is an open escalation.
 
 Two lessons. First, `mapsplice replace` rewrote unrelated headings in
 `docs/roadmap.md` by escaping their parentheses; per its own skill guidance
@@ -1769,21 +1770,29 @@ Assessment-driven evidence, 2026-11-26:
 - INV-5 negative control: with `shutdown()` skipping `stop()` when no outcome
   was recorded, five property cases and witnesses failed with
   `shutdown failed: deadline has elapsed` or
-  `the final drain never completed at <addr>`; two witnesses that end in `Drop`
-  still passed, which is why the named witnesses include a terminal `Shutdown`.
+  `the final drain never completed at <addr>`. The property body and witness
+  `case_2` (empty trace, terminal `Drop`) passed: dropping the handle cancels
+  the server without `stop()`, so a drop-ending trace cannot witness the
+  missing stop. The third named witness is the terminal-`Shutdown` one; the
+  idle-peer witness belongs to INV-6, not INV-5.
 - INV-1 to INV-3 are exhaustive enumerations over closed domains, so their
   non-vacuity is the visited-count assertion (12, 8, and every drain class)
-  rather than a mutant transcript.
+  rather than a mutant transcript. No mutant transcripts were produced for
+  them, nor for INV-4's seeded leaked-control fault, INV-6, or INV-7; the plan
+  requires those and they remain outstanding evidence items.
+- Cancelled startup: `cancelled_preparing_startup_releases_listener` blocks
+  `WireframeApp` preparation in a public middleware transform with a known
+  listener, polls the startup future once, drops it without crossing the
+  barrier, and requires the listener to be refused. It passes, so the
+  detached-task defect has a deterministic regression test after all: an
+  in-crate preparation barrier fixture already existed, and the same blocking
+  shape is expressible through the public middleware API.
+- INV-5 classification counts by trace class were not recorded; the property
+  generates `Shutdown` and `CancelledShutdown` uniformly over a `0..=5` trace
+  with a uniform terminal `Shutdown` or `Drop`, for 16 cases per run.
 
 Evidence gaps, recorded rather than claimed:
 
-- A regression test for a cancelled pair startup is not expressible through the
-  public API. `WireframeApp::prepare` has no caller-controllable await point,
-  and the readiness window closes as soon as the supervisor runs, so the test
-  cannot deterministically hold startup and cancel it. The guarantee is
-  structural: startup now runs in the caller's future, which owns the bound
-  server, so cancelling it drops the server and its listener; no task is
-  detached.
 - The ten consecutive full `make test` runs from the flakiness check were not
   performed. Each full run takes about 90 minutes on this host, and the two
   full runs made during implementation both passed with no intermittent
