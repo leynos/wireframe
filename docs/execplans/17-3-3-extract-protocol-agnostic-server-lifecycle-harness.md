@@ -1807,8 +1807,8 @@ Assessment-driven evidence, 2026-11-26:
 
 Evidence gaps, recorded rather than claimed:
 
-- The pre-delegation pair characterisation result was not recorded: the
-  characterisation case was written after the delegation, so it has never run
+- The pre-delegation pair characterization result was not recorded: the
+  characterization case was written after the delegation, so it has never run
   against the old pair implementation.
 - The ten consecutive full `make test` runs from the flakiness check were not
   performed. Each full run takes about 90 minutes on this host, and the two
