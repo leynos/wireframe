@@ -967,7 +967,7 @@ The processing context does carry the connection's identity. `InboundConfig`
 records the application-wide settings preparation resolved, and
 `ConnectionProcessingContext` adds the per-attempt values, including the
 optional peer address and the shutdown token. `StreamProcessingContext` is the
-subset the frame loop needs, so `ConnectionLoop` can name the peer in
+subset the frame loop needs, so the loop can name the peer in
 diagnostics and in the recovery hook's `CodecErrorContext`, and the actor can
 register its push handle under a connection identifier. Only the entry point
 decides whether a peer address exists: `handle_connection_with_shutdown`
@@ -991,18 +991,17 @@ The loop's own boundaries are worth knowing when reading or extending it:
   it.
 - `src/app/inbound_handler/dispatch.rs` — `parse_envelope` and `handle_frame`
   turn a decoded frame into middleware work.
-- `src/app/inbound_handler/core_dispatch.rs` — `ConnectionLoop::handle_step`
-  resolves one stream step, and its private `dispatch` handles a decoded frame
-  and settles the result, so a failure buffered behind a response that ends the
-  connection is still reported.
+- `src/app/inbound_handler/stream_dispatch.rs` — `Connection::step` resolves
+  one stream step, and `run` settles the loop: a failure buffered behind a
+  response that ends the connection is reported as the disconnect it is.
 - `src/app/inbound_handler/push_service.rs` and `push_write.rs` —
   `StreamStep`, `StreamWait`, `next_stream_step`, `PushBatch`, `PushTransport`,
   `deliver_pushes`, and `drain_queued` are how a push batch competes with the
   next inbound frame; `push_write.rs` owns the single-frame write.
-- `src/app/inbound_handler/core_pushes.rs` — `ConnectionLoop::write_pushes`
-  hands a push batch to `deliver_pushes`, and `drain_pushes` finishes a lane a
-  producer left queued when the peer half-closed; both reach `push_write.rs`
-  through `push_service.rs`.
+- `src/app/inbound_handler/stream_pushes.rs` — `write_pushes` hands a push
+  batch to `deliver_pushes`, and `drain_pushes` finishes a lane a producer left
+  queued when the peer half-closed; both reach `push_write.rs` through
+  `push_service.rs`.
 - `src/app/inbound_handler/peer_watch.rs` — `PeerObservation` and
   `handle_watching_peer` notice a peer that disconnected while a frame was
   being handled.
