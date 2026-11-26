@@ -239,8 +239,10 @@ async fn drop_with_request_in_flight_releases_listener() -> TestResult {
 /// A panicking factory keeps the pair's historical startup failure shape.
 ///
 /// Before the delegation the pair started the server in a task, so a factory
-/// panic surfaced as a join error rather than unwinding into the caller. The
-/// startup still runs in a task, and this pins that contract.
+/// panic surfaced as a join error rather than unwinding into the caller.
+/// Startup is now awaited in the caller's future and the panic is captured
+/// there, which keeps the same message shape and lets a cancelled startup
+/// drop the bound server instead of detaching it.
 #[rstest]
 #[tokio::test]
 async fn panicking_factory_reports_a_startup_failure() -> TestResult {

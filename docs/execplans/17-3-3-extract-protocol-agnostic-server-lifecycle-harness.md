@@ -1798,26 +1798,27 @@ Evidence gaps, recorded rather than claimed:
 - The ten consecutive full `make test` runs from the flakiness check were not
   performed. Each full run takes about 90 minutes on this host, and the two
   full runs made during implementation both passed with no intermittent
-  failure. The counts for the INV-5 classification are the property's 16
-  generated cases plus the two named witnesses and the idle-peer witness.
+  failure. The INV-5 evidence is the property's 16 generated cases plus its
+  three named witnesses; the idle-peer witness belongs to INV-6.
 
 **Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
-branch `426edda1`, the delivered diff adds 2,247 net Rust and feature-file
-lines across 26 files, above the `Code` tolerance of 1,500. The documentation
-is about 330 net lines after excluding this plan, within its 450 budget. The
-overage is concentrated in the integration, behavioural, and property tests and
-in the harness's exhaustive unit tests: the plan's estimate of about 1,250 code
-lines assumed fewer cases and did not price the assessment-driven strengthening
-(bounded polling, streamed in-flight cases, the outcome check on every trace
-step, a panicking-factory regression, and the single-definition macro). The
-work is implemented and verified; the breach is recorded here for the reviewer
-or operator to accept or to require scope reduction rather than being silently
-absorbed.
+branch `426edda1`, the delivered diff adds 2,362 net Rust and feature-file
+lines across 27 files, above both the `Code` tolerance of 1,500 and the 26-file
+tolerance. The documentation is 249 net lines after excluding this plan, within
+its 450 budget. The overage is concentrated in the integration, behavioural,
+and property tests and in the harness's exhaustive unit tests: the plan's
+estimate of about 1,250 code lines assumed fewer cases and did not price the
+assessment-driven strengthening (bounded polling, streamed in-flight cases, the
+outcome check on every trace step, a panicking-factory regression, and the
+single-definition macro). The work is implemented and verified; the breach is
+recorded here for the reviewer or operator to accept or to require scope
+reduction rather than being silently absorbed.
 
 Status remains `APPROVED` rather than `COMPLETE` until PRE-1 is merged to
-`main`, because EP-M0's wording makes that part of the milestone. Everything
-this assignment can validate locally is done: the delivered branch has the
-code, tests, documentation, RFC amendment, and roadmap tick.
+`main`, because EP-M0's wording makes that part of the milestone. The delivered
+branch has the code, tests, documentation, RFC amendment, and roadmap tick. The
+evidence gaps and the tolerance breaches recorded above are still open, so not
+everything the plan asks for is complete.
 
 Lesson recorded early, from the 2026-11-22 re-derivation: when `main` moves
 under a plan, re-verify the plan's claims, not only its links. Two rebases
