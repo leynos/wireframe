@@ -5,3 +5,4 @@
 # It is recommended to check this file in to source control so that
 # everyone who runs the test benefits from these saved cases.
 cc 75b333e1717ca1721d30c31432e192e2ad2080297b29a86f51490855de18cbb1 # shrinks to trace = [Shutdown, CancelledShutdown], terminal = Shutdown
+cc 175db74dcbd6145bcbe6193a864d945b3a99a892df7361ed45adb783d9dae087 # shrinks to trace = [], terminal = Shutdown

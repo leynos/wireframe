@@ -1759,6 +1759,37 @@ immediately rather than pending, so a "cancelled shutdown" operation has to
 accept a ready result. That case is now pinned in the committed
 `.proptest-regressions` file.
 
+Assessment-driven evidence, 2026-11-26:
+
+- Pair in-flight negative control: with PRE-1's listener drop replaced by a
+  comment in `src/server/runtime/server/mod.rs`,
+  `drop_with_request_in_flight_ releases_listener` failed with
+  `server listener at <addr> remained bound for one second`; it passes with the
+  drop in place.
+- INV-5 negative control: with `shutdown()` skipping `stop()` when no outcome
+  was recorded, five property cases and witnesses failed with
+  `shutdown failed: deadline has elapsed` or
+  `the final drain never completed at <addr>`; two witnesses that end in `Drop`
+  still passed, which is why the named witnesses include a terminal `Shutdown`.
+- INV-1 to INV-3 are exhaustive enumerations over closed domains, so their
+  non-vacuity is the visited-count assertion (12, 8, and every drain class)
+  rather than a mutant transcript.
+
+Evidence gaps, recorded rather than claimed:
+
+- A regression test for a cancelled pair startup is not expressible through the
+  public API. `WireframeApp::prepare` has no caller-controllable await point,
+  and the readiness window closes as soon as the supervisor runs, so the test
+  cannot deterministically hold startup and cancel it. The guarantee is
+  structural: startup now runs in the caller's future, which owns the bound
+  server, so cancelling it drops the server and its listener; no task is
+  detached.
+- The ten consecutive full `make test` runs from the flakiness check were not
+  performed. Each full run takes about 90 minutes on this host, and the two
+  full runs made during implementation both passed with no intermittent
+  failure. The counts for the INV-5 classification are the property's 16
+  generated cases plus the two named witnesses and the idle-peer witness.
+
 **Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
 branch `426edda1`, the delivered diff adds 2,131 net Rust and feature-file
 lines across 25 files, above the `Code` tolerance of 1,500. The documentation
