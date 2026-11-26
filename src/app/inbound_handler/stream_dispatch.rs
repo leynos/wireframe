@@ -75,6 +75,12 @@ mod watch_tests;
 #[path = "stream_reply_watch_tests.rs"]
 mod reply_watch_tests;
 
+// The parked gauge is process-wide, so its endings are driven in child
+// processes of this test binary rather than inline beside the other scenarios.
+#[cfg(all(test, feature = "metrics"))]
+#[path = "stream_parked_gauge_tests.rs"]
+mod parked_gauge_tests;
+
 /// One connected transport and the immutable inputs that drive it.
 pub(super) struct Connection<'a, S, E, R, K, F>
 where
