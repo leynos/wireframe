@@ -174,7 +174,9 @@ touches this surface, so there is no further history to draw on.
 - [x] (2026-11-25) EP-M0 baseline recorded on the rebased tree: `make
       check-fmt`, `make lint`, `make typecheck` and `make test` are green on
       `dcce5481` (see `Artefacts and notes`).
-- [ ] PRE-1 merged to `main`.
+- [ ] PRE-1 merged to `main`. As of 2026-11-26 #977 is approved and clean,
+      with every check green and its one review finding fixed and resolved;
+      merging it is outside this assignment's authority.
 - [x] (2026-11-25) EP-M1 Harness, options, spawn helpers, rstest and BDD
       coverage: `server_harness` exists with the handle, options, pure outcome
       functions, and three spawn helpers; twelve rstest case instances and four
