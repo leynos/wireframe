@@ -967,14 +967,13 @@ The processing context does carry the connection's identity. `InboundConfig`
 records the application-wide settings preparation resolved, and
 `ConnectionProcessingContext` adds the per-attempt values, including the
 optional peer address and the shutdown token. `StreamProcessingContext` is the
-subset the frame loop needs, so the loop can name the peer in
-diagnostics and in the recovery hook's `CodecErrorContext`, and the actor can
-register its push handle under a connection identifier. Only the entry point
-decides whether a peer address exists: `handle_connection_with_shutdown`
-receives the one the accept loop resolved, while the public
-`handle_connection_result` and `handle_connection` have none to report and pass
-`None`. Envelope correlation identifiers remain per-frame state on the decoded
-envelope.
+subset the frame loop needs, so the loop can name the peer in diagnostics and
+in the recovery hook's `CodecErrorContext`, and the actor can register its push
+handle under a connection identifier. Only the entry point decides whether a
+peer address exists: `handle_connection_with_shutdown` receives the one the
+accept loop resolved, while the public `handle_connection_result` and
+`handle_connection` have none to report and pass `None`. Envelope correlation
+identifiers remain per-frame state on the decoded envelope.
 
 The loop's own boundaries are worth knowing when reading or extending it:
 

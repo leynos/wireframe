@@ -86,8 +86,8 @@ pub(super) async fn spawn_connection_buffering(app: App, capacity: usize) -> Tes
     let (client, server) = tokio::io::duplex(capacity);
     let shutdown = CancellationToken::new();
     let connection = tokio::spawn({
-        let shutdown = shutdown.clone();
-        async move { process_connection(server, context(&prepared, &shutdown)).await }
+        let observed = shutdown.clone();
+        async move { process_connection(server, context(&prepared, &observed)).await }
     });
     Ok(Scenario {
         client: Framed::new(client, LengthDelimitedCodec::new()),
@@ -109,8 +109,8 @@ pub(super) async fn spawn_pushing(app: App) -> TestResult<(Scenario, PushHandle<
     let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
     let shutdown = CancellationToken::new();
     let connection = tokio::spawn({
-        let shutdown = shutdown.clone();
-        async move { process_connection(server, context(&prepared, &shutdown)).await }
+        let observed = shutdown.clone();
+        async move { process_connection(server, context(&prepared, &observed)).await }
     });
     let scenario = Scenario {
         client: Framed::new(client, LengthDelimitedCodec::new()),

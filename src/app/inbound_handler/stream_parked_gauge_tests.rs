@@ -189,18 +189,24 @@ fn gauge_reads(snapshotter: &Snapshotter, expected: f64) -> bool {
 /// Wait until the parked-body gauge reads `expected`.
 ///
 /// The connection runs on its own task, so the publication that follows a park
-/// is observed by yielding until it lands rather than by sleeping.
+/// is observed by yielding until it lands. The wait is bounded by
+/// [`STEP_WAIT`] on the clock rather than by a count of yields, which would
+/// measure neither wall time nor the progress of the task being watched.
 async fn await_gauge(snapshotter: &Snapshotter, expected: f64) -> TestResult<()> {
-    for _ in 0..STEP_WAIT.as_millis() {
-        if gauge_reads(snapshotter, expected) {
-            return Ok(());
+    let observe = async {
+        loop {
+            if gauge_reads(snapshotter, expected) {
+                return;
+            }
+            tokio::task::yield_now().await;
         }
-        tokio::task::yield_now().await;
-    }
-    Err(TestError::Msg(format!(
-        "the parked gauge never read {expected}; it reads {}",
-        parked_gauge(snapshotter)
-    )))
+    };
+    tokio::time::timeout(STEP_WAIT, observe).await.map_err(|_| {
+        TestError::Msg(format!(
+            "the parked gauge never read {expected} within {STEP_WAIT:?}; it reads {}",
+            parked_gauge(snapshotter)
+        ))
+    })
 }
 
 #[cfg(test)]

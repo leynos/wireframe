@@ -157,9 +157,12 @@ where
 {
     /// Consume builder registrations and prepare immutable route services.
     ///
-    /// Middleware transforms run once for every registered route during this
-    /// transition. The returned template can then drive multiple connections
-    /// without rebuilding its route chains.
+    /// Middleware transforms run once for each buffered route during this
+    /// transition; a streaming route is registered with its handler alone and
+    /// bypasses the middleware chain, because middleware transforms a whole
+    /// payload and a streaming handler owns its body incrementally. The
+    /// returned template can then drive multiple connections without rebuilding
+    /// its route chains.
     ///
     /// # Examples
     ///

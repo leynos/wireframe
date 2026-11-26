@@ -1,8 +1,11 @@
-//! Deprecated compatibility wrapper for accepted connections.
+//! Compatibility wrapper for accepted connections.
 //!
-//! [`PreparedApp::handle_connection`] remains so callers that predate the
-//! result-returning entry point keep compiling; it forwards to the shared
-//! connection path and only logs a failure.
+//! [`PreparedApp::handle_connection`] is the infallible entry point: it
+//! forwards to the shared connection path and logs a failure rather than
+//! returning it. The deprecated member is
+//! [`WireframeApp::handle_connection`](crate::app::WireframeApp::handle_connection),
+//! whose callers this method lets keep compiling; the replacement itself is not
+//! deprecated.
 
 use tokio::io::{AsyncRead, AsyncWrite};
 

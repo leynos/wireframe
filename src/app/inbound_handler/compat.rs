@@ -7,7 +7,6 @@
 
 use std::{io, sync::Arc};
 
-use log::warn;
 use tokio::io::{AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
@@ -107,9 +106,13 @@ where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         if let Err(error) = self.handle_unprepared_connection_result(stream).await {
-            warn!(
-                "connection handling completed with error: correlation_id={:?}, error={error:?}",
-                None::<u64>
+            // Structured fields keep these failures filterable alongside the
+            // runtime's diagnostics; there is no correlation identifier on a
+            // connection this path has only just accepted.
+            tracing::warn!(
+                error = %error,
+                correlation_id = tracing::field::Empty,
+                "connection handling completed with error"
             );
         }
     }
