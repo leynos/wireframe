@@ -234,6 +234,13 @@ pub(super) struct LoopState {
     /// Set after a push batch so a continuously ready push lane cannot win
     /// every biased pass and starve the client's frames.
     pub(super) serve_read_first: bool,
+    /// Whether the next wait polls the live handler before the push lanes.
+    ///
+    /// A streaming handler that has resolved can only deliver its reply when
+    /// the loop polls it. A ready push lane wins every biased pass, so without
+    /// this turn a producer that keeps its queue full would starve the reply
+    /// the client is waiting for.
+    pub(super) serve_handler_first: bool,
 }
 
 impl LoopState {
@@ -256,6 +263,7 @@ impl LoopState {
             parked_accounting,
             deser_failures: 0,
             serve_read_first: false,
+            serve_handler_first: false,
         }
     }
 

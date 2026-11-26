@@ -110,9 +110,11 @@ where
             };
             deliver_pushes(&mut transport, &mut **actor, batch).await?
         };
-        // The reader is owed the next pass, so a continuously ready push lane
-        // cannot win every biased select and starve the client's frames.
+        // The reader and the live handler are both owed the next pass, so a
+        // continuously ready push lane cannot win every biased select and
+        // starve the client's frames or the reply it is waiting for.
         state.serve_read_first = true;
+        state.serve_handler_first = true;
         if !written {
             // A push abandoned mid-frame leaves a partial frame on the wire, so
             // the exchange cannot be resumed: abort the live body and close

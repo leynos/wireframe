@@ -21,6 +21,7 @@ use wireframe_testing::{TestError, TestResult};
 use super::super::{ConnectionProcessingContext, process_connection};
 use crate::{
     app::{Envelope, PreparedApp, WireframeApp},
+    push::PushHandle,
     serializer::{BincodeSerializer, Serializer},
     test_helpers::first_frame_payload,
 };
@@ -83,14 +84,48 @@ pub(super) async fn spawn_connection_buffering(app: App, capacity: usize) -> Tes
         .await
         .map_err(|error| format!("prepare the application: {error}"))?;
     let (client, server) = tokio::io::duplex(capacity);
-    let connection = tokio::spawn(async move {
-        let shutdown = CancellationToken::new();
-        process_connection(server, context(&prepared, &shutdown)).await
+    let shutdown = CancellationToken::new();
+    let connection = tokio::spawn({
+        let shutdown = shutdown.clone();
+        async move { process_connection(server, context(&prepared, &shutdown)).await }
     });
     Ok(Scenario {
         client: Framed::new(client, LengthDelimitedCodec::new()),
         connection,
     })
+}
+
+/// Spawn a connection and hand the caller a push handle for it.
+///
+/// A scenario that needs frames queued while a reply is pending pushes through
+/// the handle. It is obtained from the connection's session registry once the
+/// actor has published it, so the caller sees the same lanes the loop drains.
+pub(super) async fn spawn_pushing(app: App) -> TestResult<(Scenario, PushHandle<Bytes>)> {
+    let prepared: Prepared = app
+        .prepare()
+        .await
+        .map_err(|error| format!("prepare the application: {error}"))?;
+    let registry = std::sync::Arc::clone(&prepared.session_registry);
+    let (client, server) = tokio::io::duplex(DUPLEX_CAPACITY);
+    let shutdown = CancellationToken::new();
+    let connection = tokio::spawn({
+        let shutdown = shutdown.clone();
+        async move { process_connection(server, context(&prepared, &shutdown)).await }
+    });
+    let scenario = Scenario {
+        client: Framed::new(client, LengthDelimitedCodec::new()),
+        connection,
+    };
+    let handle = bounded("the connection publishing its push handle", async {
+        loop {
+            if let Some((_, handle)) = registry.active_handles().into_iter().next() {
+                return handle;
+            }
+            tokio::task::yield_now().await;
+        }
+    })
+    .await?;
+    Ok((scenario, handle))
 }
 
 /// Borrow the prepared application as the runtime's processing context.

@@ -32,8 +32,10 @@ use super::watch_support::{
     bounded_for,
     ensure,
     open_body,
+    read_reply,
     send_complete,
     spawn_connection_buffering,
+    spawn_pushing,
 };
 use crate::{
     app::{Envelope, ResponseHandler, StreamingHandler, WireframeApp},
@@ -70,7 +72,6 @@ const BULK_REPLY_BYTES: usize = 512;
 const EXPIRY_TIMEOUT: Duration = Duration::from_millis(20);
 /// Real time allowed for the assembly to expire and be reported.
 const EXPIRY_SETTLE: Duration = Duration::from_millis(100);
-
 /// Build the reply that outgrows the transport buffer but still fits one frame.
 fn bulk_answer() -> Bytes { Bytes::from(vec![7_u8; BULK_REPLY_BYTES]) }
 
@@ -272,4 +273,52 @@ async fn an_expired_body_reply_is_bounded_when_the_peer_stops_reading() -> TestR
     SinkExt::<Bytes>::close(&mut client).await?;
     let window = Instant::now();
     ends_at_the_grace(connection, window).await
+}
+
+/// A full push lane must not starve a handler that has resolved.
+///
+/// The loop's wait polls the push lanes first, so a producer that keeps a lane
+/// ready wins every pass and the handler's reply is never written unless the
+/// loop gives the handler its own turn after a batch. This scenario keeps the
+/// lane fed with a burst and requires the reply to arrive anyway.
+#[tokio::test(start_paused = true)]
+async fn a_ready_push_lane_does_not_starve_a_resolved_handler() -> TestResult {
+    let started = Arc::new(Notify::new());
+    let (mut scenario, handle) = spawn_pushing(resolved_handler_app(Arc::clone(&started))?).await?;
+
+    open_body(&mut scenario.client, LIVE_ROUTE, LIVE_KEY, &started).await?;
+    // A burst larger than either lane keeps pushes ready across several passes.
+    for _ in 0..8 {
+        handle
+            .push_high_priority(Bytes::from_static(b"push"))
+            .await
+            .map_err(|_| TestError::Msg("the push queue must accept the frame".into()))?;
+    }
+    let reply = bounded_for(
+        STEP_WAIT,
+        "the handler's reply arriving behind a full push lane",
+        read_reply(&mut scenario.client, "the handler's reply"),
+    )
+    .await??;
+    ensure(
+        reply == b"done".to_vec(),
+        "the handler's reply must be delivered while pushes are ready",
+    )?;
+    SinkExt::<Bytes>::close(&mut scenario.client).await?;
+    let joined = bounded_for(STEP_WAIT, "the connection ending", scenario.connection).await?;
+    joined??;
+    Ok(())
+}
+
+/// An application whose streaming handler resolves immediately.
+fn resolved_handler_app(started: Arc<Notify>) -> TestResult<App> {
+    let handler: StreamingHandler =
+        Arc::new(move |_parts: RequestParts, _body: RequestBodyStream| {
+            let start_signal = Arc::clone(&started);
+            Box::pin(async move {
+                start_signal.notify_one();
+                Some(Bytes::from_static(b"done"))
+            })
+        });
+    streaming_app(LIVE_ROUTE, handler)
 }

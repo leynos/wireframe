@@ -63,6 +63,16 @@ where
     pub(super) async fn next_event(&mut self, state: &mut LoopState) -> Event<F::Frame> {
         let read_timeout_ms = self.ctx.read_timeout_ms;
         let shutdown = self.shutdown;
+        // The handler is polled once after every push batch, so a lane that
+        // stays ready cannot keep a resolved handler's reply from being
+        // delivered while the client waits for it.
+        if std::mem::take(&mut state.serve_handler_first) {
+            if let Some(outcome) =
+                futures::FutureExt::now_or_never(poll_live(state.streams.active.as_mut()))
+            {
+                return Event::Handler(outcome);
+            }
+        }
         // The probe is the reader's turn, so it is spent whether or not it
         // produces a frame.
         if std::mem::take(&mut state.serve_read_first) {
