@@ -15,12 +15,12 @@
 //! child asserts its own numbers, so the parent only has to report a child that
 //! fails and refuse one that claims to have run nothing.
 
-use std::{process::Command, sync::Arc};
+use std::{io, process::Command, sync::Arc};
 
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
-use tokio::sync::Notify;
+use tokio::{sync::Notify, task::JoinHandle};
 use wireframe_testing::{TestError, TestResult};
 
 use super::watch_support::{
@@ -56,6 +56,12 @@ const FIRST_KEY: u64 = 62;
 const SECOND_KEY: u64 = 63;
 /// Payload that marks the parked message whose reply is held back.
 const GATED_PAYLOAD: &[u8] = b"first";
+/// Payload of the parked message answered without a gate.
+const SECOND_PAYLOAD: &[u8] = b"second";
+/// Message key of the sentinel connection's live body.
+const SENTINEL_LIVE_KEY: u64 = 64;
+/// Message key of the message parked on the sentinel connection.
+const SENTINEL_PARKED_KEY: u64 = 65;
 
 /// One ending this harness drives in a child process.
 #[derive(Clone, Copy, Debug)]
@@ -197,84 +203,9 @@ async fn await_gauge(snapshotter: &Snapshotter, expected: f64) -> TestResult<()>
     )))
 }
 
-/// What a streaming handler does once its body is released.
-#[derive(Clone, Copy)]
-enum AfterRelease {
-    /// Drain the body and answer, which is the ordinary ending.
-    Reply,
-    /// Unwind through the connection task, which is the ending under test.
-    Panic,
-}
-
-/// Read a body to its end and answer it, failing if the peer truncated it.
-async fn answer_body(body: &mut RequestBodyStream) -> Option<Bytes> {
-    while let Some(item) = body.next().await {
-        item.ok()?;
-    }
-    Some(Bytes::from_static(b"live"))
-}
-
-/// Handler that holds the dispatch slot until released, then does `finish`.
-///
-/// Both endings share their whole setup: the handler signals that it started,
-/// waits for the release, and only then behaves differently. Keeping the shared
-/// part in one function is what lets each ending read as the one line that
-/// distinguishes it.
-fn holding_handler(
-    started: Arc<Notify>,
-    release: Arc<Notify>,
-    finish: AfterRelease,
-) -> StreamingHandler {
-    Arc::new(move |_parts: RequestParts, mut body: RequestBodyStream| {
-        let start_signal = Arc::clone(&started);
-        let release_signal = Arc::clone(&release);
-        Box::pin(async move {
-            start_signal.notify_one();
-            release_signal.notified().await;
-            match finish {
-                AfterRelease::Reply => answer_body(&mut body).await,
-                AfterRelease::Panic => panic!("the streaming handler panicked"),
-            }
-        })
-    })
-}
-
-/// Reply handler for the parked route that holds one reply until released.
-///
-/// The drain answers parked messages one at a time, so holding the first reply
-/// back freezes the gauge at the count the drain has already removed.
-fn parked_reply(gated: Arc<Notify>, release: Arc<Notify>) -> ResponseHandler<Envelope> {
-    Arc::new(move |request: &Envelope| {
-        let is_gated = request.payload_bytes() == GATED_PAYLOAD;
-        let gated_signal = Arc::clone(&gated);
-        let release_signal = Arc::clone(&release);
-        Box::pin(async move {
-            if is_gated {
-                gated_signal.notify_one();
-                release_signal.notified().await;
-            }
-            Response::Single(Envelope::new(PARKED_ROUTE, None, b"done".to_vec()))
-        })
-    })
-}
-
-/// Build the two-route application an ending drives.
-fn scenario_app(
-    handler: StreamingHandler,
-    gated: Arc<Notify>,
-    release: Arc<Notify>,
-) -> TestResult<App> {
-    WireframeApp::new()
-        .map(|app| app.with_message_assembler(TestAssembler))
-        .and_then(|app| app.streaming_route(LIVE_ROUTE, handler))
-        .and_then(|app| app.route_response(PARKED_ROUTE, parked_reply(gated, release)))
-        .map_err(|error| TestError::Msg(format!("build the application: {error}")))
-}
-
-/// Park one complete message behind the live body.
-async fn park_one(client: &mut Client, key: u64, body: &[u8]) -> TestResult {
-    send_complete(client, PARKED_ROUTE, key, body).await
-}
+#[cfg(test)]
+#[path = "stream_parked_gauge_support.rs"]
+mod support;
 
 #[cfg(test)]
 #[path = "stream_parked_gauge_scenarios.rs"]

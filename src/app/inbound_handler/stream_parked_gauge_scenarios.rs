@@ -5,15 +5,18 @@
 //! gauge is measured without a sibling test moving it, and so a handler that
 //! panics on purpose keeps its output out of the gate log.
 
-use super::*;
+use super::{support::*, *};
 
 /// Full module path of these scenarios, as libtest names them.
 pub(super) const MODULE: &str = module_path!();
 
 /// Drive the normal ending: two parked messages drain before the loop returns.
 ///
-/// The gauge must read two while both wait, one while the drain's first reply
-/// is held back, and zero once both are answered and the connection ends.
+/// A sentinel connection keeps one message parked throughout, so the totals are
+/// three while both test messages wait, two while the drain's first reply is
+/// held back, and one once both are answered and the connection ends. Reading
+/// one rather than zero is what proves the release happened exactly once: an
+/// extra release would take the gauge below the sentinel.
 #[tokio::test]
 #[ignore = "driven in a child process by the_parked_gauge_returns_to_baseline_for_every_ending"]
 #[expect(
@@ -22,81 +25,41 @@ pub(super) const MODULE: &str = module_path!();
 )]
 async fn child_normal_exit() -> TestResult {
     let snapshotter = install_recorder()?;
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let gated = Arc::new(Notify::new());
-    let gate_release = Arc::new(Notify::new());
-    let app = scenario_app(
-        holding_handler(
-            Arc::clone(&started),
-            Arc::clone(&release),
-            AfterRelease::Reply,
-        ),
-        Arc::clone(&gated),
-        Arc::clone(&gate_release),
-    )?;
-    let Scenario {
-        mut client,
-        connection,
-    } = spawn_connection(app).await?;
+    let _sentinel = parked_sentinel().await?;
+    await_gauge(&snapshotter, 1.0).await?;
+    let mut paired = parked_pair(AfterRelease::Reply).await?;
+    await_gauge(&snapshotter, 3.0).await?;
+    println!("scenario={} parked=3", Ending::NormalExit.label());
 
-    open_body(&mut client, LIVE_ROUTE, LIVE_KEY, &started).await?;
-    park_one(&mut client, FIRST_KEY, GATED_PAYLOAD).await?;
-    park_one(&mut client, SECOND_KEY, b"second").await?;
-    await_gauge(&snapshotter, 2.0).await?;
-    println!("scenario={} parked=2", Ending::NormalExit.label());
-
-    // Free the slot: the drain pops the gated message first and holds its
-    // reply, which is what makes the intermediate value observable.
-    release.notify_one();
-    send_request(
-        &mut client,
-        LIVE_ROUTE,
-        &continuation_frame_payload(LIVE_KEY.into(), 1.into(), b"end", true)?,
-    )
-    .await?;
+    answer_live_body(&mut paired).await?;
     ensure(
-        read_reply(&mut client, "the live reply").await? == b"live".to_vec(),
-        "the live body must be answered before the parked messages",
-    )?;
-    bounded_for(
-        STEP_WAIT,
-        "the drain reaching its first reply",
-        gated.notified(),
-    )
-    .await?;
-    ensure(
-        gauge_reads(&snapshotter, 1.0),
+        gauge_reads(&snapshotter, 2.0),
         format!(
-            "one message is still parked while its reply is pending, gauge reads {}",
+            "two messages are still parked while a reply is pending, gauge reads {}",
             parked_gauge(&snapshotter)
         ),
     )?;
-    println!("scenario={} drained_one=1", Ending::NormalExit.label());
+    println!("scenario={} drained_one=2", Ending::NormalExit.label());
 
-    gate_release.notify_one();
-    ensure(
-        read_reply(&mut client, "the first parked reply").await? == b"done".to_vec(),
-        "the gated parked message must be answered once released",
-    )?;
-    ensure(
-        read_reply(&mut client, "the second parked reply").await? == b"done".to_vec(),
-        "the second parked message must be answered",
-    )?;
-    await_gauge(&snapshotter, 0.0).await?;
-    println!("scenario={} drained_both=0", Ending::NormalExit.label());
+    answer_parked_pair(&mut paired).await?;
+    await_gauge(&snapshotter, 1.0).await?;
+    println!("scenario={} drained_both=1", Ending::NormalExit.label());
 
-    SinkExt::<Bytes>::close(&mut client).await?;
-    let joined = bounded_for(STEP_WAIT, "the connection ending", connection).await?;
+    SinkExt::<Bytes>::close(&mut paired.client).await?;
+    let joined = bounded_for(STEP_WAIT, "the connection ending", paired.connection).await?;
     joined??;
     ensure(
-        gauge_reads(&snapshotter, 0.0),
-        "a returned connection must leave nothing parked",
+        gauge_reads(&snapshotter, 1.0),
+        format!(
+            "a returned connection must leave only the sentinel parked, gauge reads {}",
+            parked_gauge(&snapshotter)
+        ),
     )?;
     Ok(())
 }
 
-/// Drive the cancelled ending: the task is aborted while a message is parked.
+/// Drive the cancelled ending: the task is aborted while two messages are
+/// parked, and the sentinel keeps the total visible.
 #[tokio::test]
 #[ignore = "driven in a child process by the_parked_gauge_returns_to_baseline_for_every_ending"]
 #[expect(
@@ -105,45 +68,31 @@ async fn child_normal_exit() -> TestResult {
 )]
 async fn child_task_abort() -> TestResult {
     let snapshotter = install_recorder()?;
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let app = scenario_app(
-        holding_handler(
-            Arc::clone(&started),
-            Arc::clone(&release),
-            AfterRelease::Reply,
-        ),
-        Arc::new(Notify::new()),
-        Arc::new(Notify::new()),
-    )?;
-    let Scenario {
-        mut client,
-        connection,
-    } = spawn_connection(app).await?;
-
-    open_body(&mut client, LIVE_ROUTE, LIVE_KEY, &started).await?;
-    park_one(&mut client, FIRST_KEY, b"parked").await?;
+    let _sentinel = parked_sentinel().await?;
     await_gauge(&snapshotter, 1.0).await?;
-    println!("scenario={} parked=1", Ending::TaskAbort.label());
+    let paired = parked_pair(AfterRelease::Reply).await?;
+    await_gauge(&snapshotter, 3.0).await?;
+    println!("scenario={} parked=3", Ending::TaskAbort.label());
 
-    connection.abort();
-    let joined = bounded_for(STEP_WAIT, "the aborted task ending", connection).await?;
+    paired.connection.abort();
+    let joined = bounded_for(STEP_WAIT, "the aborted task ending", paired.connection).await?;
     ensure(
         joined.is_err_and(|error| error.is_cancelled()),
         "the connection task must end because it was cancelled",
     )?;
     ensure(
-        gauge_reads(&snapshotter, 0.0),
+        gauge_reads(&snapshotter, 1.0),
         format!(
             "a cancelled connection must release what it parked, gauge reads {}",
             parked_gauge(&snapshotter)
         ),
     )?;
-    println!("scenario={} aborted=0", Ending::TaskAbort.label());
+    println!("scenario={} aborted=1", Ending::TaskAbort.label());
     Ok(())
 }
 
-/// Drive the unwinding ending: a streaming handler panics with a message parked.
+/// Drive the unwinding ending: a streaming handler panics while two messages
+/// are parked, and the sentinel keeps the total visible.
 #[tokio::test]
 #[ignore = "driven in a child process by the_parked_gauge_returns_to_baseline_for_every_ending"]
 #[expect(
@@ -152,40 +101,26 @@ async fn child_task_abort() -> TestResult {
 )]
 async fn child_handler_panic() -> TestResult {
     let snapshotter = install_recorder()?;
-    let started = Arc::new(Notify::new());
-    let release = Arc::new(Notify::new());
-    let app = scenario_app(
-        holding_handler(
-            Arc::clone(&started),
-            Arc::clone(&release),
-            AfterRelease::Panic,
-        ),
-        Arc::new(Notify::new()),
-        Arc::new(Notify::new()),
-    )?;
-    let Scenario {
-        mut client,
-        connection,
-    } = spawn_connection(app).await?;
-
-    open_body(&mut client, LIVE_ROUTE, LIVE_KEY, &started).await?;
-    park_one(&mut client, FIRST_KEY, b"parked").await?;
+    let _sentinel = parked_sentinel().await?;
     await_gauge(&snapshotter, 1.0).await?;
-    println!("scenario={} parked=1", Ending::HandlerPanic.label());
+    let paired = parked_pair(AfterRelease::Panic).await?;
+    await_gauge(&snapshotter, 3.0).await?;
+    println!("scenario={} parked=3", Ending::HandlerPanic.label());
 
-    release.notify_one();
-    let joined = bounded_for(STEP_WAIT, "the panicking handler ending", connection).await?;
+    // Free the live handler, whose configured ending is to panic.
+    paired.release.notify_one();
+    let joined = bounded_for(STEP_WAIT, "the panicking handler ending", paired.connection).await?;
     ensure(
         joined.is_err_and(|error| error.is_panic()),
         "the handler panic must end the connection task",
     )?;
     ensure(
-        gauge_reads(&snapshotter, 0.0),
+        gauge_reads(&snapshotter, 1.0),
         format!(
             "an unwinding connection must release what it parked, gauge reads {}",
             parked_gauge(&snapshotter)
         ),
     )?;
-    println!("scenario={} panicked=0", Ending::HandlerPanic.label());
+    println!("scenario={} panicked=1", Ending::HandlerPanic.label());
     Ok(())
 }
