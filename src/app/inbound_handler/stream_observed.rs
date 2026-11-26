@@ -13,7 +13,7 @@
 use std::io;
 
 use bytes::Bytes;
-use futures::{Sink, Stream};
+use futures::{Sink, Stream, StreamExt};
 
 use super::{
     super::{
@@ -23,7 +23,7 @@ use super::{
     },
     actor::observe_peer,
     peer_watch::{PeerObservation, handle_watching_peer},
-    recovery::settle_dispatch,
+    recovery::{hold_or_end, settle_dispatch},
     stream_actions::{drain_parked, fail_body_ending_with},
     stream_dispatch::Connection,
     stream_frame::dispatch_frame,
@@ -88,11 +88,18 @@ where
         let (unobserved, cause) = observe_peer(handles.actor, self.peer_eof);
         let observation = PeerObservation::new(self.peer_eof, &unobserved, &cause);
         let pending = &mut self.inbound.pending;
+        // A read made while the action runs is buffered for the next dispatch,
+        // unless it reports the end of the stream: a truncation ends the
+        // connection now, so a pending response cannot outlive its peer.
+        let recovery = &self.recovery;
+        let mut held = (&mut *self.reader).map(|read: io::Result<DecodedItem<F::Frame>>| {
+            read.and_then(|item| hold_or_end(item, recovery))
+        });
         let dispatch = match action {
             ObservedAction::Frame(frame) => {
                 handle_watching_peer(
                     dispatch_frame(frame, state, handles),
-                    self.reader,
+                    &mut held,
                     observation,
                     pending,
                 )
@@ -101,7 +108,7 @@ where
             ObservedAction::Drain => {
                 handle_watching_peer(
                     drain_parked(state, &mut handles),
-                    self.reader,
+                    &mut held,
                     observation,
                     pending,
                 )
@@ -110,7 +117,7 @@ where
             ObservedAction::Handler(outcome) => {
                 handle_watching_peer(
                     state.streams.finish_active(outcome, handles.reborrow()),
-                    self.reader,
+                    &mut held,
                     observation,
                     pending,
                 )
@@ -119,7 +126,7 @@ where
             ObservedAction::FailBody(reason) => {
                 handle_watching_peer(
                     fail_body_ending_with(state, &mut handles, reason),
-                    self.reader,
+                    &mut held,
                     observation,
                     pending,
                 )
@@ -129,7 +136,7 @@ where
                 let budget = ChunkBudget::measure(&handles, &state.parked);
                 handle_watching_peer(
                     state.streams.expire(&ids, budget, handles.reborrow()),
-                    self.reader,
+                    &mut held,
                     observation,
                     pending,
                 )
