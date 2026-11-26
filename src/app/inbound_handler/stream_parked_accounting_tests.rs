@@ -8,7 +8,7 @@
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 #[cfg(feature = "metrics")]
-use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
 
 use super::ParkedMessage;
 use crate::{
@@ -81,16 +81,23 @@ fn the_parked_count_balances_across_parking_draining_and_teardown() {
     assert_eq!(ADDED.load(Ordering::SeqCst), 2, "no park is reported twice");
 }
 
-/// Run `scenario` under a local recorder and return the totals published.
+/// Run `scenario` under a local recorder and return the totals it published.
 ///
-/// The recorder is thread-local, so it captures exactly the publications this
-/// thread makes: the number of them is deterministic even though the totals
-/// are process-wide and race other tests.
+/// The recorder is thread-local, so it captures exactly the publications the
+/// scenario makes: whether one happened at all is deterministic even though the
+/// totals are process-wide and race other tests. The scenario takes the
+/// snapshot itself, so a publication made by a teardown that runs after it
+/// cannot stand in for one the scenario was supposed to make.
 #[cfg(feature = "metrics")]
-fn published_totals(scenario: impl FnOnce()) -> Vec<f64> {
+fn parked_publications(scenario: impl FnOnce(&Snapshotter) -> Vec<f64>) -> Vec<f64> {
     let recorder = DebuggingRecorder::new();
     let snapshotter = recorder.snapshotter();
-    ::metrics::with_local_recorder(&recorder, scenario);
+    ::metrics::with_local_recorder(&recorder, || scenario(&snapshotter))
+}
+
+/// Gauge values this thread has published under the parked series.
+#[cfg(feature = "metrics")]
+fn parked_samples(snapshotter: &Snapshotter) -> Vec<f64> {
     snapshotter
         .snapshot()
         .into_vec()
@@ -122,11 +129,14 @@ fn published_totals(scenario: impl FnOnce()) -> Vec<f64> {
 #[cfg(feature = "metrics")]
 #[test]
 fn a_production_state_publishes_the_shared_parked_gauge() {
-    let published = published_totals(|| {
+    let published = parked_publications(|snapshotter| {
         let mut state = LoopState::new(QueuedBytes::new());
         state
             .park(empty_envelope())
             .expect("the first message fits");
+        // Read while the state is still alive: the teardown publishes too, so a
+        // later reading would not show whether parking published at all.
+        parked_samples(snapshotter)
     });
 
     assert!(
