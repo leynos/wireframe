@@ -235,13 +235,13 @@ where
             fragmentation,
             protocol_hooks,
             memory_budgets,
-            recovery_hook,
-            recovery_config,
             read_timeout_ms,
             shutdown,
             push_queues,
             session_registry,
             peer_addr,
+            recovery_hook,
+            recovery_config,
         },
     );
 

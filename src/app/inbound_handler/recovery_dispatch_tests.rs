@@ -117,10 +117,7 @@ async fn continue_then_end_read(
         .await
         .expect("a cancelled read ends without an error");
 
-    assert!(
-        matches!(read, NextFrame::Closed),
-        "shutdown ends the read"
-    );
+    assert!(matches!(read, NextFrame::Closed), "shutdown ends the read");
     assert!(
         inbound.pending.is_some(),
         "the buffered failure survives the cancelled read"

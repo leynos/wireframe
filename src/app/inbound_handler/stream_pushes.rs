@@ -83,7 +83,8 @@ where
             // A read made while the write is pending is buffered for the next
             // dispatch, unless it reports the end of the stream: that ends the
             // connection now, so a truncation is observed even mid-write.
-            let mut held = (&mut *reader).map(|read: io::Result<DecodedItem<F::Frame>>| {
+            let held_reader = &mut **reader;
+            let mut held = held_reader.map(|read: io::Result<DecodedItem<F::Frame>>| {
                 read.and_then(|item| hold_or_end(item, recovery))
             });
             let mut transport = PushTransport {

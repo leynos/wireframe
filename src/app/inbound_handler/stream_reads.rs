@@ -66,8 +66,8 @@ where
         // The probe is the reader's turn, so it is spent whether or not it
         // produces a frame.
         if std::mem::take(&mut state.serve_read_first) {
-            let next = self.inbound.try_next(self.reader).await;
-            return match next {
+            let probe = self.inbound.try_next(self.reader).await;
+            return match probe {
                 Ok(NextFrame::TimedOut) => self.await_event(state, read_timeout_ms).await,
                 Ok(next) => frame_event(next, self.inbound, &mut self.recovery, shutdown).await,
                 Err(error) => Event::Frame(Err(error)),
@@ -95,7 +95,12 @@ where
         } = self;
         let shutdown = self.shutdown;
         let push_lanes_open = actor.has_open_push_lanes();
-        let read = read_event(inbound, reader, recovery, read_timeout_ms, shutdown);
+        let read = read_event(
+            inbound,
+            reader,
+            recovery,
+            ReadBounds::new(read_timeout_ms, shutdown),
+        );
         race_event(actor, state.streams.active.as_mut(), push_lanes_open, read).await
     }
 
@@ -105,10 +110,32 @@ where
             &mut *self.inbound,
             &mut *self.reader,
             &mut self.recovery,
-            read_timeout_ms,
-            self.shutdown,
+            ReadBounds::new(read_timeout_ms, self.shutdown),
         )
         .await
+    }
+}
+
+/// The two bounds that end one inbound read.
+///
+/// A read waits for a frame only up to the idle timeout, because a silence must
+/// still purge expired state, and it is abandoned as soon as the server stops.
+/// They travel together so a caller cannot apply one without the other.
+#[derive(Clone, Copy)]
+struct ReadBounds<'a> {
+    /// Maximum interval to wait for the next inbound frame.
+    timeout_ms: u64,
+    /// Server shutdown signal; cancelling it ends the read.
+    shutdown: &'a CancellationToken,
+}
+
+impl<'a> ReadBounds<'a> {
+    /// Bound one read by `timeout_ms` and by `shutdown`.
+    const fn new(timeout_ms: u64, shutdown: &'a CancellationToken) -> Self {
+        Self {
+            timeout_ms,
+            shutdown,
+        }
     }
 }
 
@@ -153,15 +180,16 @@ async fn read_event<R, Fr>(
     inbound: &mut InboundFrames<DecodedItem<Fr>, Fr>,
     reader: &mut R,
     recovery: &mut RecoveryCoordinator<'_>,
-    read_timeout_ms: u64,
-    shutdown: &CancellationToken,
+    bounds: ReadBounds<'_>,
 ) -> Event<Fr>
 where
     R: Stream<Item = io::Result<DecodedItem<Fr>>> + Unpin,
 {
-    let next = inbound.next_frame(reader, read_timeout_ms, shutdown).await;
+    let next = inbound
+        .next_frame(reader, bounds.timeout_ms, bounds.shutdown)
+        .await;
     match next {
-        Ok(next) => frame_event(next, inbound, recovery, shutdown).await,
+        Ok(ready) => frame_event(ready, inbound, recovery, bounds.shutdown).await,
         Err(error) => Event::Frame(Err(error)),
     }
 }
