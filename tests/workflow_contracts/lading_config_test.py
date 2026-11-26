@@ -16,6 +16,8 @@ import subprocess
 import tomllib
 from pathlib import Path
 
+import pytest
+
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 LADING_CONFIG = REPOSITORY_ROOT / "lading.toml"
 TOOL_PROJECT = REPOSITORY_ROOT / "tools" / "lading"
@@ -27,12 +29,8 @@ def _load(path: Path) -> dict[str, object]:
     return tomllib.loads(path.read_text(encoding="utf-8"))
 
 
-def _publishable_packages() -> dict[str, set[str]]:
-    """Map each publishable workspace crate to its workspace dependencies.
-
-    Development dependencies are ignored: Cargo drops the path-only ones this
-    workspace uses from a published manifest, so they impose no order.
-    """
+def _workspace_packages() -> list[dict[str, object]]:
+    """Return Cargo's metadata for every workspace member."""
     metadata = json.loads(
         subprocess.run(
             ["cargo", "metadata", "--no-deps", "--format-version", "1", "--offline"],
@@ -42,10 +40,24 @@ def _publishable_packages() -> dict[str, set[str]]:
             check=True,
         ).stdout
     )
+    return metadata["packages"]
+
+
+def _is_publishable(package: dict[str, object]) -> bool:
+    """Cargo reports ``publish = false`` as an empty registry list."""
+    return package["publish"] is None or bool(package["publish"])
+
+
+def _publishable_packages() -> dict[str, set[str]]:
+    """Map each publishable workspace crate to its workspace dependencies.
+
+    Development dependencies are ignored: Cargo drops the path-only ones this
+    workspace uses from a published manifest, so they impose no order.
+    """
     packages = {
         package["name"]: package
-        for package in metadata["packages"]
-        if package["publish"] is None or package["publish"]
+        for package in _workspace_packages()
+        if _is_publishable(package)
     }
     return {
         name: {
@@ -120,6 +132,47 @@ def test_the_tool_pin_is_exact_and_hash_locked() -> None:
         )
 
 
-def test_the_preflight_skip_is_not_configured_for_everyone() -> None:
-    """Skipping the pre-flight belongs to the release step, never to the file."""
-    assert "skip" not in _load(LADING_CONFIG).get("preflight", {})
+def test_the_bump_excludes_exactly_the_unpublished_crates() -> None:
+    """A version bump leaves alone only the crates that are never published."""
+    unpublished = sorted(
+        package["name"]
+        for package in _workspace_packages()
+        if not _is_publishable(package)
+    )
+    assert sorted(_load(LADING_CONFIG)["bump"]["exclude"]) == unpublished
+
+
+def test_patches_are_stripped_per_crate() -> None:
+    """Each crate is published without the workspace's local patches."""
+    assert _load(LADING_CONFIG)["publish"]["strip_patches"] == "per-crate"
+
+
+def test_the_preflight_runs_the_unit_tests_only() -> None:
+    """A workstation rehearsal runs the unit tests, not the whole suite."""
+    assert _load(LADING_CONFIG)["preflight"]["unit_tests_only"] is True
+
+
+def test_no_preflight_skip_is_configured_for_everyone() -> None:
+    """Skipping the pre-flight belongs to the release step, never to the file.
+
+    Any key naming a skip is refused, whatever its value, so a renamed or
+    narrower skip cannot slip past a check for one spelling.
+    """
+    preflight = _load(LADING_CONFIG).get("preflight", {})
+    skips = [key for key in preflight if "skip" in key.lower()]
+    assert not skips, f"lading.toml configures {skips} for every run"
+
+
+@pytest.mark.parametrize("target", ["package-crates", "publish-check"])
+def test_release_builds_displace_the_development_rustflags(target: str) -> None:
+    """Release packaging overrides ``RUSTFLAGS`` with a blank, non-empty value.
+
+    The blank value displaces the `rustflags` in `.cargo/config.toml`, which
+    name a linker that a release runner does not install, from the build that
+    verifies each archive.
+    """
+    flags = re.search(r'RUSTFLAGS="([^"]*)"', _dry_run(target))
+    assert flags, f"{target} does not set RUSTFLAGS"
+    assert flags.group(1) and not flags.group(1).strip(), (
+        f"{target} must set a blank, non-empty RUSTFLAGS"
+    )
