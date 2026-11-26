@@ -1275,9 +1275,11 @@ converts a per-connection factory and transform cost into a fixed one-time
 cost. Its timing advantage grows with connection count for the same reason; at
 16 connections and two routes the after capture measures 48.784 µs against
 86.944 µs for the per-connection path. The prepared path is itself slower than
-the recaptured before value (16.243 µs) because each connection now builds its
-own hook owner, actor, and push queues; the topology counts are unchanged.
-Those figures are this run's observations, not a controlled comparison.
+the recaptured before value (16.243 µs). The additional per-connection hook,
+actor, and push-queue construction under the prepared root is one plausible
+explanation, but the captures do not isolate it from the toolchain and host
+differences; the topology counts are unchanged. Those figures are this run's
+observations, not a controlled comparison.
 
 ### Actor and push hot paths
 
@@ -1467,7 +1469,7 @@ The evidence supports four claims:
    capture's intermittently failing bursts become 20 of 20 successes at every
    size. Capacity release is observed through the blocked permit race rather
    than a spawned service task.
-3. **The hot-path ownership changes are performance-neutral to mixed.** The
+3. **The hot-path performance impact is inconclusive.** The
    actor and push timings differ from the before capture by amounts that load
    and toolchain can explain in either direction: actor cancel-disabled is
    108.46 µs against 83.438 µs at 256 frames, while uncontended push falls from

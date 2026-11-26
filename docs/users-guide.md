@@ -3432,8 +3432,11 @@ teardown exactly once. A connection future that is dropped or aborted before it
 can resume, a setup that panics or never completes, an unrecoverable panic
 outside that recovery point, and a `panic = "abort"` build cannot await
 teardown. A resource that must be released on those paths needs runtime-level
-finalization, such as a `Drop` guard or a value the task owns and releases when
-it ends. The application-level setup and teardown hooks are separate from the
+finalization when a task-owned value is dropped, such as a `Drop` guard or a
+value the task owns and releases when it ends. `panic = "abort"` runs no
+destructors, so cleanup required after a process abort needs a mechanism
+outside destructor execution, such as a supervisor or an external resource
+lease. The application-level setup and teardown hooks are separate from the
 protocol and run once per connection, with teardown running only when setup
 produced state. Without an installed protocol the response callbacks are
 no-ops. The terminator is written without decoding, so a write failure ends the
