@@ -2433,15 +2433,15 @@ Upstream artefacts and their revisions at the time of writing:
 - Issue [#639](https://github.com/leynos/wireframe/issues/639) — this task.
   Its Scope, Method, and Acceptance criteria are the primary requirements.
 - [ADR 011](../adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md),
-  status Proposed at the time of this plan; now Accepted (2026-11-22), 411
+  status Proposed at the time of this plan; now Accepted (2026-11-26), 411
   lines then — rules R1-R7, and a `## Verification` section requiring
   "benchmark coverage for affected hot paths".
 - [ADR 012](../adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md),
-  status Proposed at the time of this plan; now Accepted (2026-11-22) —
+  status Proposed at the time of this plan; now Accepted (2026-11-26) —
   `## Verification` requires "Connection-startup benchmarks compare the old and
   prepared paths".
 - [ADR 013](../adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md),
-  status Proposed at the time of this plan; now Accepted (2026-11-22) —
+  status Proposed at the time of this plan; now Accepted (2026-11-26) —
   `## Verification` requires "Criterion/allocation benchmarks compare
   uncontended and contended acquire/drop before and after, explicitly naming
   uncontended single-caller acquire/drop latency", "Uncontended acquire/drop

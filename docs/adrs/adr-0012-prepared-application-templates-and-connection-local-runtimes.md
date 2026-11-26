@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted on 2026-11-22 by the repository maintainer following implementation
+Accepted on 2026-11-26 by the repository maintainer following implementation
 review in [#649](https://github.com/leynos/wireframe/issues/649). Every Phase 4
 refinement has landed: [#644](https://github.com/leynos/wireframe/issues/644)
 consolidated protocol ownership and hook dispatch,
@@ -12,7 +12,7 @@ application-owned `Arc` layers beneath `PreparedApp`, and
 by dispatching `on_eof` for truncated frames. The decision text below is
 retained unchanged; the resolved questions, final guarantees, corrections, and
 deferred follow-up are recorded in
-[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-22).
+[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-26).
 
 The `PreparedApp` transition and server-startup preparation described here are
 implemented by [#641](https://github.com/leynos/wireframe/issues/641) and
@@ -933,16 +933,20 @@ a push policy discards is now counted by `wireframe_push_drops_total`, labelled
 by policy and by whether a dead-letter queue was absent, full, or closed, so a
 loss that its producer was told had succeeded stays observable.
 
-## Acceptance and implementation outcome (2026-11-22)
+## Acceptance and implementation outcome (2026-11-26)
 
 ### Status and decision-maker
 
 - **Status:** Accepted.
-- **Acceptance date:** 2026-11-22.
+- **Acceptance date:** 2026-11-26.
 - **Decision-maker:** the Wireframe maintainer (`leynos`), owner of Epic
   [#635](https://github.com/leynos/wireframe/issues/635), acting on the
   implementation review recorded by
   [#649](https://github.com/leynos/wireframe/issues/649).
+- **Sign-off:** the maintainer's publication instruction in issue #649 and
+  PR [#946](https://github.com/leynos/wireframe/pull/946). The maintainer
+  authored the publishing branch, so no separate GitHub review submission
+  records it.
 - **Accepted architecture:** Option C, one prepared application per server run
   and one connection-local runtime per connection. All three lifecycle phases,
   the startup/readiness contract, the exactly-once finalization contract, and
