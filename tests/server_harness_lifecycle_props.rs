@@ -168,13 +168,29 @@ fn check_no_regression(
 }
 
 /// Drain the handle to completion and require a released listener.
+///
+/// Every attempt is checked against the preceding state, so a transient
+/// regression of a completed outcome fails even when a later retry succeeds.
 async fn finish_with_shutdown(
     handle: &mut RunningWireframeServer,
     addr: std::net::SocketAddr,
 ) -> TestCaseResult {
     let deadline = Instant::now() + FINAL_DRAIN;
     loop {
-        if handle.shutdown().await.is_ok() {
+        let was_completed = handle.shutdown_outcome() == Some(ShutdownOutcome::Completed);
+        let result = handle.shutdown().await;
+        if was_completed {
+            prop_assert!(
+                result.is_ok(),
+                "the final drain regressed a completed outcome: {result:?}"
+            );
+        }
+        let outcome = handle.shutdown_outcome();
+        if was_completed {
+            prop_assert_eq!(outcome, Some(ShutdownOutcome::Completed));
+        }
+        if result.is_ok() {
+            prop_assert_eq!(outcome, Some(ShutdownOutcome::Completed));
             break;
         }
         prop_assert!(
@@ -183,7 +199,6 @@ async fn finish_with_shutdown(
         );
         tokio::time::sleep(Duration::from_millis(10)).await;
     }
-    prop_assert_eq!(handle.shutdown_outcome(), Some(ShutdownOutcome::Completed));
     assert_refused(addr).await
 }
 

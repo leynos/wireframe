@@ -146,16 +146,19 @@ static_assertions::assert_impl_all!(wireframe_testing::RunningWireframeServer: S
 fn gated_handler(
     started: std::sync::Arc<tokio::sync::Notify>,
     release: std::sync::Arc<tokio::sync::Notify>,
+    completed: std::sync::Arc<std::sync::atomic::AtomicUsize>,
 ) -> wireframe::app::ResponseHandler<wireframe::app::Envelope> {
     std::sync::Arc::new(move |_request: &wireframe::app::Envelope| {
         let handler_started = std::sync::Arc::clone(&started);
         let handler_release = std::sync::Arc::clone(&release);
+        let handler_completed = std::sync::Arc::clone(&completed);
         Box::pin(async move {
             let stream: wireframe::response::FrameStream<wireframe::app::Envelope, ()> =
                 Box::pin(async_stream::try_stream! {
                     yield wireframe::app::Envelope::new(1, Some(7), vec![1]);
                     handler_started.notify_one();
                     handler_release.notified().await;
+                    handler_completed.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
                     yield wireframe::app::Envelope::new(1, Some(7), vec![2]);
                 });
             wireframe::response::Response::Stream(stream)
@@ -182,7 +185,12 @@ async fn drop_with_request_in_flight_releases_listener() -> TestResult {
 
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
-    let handler = gated_handler(Arc::clone(&started), Arc::clone(&release));
+    let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let handler = gated_handler(
+        Arc::clone(&started),
+        Arc::clone(&release),
+        Arc::clone(&completed),
+    );
     let factory = move || -> TestResult<wireframe_testing::TestApp> {
         let app = wireframe_testing::TestApp::new()?;
         Ok(app.route_response(1, handler.clone())?)
@@ -211,9 +219,20 @@ async fn drop_with_request_in_flight_releases_listener() -> TestResult {
     drop(pair);
     wait_for_listener_release(addr).await?;
 
-    // Release only after the release was observed, so the handler cannot have
-    // finished before the listener closed.
+    // The producer is still parked, so the response was in flight when the
+    // listener closed; a response that had already finished would have
+    // incremented the counter.
+    if completed.load(std::sync::atomic::Ordering::SeqCst) != 0 {
+        return Err("the response finished before the listener was released".into());
+    }
     release.notify_one();
+    let deadline = std::time::Instant::now() + Duration::from_secs(1);
+    while completed.load(std::sync::atomic::Ordering::SeqCst) == 0 {
+        if std::time::Instant::now() >= deadline {
+            return Err("the parked response never resumed after release".into());
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
     Ok(())
 }
 

@@ -37,8 +37,9 @@
 //! # }
 //! ```
 
-use std::net::SocketAddr;
+use std::{any::Any, net::SocketAddr};
 
+use futures::FutureExt;
 use wireframe::{
     app::Packet,
     client::{WireframeClient, WireframeClientBuilder},
@@ -153,6 +154,15 @@ impl WireframePair {
     }
 }
 
+/// Render a caught panic payload as the pair's startup failure text.
+fn panic_message(payload: &(dyn Any + Send)) -> &str {
+    payload
+        .downcast_ref::<&str>()
+        .copied()
+        .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+        .unwrap_or("unknown panic payload")
+}
+
 /// Re-wrap a startup failure as the pair's historical message shape.
 ///
 /// Only [`TestError::Server`] is re-wrapped: an address or binding failure is
@@ -249,13 +259,18 @@ where
     let server = WireframeServer::new(app_factory).workers(1);
     let (bound, addr, ready_rx) = bind_with_readiness(server, listener)?;
 
-    // Startup runs in a task, as it did before the delegation. A factory that
-    // panics must surface as the pair's historical message rather than
-    // unwinding into the caller.
-    let running_server = match tokio::spawn(start_bound(bound, addr, ready_rx, options)).await {
-        Err(join_error) => {
+    // Catch a panic during startup so it surfaces as the pair's historical
+    // message instead of unwinding into the caller. Catching it in place, not
+    // in a spawned task, also means a cancelled pair future drops the bound
+    // server rather than detaching a task that still owns the listener.
+    let startup = std::panic::AssertUnwindSafe(start_bound(bound, addr, ready_rx, options))
+        .catch_unwind()
+        .await;
+    let running_server = match startup {
+        Err(payload) => {
             return Err(TestError::Msg(format!(
-                "server task failed to start: {join_error}"
+                "server task failed to start: {}",
+                panic_message(payload.as_ref())
             )));
         }
         Ok(result) => result.map_err(map_pair_startup_error)?,
