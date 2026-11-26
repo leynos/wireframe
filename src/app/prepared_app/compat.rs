@@ -44,9 +44,11 @@ where
         W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
     {
         if let Err(error) = self.handle_connection_result(stream).await {
-            log::warn!(
-                "connection handling completed with error: correlation_id={:?}, error={error:?}",
-                None::<u64>
+            // The wrapper keeps its log-and-return contract; a structured
+            // field lets a subscriber filter these without parsing the message.
+            tracing::warn!(
+                error = %error,
+                "connection handling completed with error"
             );
         }
     }
