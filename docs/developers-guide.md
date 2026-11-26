@@ -1581,10 +1581,29 @@ Python 3.14 for lading. `tools/lading/pyproject.toml` pins lading to exactly
 `make publish-check` runs the same bytes on every machine. The Makefile runs
 lading with `--locked`, which refuses a lock that no longer matches the pin.
 
-Both targets set `RUSTFLAGS` to `RELEASE_RUSTFLAGS`, a blank but non-empty
-value by default. It displaces the `rustflags` in `.cargo/config.toml`, which
-name a linker that a release runner does not install; the archive bytes do not
-depend on it. Override it only to pass flags a release build genuinely needs.
+`package-crates`, `publish-check` and `publish-crates` all set `RUSTFLAGS` to
+`RELEASE_RUSTFLAGS`, a blank but non-empty value by default. It displaces the
+`rustflags` in `.cargo/config.toml`, which name a linker that a release runner
+does not install; the archive bytes do not depend on it. Override it only to
+pass flags a release build genuinely needs.
+
+Two further targets exist for `release.yml` alone:
+
+- `make install-lading` runs `uv sync --locked` for `tools/lading`, which
+  installs the locked tool without running it. The release workflow runs it
+  before exchanging its identity for a token, so nothing is downloaded while
+  the token exists. A developer has no reason to run it: `make publish-check`
+  installs the tool itself.
+- `make publish-crates` runs that installed tool as
+  `lading publish --live --forbid-dirty --skip-preflight`. `release.yml` calls
+  it as the publishing job's last step, after the token exchange. Never run it
+  by hand: it uploads to crates.io, and an upload cannot be undone.
+
+The two targets reach lading differently. `LADING`, which `publish-check` uses,
+is `uv run --locked`, so it installs the locked tool when it is missing.
+`LADING_INSTALLED`, which `publish-crates` uses, is `uv run --no-sync`, so it
+runs only what `install-lading` installed, and fails rather than downloading
+anything.
 
 lading was chosen because it publishes a workspace's crates in a declared order
 and skips a crate that is already published; `rstest-bdd` releases its
@@ -1976,8 +1995,12 @@ Three workflows cover a release, and their boundary is the point of the split:
 
 The publishing credential exists for one step. Every check, download, and
 installation precedes the exchange, and nothing follows the upload.
-`tests/workflow_contracts/release_workflow_test.py` holds these properties, and
-`make test-release-scripts` tests the scripts behind them.
+`tests/workflow_contracts/release_workflow_test.py` holds these properties.
+`tests/workflow_contracts/release_steps_test.py` runs the steps themselves: the
+ancestry check against a throwaway repository with commits on and off `main`,
+the consumer smoke build against stand-in `rustup` and `cargo`, and the tool
+installation through `make --dry-run`. `make test-release-scripts` tests the
+scripts behind them.
 [ADR 019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
 gives the reasons, and [the release guide](releasing-crates.md) gives the
 procedure.
