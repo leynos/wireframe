@@ -211,10 +211,10 @@ async fn assert_released_while_request_in_flight(addr: SocketAddr) -> TestResult
 
 /// Release the parked handler and read the frame it then streams.
 ///
-/// The refusal proves the socket is released; this only shows the request
-/// finished. Task and supervisor termination are not observable here without a
-/// control to await, so the case is recorded as observing the connection's
-/// remaining frame, not its terminal state.
+/// The refusal proves the socket is released. Receipt of this frame does not
+/// by itself prove the response stream finished, and task or supervisor
+/// termination is not observable here without a control to await, so the case
+/// is recorded as observing the remaining frame only.
 async fn finish_request(mut client: HeldClient, release: &Notify) -> TestResult {
     release.notify_one();
     let frame = next_frame(&mut client).await?;
