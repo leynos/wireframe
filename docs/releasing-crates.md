@@ -63,3 +63,11 @@ packages and checks `wireframe` alone, so only `make package-crates` shows that
 `make publish-check` first runs lading's pre-flight: a workspace check and the
 unit tests. Pass `LADING_SKIP_PREFLIGHT=1` when the suite has already run on
 the same commit.
+
+No continuous integration job runs either target yet. That coverage is deferred
+to the release workflows that pull request #981 adds: `release-dry-run.yml`
+calls `release-package.yml` for every pull request. It runs
+`make package-crates` on a fresh checkout and fails unless both archives are
+recorded for that commit. It runs `make publish-check` only when the workspace
+version is unpublished, so the rehearsal is skipped until the version bump.
+Until then, run both targets by hand before a release.
