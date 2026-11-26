@@ -137,8 +137,26 @@ def test_the_publishing_job_is_gated_and_declared_here() -> None:
     job = _job(RELEASE, "publish-crates-io")
     assert "uses" not in job, "a reusable workflow would present its own file name"
     assert job["environment"] == "crates-io"
-    assert job["needs"] == "package"
+    assert job["needs"] == ["package", "require-main"]
     assert job["if"] == "needs.package.outputs.action == 'publish'"
+
+
+def test_every_irreversible_job_requires_a_commit_on_main() -> None:
+    """The ancestry check runs unconditionally, before publication or verification.
+
+    It sits in its own job because publication is skipped when every crate is
+    already on crates.io, and verification would then announce an off-main
+    commit that was published by hand.
+    """
+    job = _job(RELEASE, "require-main")
+    assert "if" not in job and "needs" not in job
+    assert job["permissions"] == {"contents": "read"}
+    checkout = job["steps"][0]
+    assert checkout["with"]["fetch-depth"] == 0
+    command = job["steps"][_position(job, "git merge-base --is-ancestor")]["run"]
+    assert command == 'git merge-base --is-ancestor "$GITHUB_SHA" origin/main'
+    for dependent in ("publish-crates-io", "verify-crates-io"):
+        assert "require-main" in _job(RELEASE, dependent)["needs"]
 
 
 def test_the_credential_exists_only_around_the_upload() -> None:
@@ -147,7 +165,6 @@ def test_the_credential_exists_only_around_the_upload() -> None:
     ordered = [
         _position(job, fragment)
         for fragment in (
-            "git merge-base --is-ancestor",
             "release_workspace_cli.py check",
             "make install-lading",
             "crates-io-auth-action",
@@ -189,9 +206,10 @@ def test_the_candidate_stays_outside_the_checkout() -> None:
 def test_verification_follows_publication_or_a_completed_one() -> None:
     """A failed or unexpected skip of the publisher stops the release."""
     job = _job(RELEASE, "verify-crates-io")
-    assert job["needs"] == ["package", "publish-crates-io"]
+    assert job["needs"] == ["package", "require-main", "publish-crates-io"]
     assert " ".join(job["if"].split()) == (
         "!cancelled() && needs.package.result == 'success' && "
+        "needs.require-main.result == 'success' && "
         "(needs.publish-crates-io.result == 'success' || "
         "(needs.publish-crates-io.result == 'skipped' && "
         "needs.package.outputs.action == 'skip'))"
