@@ -1394,11 +1394,14 @@ the attribution stays a hypothesis.
 ### Allocations and task counts
 
 Counts are process-global deltas over four iterations and include runtime and
-harness work. Compare them only across runs of the same benchmark binary and
-the same workload labels: the harness is unchanged between these captures, so a
-cross-revision comparison measures the library change rather than a harness
-change, while a different harness, workload, or iteration count makes the
-counts incomparable.
+harness work. Compare them only across runs of the same benchmark target and
+the same workload labels. The target is preserved across these revisions, but
+the compiled binary, the toolchain, and the allocation-counter implementation
+differ (`CountingAllocator` at `d29c51d`, `StatsAlloc<System>` at the after
+revision). The table is therefore a cross-build observation, not a controlled
+measurement: a difference is not attributed solely to the library, and a
+different target, workload, or iteration count makes the counts incomparable.
+The sensitivity probes report the same 1-and-256 resolution in both builds.
 
 | Scope                                                                            | Before      | After |
 | -------------------------------------------------------------------------------- | ----------- | ----- |
