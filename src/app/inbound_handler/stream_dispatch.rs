@@ -250,11 +250,14 @@ where
         state: &mut LoopState,
         queued: QueuedBytes,
     ) -> io::Result<bool> {
-        let expired = {
+        // Bodies a quarantine pause evicted while reading are failed here for
+        // the same reason a timed purge is: the pause cannot answer a handler.
+        let mut expired = std::mem::take(&mut self.inbound.evicted_streams);
+        {
             let mut handles = self.handles(queued.clone());
             apply_memory_pressure(state, &mut handles).await?;
-            expire_finished_assemblies(&mut handles)
-        };
+            expired.extend(expire_finished_assemblies(&mut handles));
+        }
         if expired.is_empty() {
             return Ok(false);
         }

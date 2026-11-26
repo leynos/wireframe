@@ -167,5 +167,6 @@ fn streaming_inbound() -> InboundFrames<u8, u8> {
         pipeline: FramePipeline::new(None),
         message_assembly: Some(assembly),
         read_deadline: None,
+        evicted_streams: Vec::new(),
     }
 }

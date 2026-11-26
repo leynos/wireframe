@@ -76,6 +76,7 @@ fn empty_inbound() -> InboundFrames<DecodedItem<Bytes>, Bytes> {
         pipeline: FramePipeline::new(None),
         message_assembly: None,
         read_deadline: None,
+        evicted_streams: Vec::new(),
     }
 }
 

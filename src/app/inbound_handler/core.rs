@@ -145,6 +145,7 @@ where
         // Armed on the first silent read, so a fresh connection never starts by
         // purging state it has not buffered.
         read_deadline: None,
+        evicted_streams: Vec::new(),
     }
 }
 

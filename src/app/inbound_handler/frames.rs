@@ -68,12 +68,17 @@ where
 }
 
 /// Drop expired fragmentation buffers and message assemblies.
+///
+/// The assemblies the purge evicts are returned to the caller, which is what
+/// keeps a recovery pause from discarding the streaming ids whose handlers are
+/// still waiting.
 pub(super) fn purge_expired<T>(
     pipeline: &mut FramePipeline<T>,
     message_assembly: &mut Option<MessageAssemblyState>,
-) {
+) -> Vec<StreamingAssemblyId> {
     pipeline.purge_expired();
-    let _evicted = frame_handling::purge_expired_assemblies(message_assembly);
+    let evicted = frame_handling::purge_expired_assemblies(message_assembly);
+    evicted.streaming().to_vec()
 }
 
 /// Deadline for the current silence, armed on first use.
@@ -166,6 +171,14 @@ pub(super) struct InboundFrames<T, F> {
     /// the wait would be re-armed from scratch after every batch, so a client
     /// that only ever receives pushes would never reach the purge.
     pub(super) read_deadline: Option<Instant>,
+    /// Streaming bodies whose assembly a recovery pause evicted.
+    ///
+    /// A quarantine pause purges expired assemblies while the connection stays
+    /// alive. Their streaming ids cannot be failed from inside the pause,
+    /// because failing a body writes its reply, so they wait here for the loop
+    /// to act on at the top of its next step — the same place a timed purge is
+    /// acted on.
+    pub(super) evicted_streams: Vec<StreamingAssemblyId>,
 }
 
 impl<T, F> InboundFrames<T, F> {
@@ -176,11 +189,11 @@ impl<T, F> InboundFrames<T, F> {
     /// non-blocking chance per pass, which bounds how long an inbound frame can
     /// wait behind a push stream.
     ///
-    /// The probe only reads. Expiring buffered state is the separate
-    /// [`Self::expire_silence`] command, so a probe cannot drop state as a side
-    /// effect of being called. A returned frame still ends the idle interval,
-    /// so the next silence gets its full timeout rather than the rest of this
-    /// one.
+    /// The probe only reads. Expiring buffered state belongs to the loop, which
+    /// drives it through [`InboundExpiry::expire_silence`], so a probe cannot
+    /// drop state as a side effect of being called. A returned frame still ends
+    /// the idle interval, so the next silence gets its full timeout rather than
+    /// the rest of this one.
     pub(super) async fn try_next<R>(&mut self, reader: &mut R) -> io::Result<NextFrame<T>>
     where
         R: Stream<Item = io::Result<T>> + Unpin,
@@ -199,6 +212,11 @@ impl<T, F> InboundFrames<T, F> {
     /// control to that loop rather than being absorbed here. A frame, EOF, or
     /// error still ends the current silence, so the next timeout is measured
     /// from this frame rather than from the previous one.
+    ///
+    /// The wait is measured against the shared silence deadline rather than a
+    /// timer of its own. A push that interrupted the read several seconds into
+    /// that silence would otherwise hand back a fresh timeout, so state the
+    /// configured interval should have purged would stay buffered.
     pub(super) async fn next_frame<R>(
         &mut self,
         reader: &mut R,
@@ -208,16 +226,21 @@ impl<T, F> InboundFrames<T, F> {
     where
         R: Stream<Item = io::Result<T>> + Unpin,
     {
+        // The shared deadline, not a fresh timer: a push that interrupted an
+        // earlier read has already spent part of this silence, and the state it
+        // is meant to purge must not get a whole new interval.
+        let deadline = arm_deadline(&mut self.read_deadline, read_timeout_ms);
+        let remaining = deadline.saturating_duration_since(Instant::now());
         let next = tokio::select! {
             biased;
             () = shutdown.cancelled() => NextFrame::Closed,
-            frame = poll_frame(
-                &mut self.pending,
-                reader,
-                Duration::from_millis(read_timeout_ms),
-            ) => frame?,
+            frame = poll_frame(&mut self.pending, reader, remaining) => frame?,
         };
-        if !matches!(next, NextFrame::TimedOut) {
+        if matches!(next, NextFrame::TimedOut) {
+            // The interval is spent, so the next silence starts now rather than
+            // leaving an expired deadline that every later read would trip.
+            restart_deadline(&mut self.read_deadline, read_timeout_ms);
+        } else {
             self.read_deadline = None;
         }
         Ok(next)
@@ -260,6 +283,7 @@ pub(super) fn incomplete_inbound<T>() -> InboundFrames<T, T> {
         pipeline: FramePipeline::new(None),
         message_assembly: Some(assembly),
         read_deadline: None,
+        evicted_streams: Vec::new(),
     }
 }
 
