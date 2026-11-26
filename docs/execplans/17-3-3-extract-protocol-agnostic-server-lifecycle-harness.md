@@ -1759,6 +1759,19 @@ immediately rather than pending, so a "cancelled shutdown" operation has to
 accept a ready result. That case is now pinned in the committed
 `.proptest-regressions` file.
 
+**Tolerance breach, escalated 2026-11-26.** Measured against the prerequisite
+branch `426edda1`, the delivered diff adds 2,131 net Rust and feature-file
+lines across 25 files, above the `Code` tolerance of 1,500. The documentation
+is about 330 net lines after excluding this plan, within its 450 budget. The
+overage is concentrated in the integration, behavioural, and property tests and
+in the harness's exhaustive unit tests: the plan's estimate of about 1,250 code
+lines assumed fewer cases and did not price the assessment-driven strengthening
+(bounded polling, streamed in-flight cases, the outcome check on every trace
+step, a panicking-factory regression, and the single-definition macro). The
+work is implemented and verified; the breach is recorded here for the reviewer
+or operator to accept or to require scope reduction rather than being silently
+absorbed.
+
 Status remains `APPROVED` rather than `COMPLETE` until PRE-1 is merged to
 `main`, because EP-M0's wording makes that part of the milestone. Everything
 this assignment can validate locally is done: the delivered branch has the
