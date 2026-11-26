@@ -81,6 +81,38 @@ async fn quarantine_pause_completes_without_shutdown() {
     assert!(result.is_none(), "quarantine keeps the connection alive");
 }
 
+/// Run one quarantine pause over `assembly` and report what it evicted.
+///
+/// Every purge case shares this setup: a coordinator whose hook selects a
+/// quarantine, a pause of zero length, and the state the pause mutates. The
+/// cases then differ only in the fixture and the assertion.
+async fn apply_quarantine(
+    assembly: Option<MessageAssemblyState>,
+) -> (
+    Option<std::io::Error>,
+    Option<MessageAssemblyState>,
+    Vec<crate::message_assembler::StreamingAssemblyId>,
+) {
+    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::ZERO);
+    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
+    let shutdown = CancellationToken::new();
+    let mut pipeline: FramePipeline<Envelope> = FramePipeline::new(None);
+    let mut message_assembly = assembly;
+    let mut evicted = Vec::new();
+    let error = coordinator
+        .apply(
+            protocol_failure(),
+            RecoveryState {
+                pipeline: &mut pipeline,
+                message_assembly: &mut message_assembly,
+                evicted_streams: &mut evicted,
+                shutdown: &shutdown,
+            },
+        )
+        .await;
+    (error, message_assembly, evicted)
+}
+
 /// A pause must discard partial fragments that expired while it ran.
 ///
 /// A buffer left over from before the pause would otherwise be reassembled
@@ -127,37 +159,18 @@ async fn quarantine_pause_purges_expired_partial_fragments() {
 /// continuations read afterwards, splicing two eras of the stream together.
 #[tokio::test]
 async fn quarantine_pause_purges_expired_message_assemblies() {
-    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::ZERO);
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let shutdown = CancellationToken::new();
-    let mut pipeline: FramePipeline<Envelope> = FramePipeline::new(None);
-    let mut message_assembly = Some(expired_assembly());
-    let mut evicted = Vec::new();
+    let fixture = Some(expired_assembly());
     assert_eq!(
-        message_assembly
-            .as_ref()
-            .map(MessageAssemblyState::buffered_count),
+        fixture.as_ref().map(MessageAssemblyState::buffered_count),
         Some(1),
         "the fixture must leave one incomplete message buffered"
     );
 
-    let result = coordinator
-        .apply(
-            protocol_failure(),
-            RecoveryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-                evicted_streams: &mut evicted,
-                shutdown: &shutdown,
-            },
-        )
-        .await;
+    let (error, assembly, _) = apply_quarantine(fixture).await;
 
-    assert!(result.is_none(), "a quarantine pause keeps reading");
+    assert!(error.is_none(), "a quarantine pause keeps reading");
     assert_eq!(
-        message_assembly
-            .as_ref()
-            .map(MessageAssemblyState::buffered_count),
+        assembly.as_ref().map(MessageAssemblyState::buffered_count),
         Some(0),
         "the pause must purge the expired assembly"
     );
@@ -165,26 +178,58 @@ async fn quarantine_pause_purges_expired_message_assemblies() {
 
 /// An assembly state holding one incomplete message that has already expired.
 fn expired_assembly() -> MessageAssemblyState {
+    incomplete_assembly(1, &[0x01, 0x02], Admission::Buffered)
+}
+
+/// An assembly state holding one streaming partial that has already expired.
+///
+/// A streaming first frame inserts a partial that retains only its ordering and
+/// byte counts, which is the entry a pause must report rather than silently
+/// discard.
+fn streaming_assembly() -> MessageAssemblyState {
+    incomplete_assembly(2, &[], Admission::Streaming)
+}
+
+/// Which admission a fixture's first frame goes through.
+#[derive(Clone, Copy)]
+enum Admission {
+    /// The message is assembled in full before its route runs.
+    Buffered,
+    /// The partial is tracked for a streaming route and retains no payload.
+    Streaming,
+}
+
+/// An assembly state holding one incomplete message, admitted by `kind`.
+fn incomplete_assembly(key: u64, metadata: &[u8], kind: Admission) -> MessageAssemblyState {
     let mut state = MessageAssemblyState::new(
         NonZeroUsize::new(4096).expect("a non-zero message size limit"),
         Duration::ZERO,
     );
     let header = FirstFrameHeader {
-        message_key: MessageKey(1),
-        metadata_len: 2,
+        message_key: MessageKey(key),
+        metadata_len: metadata.len(),
         body_len: 3,
         total_body_len: Some(10),
         is_last: false,
     };
     let routing = EnvelopeRouting {
-        envelope_id: EnvelopeId(1),
+        envelope_id: EnvelopeId(u32::try_from(key).unwrap_or(0)),
         correlation_id: None,
     };
-    let input = FirstFrameInput::new(&header, routing, vec![0x01, 0x02], b"abc")
+    let input = FirstFrameInput::new(&header, routing, metadata.to_vec(), b"abc")
         .expect("the frame lengths match the header");
-    state
-        .accept_first_frame(input)
-        .expect("the assembly accepts a first frame");
+    match kind {
+        Admission::Buffered => {
+            state
+                .accept_first_frame(input)
+                .expect("the assembly accepts a first frame");
+        }
+        Admission::Streaming => {
+            state
+                .accept_streaming_first_frame(input)
+                .expect("the streaming assembly accepts a first frame");
+        }
+    }
     state
 }
 
@@ -220,54 +265,12 @@ fn buffer_partial_fragment(pipeline: &mut FramePipeline<Envelope>) {
 /// connection stays up.
 #[tokio::test]
 async fn quarantine_pause_stages_the_streaming_bodies_it_evicts() {
-    let hook = RecordingHook::new(RecoveryPolicy::Quarantine, Duration::ZERO);
-    let mut coordinator = RecoveryCoordinator::new(Some(&hook), RecoveryConfig::default());
-    let shutdown = CancellationToken::new();
-    let mut pipeline: FramePipeline<Envelope> = FramePipeline::new(None);
-    let mut message_assembly = Some(streaming_assembly());
-    let mut evicted = Vec::new();
+    let (error, _, evicted) = apply_quarantine(Some(streaming_assembly())).await;
 
-    let result = coordinator
-        .apply(
-            protocol_failure(),
-            RecoveryState {
-                pipeline: &mut pipeline,
-                message_assembly: &mut message_assembly,
-                evicted_streams: &mut evicted,
-                shutdown: &shutdown,
-            },
-        )
-        .await;
-
-    assert!(result.is_none(), "a quarantine pause keeps reading");
+    assert!(error.is_none(), "a quarantine pause keeps reading");
     assert_eq!(
         evicted.len(),
         1,
         "the evicted streaming body must reach the loop rather than be dropped"
     );
-}
-
-/// An assembly whose streaming partial has already expired.
-fn streaming_assembly() -> MessageAssemblyState {
-    let mut state = MessageAssemblyState::new(
-        NonZeroUsize::new(4096).expect("a non-zero message size limit"),
-        Duration::ZERO,
-    );
-    let header = FirstFrameHeader {
-        message_key: MessageKey(2),
-        metadata_len: 0,
-        body_len: 3,
-        total_body_len: Some(10),
-        is_last: false,
-    };
-    let routing = EnvelopeRouting {
-        envelope_id: EnvelopeId(2),
-        correlation_id: None,
-    };
-    let input = FirstFrameInput::new(&header, routing, Vec::new(), b"abc")
-        .expect("the frame lengths match the header");
-    state
-        .accept_streaming_first_frame(input)
-        .expect("the streaming assembly accepts a first frame");
-    state
 }
