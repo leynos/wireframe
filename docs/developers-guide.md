@@ -1512,6 +1512,14 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
+- `make test-release-scripts` runs the release scripts' tests and doctests:
+  pytest with `--doctest-modules` over `scripts/release`, on Python 3.14 through
+  `uv run --no-project --python 3.14` with `pytest>=8` and `hypothesis>=6`, so
+  nothing needs installing first. The required `build-test` job runs it in the
+  blocking `Release script tests` step. `scripts/release/README.md` records
+  where the scripts came from, the `leynos/netsuke` commit they were imported
+  at, and which of Netsuke's components were left out and why: lading uploads
+  here, so no module uploads or takes a registry credential.
 - `make package-crates` packages `wireframe` and `wireframe_testing` with
   `cargo package --locked` and builds each package on its own, as crates.io
   would. It is meaningful on any commit and uploads nothing.

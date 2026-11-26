@@ -11,7 +11,7 @@ The fixtures use both real response shapes. The version endpoint answers with
 drafting for only one of them would have raised on the endpoint the release
 actually calls, so both are covered.
 
-Run via ``make test-release-publication``.
+Run via ``make test-release-scripts``.
 """
 
 import json
@@ -191,6 +191,21 @@ def test_a_yanked_older_version_does_not_poison_a_newer_release() -> None:
     )
     assert state is RegistryState.IDENTICAL, (
         "a yank on an older release must not be reported as this one's state"
+    )
+
+
+def test_one_matching_record_does_not_vouch_for_a_different_one() -> None:
+    """Require every record for the intended version to match.
+
+    A classifier asking whether *any* record matches would call the version
+    identical, and skip the upload, even though the registry also holds other
+    bytes under the same number.
+    """
+    state = _classify(
+        _crate_body((VERSION, INTENDED, False), (VERSION, OTHER, False))
+    )
+    assert state is RegistryState.CONFLICT, (
+        "a differing record for the same version must be reported as a conflict"
     )
 
 

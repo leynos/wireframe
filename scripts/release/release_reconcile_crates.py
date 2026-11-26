@@ -113,15 +113,28 @@ def _classify_present_records(
 ) -> RegistryState:
     """Classify the records already selected for the intended version.
 
+    A yank outranks everything. Otherwise the version is identical only when
+    every record for it carries the intended digest: one matching record must
+    not vouch for another that differs.
+
     Returns
     -------
     RegistryState
         The state represented by the selected records.
+
+    Examples
+    --------
+    >>> same = RegistryVersion("1.0.0", "ab", False)
+    >>> _classify_present_records([same], "ab") is RegistryState.IDENTICAL
+    True
+    >>> other = RegistryVersion("1.0.0", "cd", False)
+    >>> _classify_present_records([same, other], "ab") is RegistryState.CONFLICT
+    True
     """
     observed = tuple(records)
     if any(record.is_yanked for record in observed):
         return RegistryState.YANKED
-    if any(record.checksum == intended_sha256 for record in observed):
+    if all(record.checksum == intended_sha256 for record in observed):
         return RegistryState.IDENTICAL
     return RegistryState.CONFLICT
 

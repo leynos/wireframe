@@ -5,7 +5,7 @@ versions, and independently generated checksums. The table-driven examples
 remain in ``test_release_reconcile_crates.py``; this module isolates the
 bounded generated histories so both suites stay easy to scan.
 
-Run via ``make test-release-publication``.
+Run via ``make test-release-scripts``.
 """
 
 import itertools
