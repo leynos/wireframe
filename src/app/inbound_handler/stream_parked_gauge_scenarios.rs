@@ -27,7 +27,11 @@ async fn child_normal_exit() -> TestResult {
     let gated = Arc::new(Notify::new());
     let gate_release = Arc::new(Notify::new());
     let app = scenario_app(
-        holding_handler(Arc::clone(&started), Arc::clone(&release)),
+        holding_handler(
+            Arc::clone(&started),
+            Arc::clone(&release),
+            AfterRelease::Reply,
+        ),
         Arc::clone(&gated),
         Arc::clone(&gate_release),
     )?;
@@ -104,7 +108,11 @@ async fn child_task_abort() -> TestResult {
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let app = scenario_app(
-        holding_handler(Arc::clone(&started), Arc::clone(&release)),
+        holding_handler(
+            Arc::clone(&started),
+            Arc::clone(&release),
+            AfterRelease::Reply,
+        ),
         Arc::new(Notify::new()),
         Arc::new(Notify::new()),
     )?;
@@ -147,7 +155,11 @@ async fn child_handler_panic() -> TestResult {
     let started = Arc::new(Notify::new());
     let release = Arc::new(Notify::new());
     let app = scenario_app(
-        panicking_handler(Arc::clone(&started), Arc::clone(&release)),
+        holding_handler(
+            Arc::clone(&started),
+            Arc::clone(&release),
+            AfterRelease::Panic,
+        ),
         Arc::new(Notify::new()),
         Arc::new(Notify::new()),
     )?;

@@ -31,7 +31,7 @@ use crate::{
         },
         recovery_codec::{DecodeFailure, DecodeOrigin, DecodedItem},
     },
-    codec::{CodecError, ProtocolError},
+    codec::{CodecError, LengthDelimitedFrameCodec, ProtocolError},
 };
 
 /// Decoder failure the buffered item carries, as the recovery-aware decoder
@@ -66,6 +66,54 @@ impl Stream for ItemsThenStop<'_> {
     }
 }
 
+/// Buffered state whose pipeline holds no frames and whose slot is empty.
+///
+/// The recovery-aware reader yields items, not frames, so the buffered slot
+/// holds a `DecodedItem` even though the pipeline still buffers frames.
+fn empty_inbound() -> InboundFrames<DecodedItem<Bytes>, Bytes> {
+    InboundFrames {
+        pending: None,
+        pipeline: FramePipeline::new(None),
+        message_assembly: None,
+        read_deadline: None,
+    }
+}
+
+/// Reader that yields the buffered failure and then one valid frame.
+fn failure_then_frame(shutdown: &CancellationToken) -> ItemsThenStop<'_> {
+    ItemsThenStop {
+        items: vec![
+            Ok(buffered_failure()),
+            Ok(DecodedItem::Frame(Bytes::from_static(b"later frame"))),
+        ]
+        .into_iter(),
+        shutdown,
+    }
+}
+
+/// Write one frame that the transport never accepts, bounded by the grace.
+///
+/// The peer is still open, so the fast path polls the reader alongside the
+/// pending write. The reader cancels shutdown after its last item, which is
+/// what ends the write.
+async fn write_stalled(
+    harness: &mut TransportRig,
+    batch: &mut PushBatch<'_, LengthDelimitedFrameCodec, ItemsThenStop<'_>, DecodedItem<Bytes>>,
+) -> crate::app::inbound_handler::push_write::FrameWrite {
+    tokio::time::timeout(
+        crate::connection::PEER_CLOSED_RESPONSE_GRACE * 2,
+        write_frame(
+            &mut harness.transport(),
+            Bytes::from_static(b"stalled"),
+            batch,
+            false,
+        ),
+    )
+    .await
+    .expect("the write must be bounded")
+    .expect("a shutdown abandonment is not an error")
+}
+
 /// A stalled push write keeps the first item it read and reads no further.
 ///
 /// Both items are ready in turn, which is what a decoder failure followed by a
@@ -78,22 +126,8 @@ async fn a_stalled_push_write_keeps_the_first_item_it_read(
 ) {
     let shutdown = CancellationToken::new();
     let peer_eof = CancellationToken::new();
-    // The recovery-aware reader yields items, not frames, so the buffered slot
-    // holds a `DecodedItem` even though the pipeline still buffers frames.
-    let mut inbound: InboundFrames<DecodedItem<Bytes>, Bytes> = InboundFrames {
-        pending: None,
-        pipeline: FramePipeline::new(None),
-        message_assembly: None,
-        read_deadline: None,
-    };
-    let mut reader = ItemsThenStop {
-        items: vec![
-            Ok(buffered_failure()),
-            Ok(DecodedItem::Frame(Bytes::from_static(b"later frame"))),
-        ]
-        .into_iter(),
-        shutdown: &shutdown,
-    };
+    let mut inbound = empty_inbound();
+    let mut reader = failure_then_frame(&shutdown);
     let mut evicted = Vec::new();
     let mut batch = PushBatch {
         frames: Vec::new(),
@@ -110,21 +144,7 @@ async fn a_stalled_push_write_keeps_the_first_item_it_read(
         shutdown: &shutdown,
     };
 
-    // The peer is still open, so the fast path polls the reader alongside the
-    // pending write. The reader cancels shutdown after its last item, which is
-    // what ends the write.
-    let written = tokio::time::timeout(
-        crate::connection::PEER_CLOSED_RESPONSE_GRACE * 2,
-        write_frame(
-            &mut harness.transport(),
-            Bytes::from_static(b"stalled"),
-            &mut batch,
-            false,
-        ),
-    )
-    .await
-    .expect("the write must be bounded")
-    .expect("a shutdown abandonment is not an error");
+    let written = write_stalled(&mut harness, &mut batch).await;
     drop(batch);
 
     assert!(!written.may_continue(), "the stop must end the write");

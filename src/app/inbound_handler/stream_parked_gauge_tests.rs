@@ -197,34 +197,44 @@ async fn await_gauge(snapshotter: &Snapshotter, expected: f64) -> TestResult<()>
     )))
 }
 
-/// Handler that holds the dispatch slot until released, then answers.
-fn holding_handler(started: Arc<Notify>, release: Arc<Notify>) -> StreamingHandler {
+/// What a streaming handler does once its body is released.
+#[derive(Clone, Copy)]
+enum AfterRelease {
+    /// Drain the body and answer, which is the ordinary ending.
+    Reply,
+    /// Unwind through the connection task, which is the ending under test.
+    Panic,
+}
+
+/// Read a body to its end and answer it, failing if the peer truncated it.
+async fn answer_body(body: &mut RequestBodyStream) -> Option<Bytes> {
+    while let Some(item) = body.next().await {
+        item.ok()?;
+    }
+    Some(Bytes::from_static(b"live"))
+}
+
+/// Handler that holds the dispatch slot until released, then does `finish`.
+///
+/// Both endings share their whole setup: the handler signals that it started,
+/// waits for the release, and only then behaves differently. Keeping the shared
+/// part in one function is what lets each ending read as the one line that
+/// distinguishes it.
+fn holding_handler(
+    started: Arc<Notify>,
+    release: Arc<Notify>,
+    finish: AfterRelease,
+) -> StreamingHandler {
     Arc::new(move |_parts: RequestParts, mut body: RequestBodyStream| {
         let start_signal = Arc::clone(&started);
         let release_signal = Arc::clone(&release);
         Box::pin(async move {
             start_signal.notify_one();
             release_signal.notified().await;
-            while let Some(item) = body.next().await {
-                item.ok()?;
+            match finish {
+                AfterRelease::Reply => answer_body(&mut body).await,
+                AfterRelease::Panic => panic!("the streaming handler panicked"),
             }
-            Some(Bytes::from_static(b"live"))
-        })
-    })
-}
-
-/// Handler that holds the dispatch slot until released, then panics.
-///
-/// The panic is what a handler that fails on its own looks like to the loop:
-/// it unwinds through the connection task, which is the ending under test.
-fn panicking_handler(started: Arc<Notify>, release: Arc<Notify>) -> StreamingHandler {
-    Arc::new(move |_parts: RequestParts, _body: RequestBodyStream| {
-        let start_signal = Arc::clone(&started);
-        let release_signal = Arc::clone(&release);
-        Box::pin(async move {
-            start_signal.notify_one();
-            release_signal.notified().await;
-            panic!("the streaming handler panicked");
         })
     })
 }
