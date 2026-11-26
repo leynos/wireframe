@@ -1776,11 +1776,23 @@ Assessment-driven evidence, 2026-11-26:
   the server without `stop()`, so a drop-ending trace cannot witness the
   missing stop. The third named witness is the terminal-`Shutdown` one; the
   idle-peer witness belongs to INV-6, not INV-5.
-- INV-1 to INV-3 are exhaustive enumerations over closed domains, so their
-  non-vacuity is the visited-count assertion (12, 8, and every drain class)
-  rather than a mutant transcript. No mutant transcripts were produced for
-  them, nor for INV-4's seeded leaked-control fault, INV-6, or INV-7; the plan
-  requires those and they remain outstanding evidence items.
+- INV-1 to INV-3 mutant controls: letting `TimedOut` overwrite `Completed` made
+  `merge_outcome_is_monotone` fail; returning `TestError::Msg` for a server
+  error made `classify_drain_distinguishes_every_class` fail; returning the
+  configured bound after a timeout made
+  `drain_bound_never_blocks_after_timeout` fail on its assertion.
+- INV-4 seeded fault: `std::mem::forget(control.clone())` in `start_bound` made
+  both `drop_inside_runtime_releases_listener` cases and both
+  `drop_outside_runtime_releases_listener` cases fail; the leak keeps the
+  listener bound.
+- INV-6 control: the INV-5 skip-stop mutant also made
+  `connect_schedules_leave_nothing_behind` fail, which is its negative control.
+- INV-8 control: removing both pair error re-wraps made
+  `startup_mapping_rewraps_only_server_errors` and
+  `shutdown_mapping_separates_the_panic_class` fail.
+- INV-7 has no mutant transcript: a seeded shared-listener fault cannot be
+  expressed through the public API without fabricating addresses. Its
+  non-vacuity is the distinct-address assertion plus the generated selector.
 - Cancelled startup: `cancelled_preparing_startup_releases_listener` blocks
   `WireframeApp` preparation in a public middleware transform with a known
   listener, polls the startup future once, drops it without crossing the
@@ -1795,6 +1807,9 @@ Assessment-driven evidence, 2026-11-26:
 
 Evidence gaps, recorded rather than claimed:
 
+- The pre-delegation pair characterisation result was not recorded: the
+  characterisation case was written after the delegation, so it has never run
+  against the old pair implementation.
 - The ten consecutive full `make test` runs from the flakiness check were not
   performed. Each full run takes about 90 minutes on this host, and the two
   full runs made during implementation both passed with no intermittent
