@@ -1678,8 +1678,9 @@ cheapest way to fail early on an oversized message. The decision is recorded in
 A route registered with `WireframeApp::streaming_route` receives `RequestParts`
 and a `RequestBodyStream` while the message's frames are still arriving.
 Buffered routes registered with `WireframeApp::route` are unchanged: their
-payload is reassembled before the handler runs, and their reply is the
-reassembled request payload unless middleware replaces it.
+payload is reassembled before the handler runs. The handler edits the request
+envelope in place, and the reply is the resulting payload unless middleware
+replaces it.
 
 <!-- tested-example: users-guide-030 -->
 ```rust,no_run
