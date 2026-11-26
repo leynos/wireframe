@@ -95,54 +95,28 @@ where
         let mut held = (&mut *self.reader).map(|read: io::Result<DecodedItem<F::Frame>>| {
             read.and_then(|item| hold_or_end(item, recovery))
         });
-        let dispatch = match action {
-            ObservedAction::Frame(frame) => {
-                handle_watching_peer(
-                    dispatch_frame(frame, state, handles),
-                    &mut held,
-                    observation,
-                    pending,
-                )
-                .await
-            }
-            ObservedAction::Drain => {
-                handle_watching_peer(
-                    drain_parked(state, &mut handles),
-                    &mut held,
-                    observation,
-                    pending,
-                )
-                .await
-            }
-            ObservedAction::Handler(outcome) => {
-                handle_watching_peer(
-                    state.streams.finish_active(outcome, handles.reborrow()),
-                    &mut held,
-                    observation,
-                    pending,
-                )
-                .await
-            }
-            ObservedAction::FailBody(reason) => {
-                handle_watching_peer(
-                    fail_body_ending_with(state, &mut handles, reason),
-                    &mut held,
-                    observation,
-                    pending,
-                )
-                .await
-            }
-            ObservedAction::Expire(ids) => {
-                let budget = ChunkBudget::measure(&handles, &state.parked);
-                handle_watching_peer(
-                    state.streams.expire(&ids, budget, handles.reborrow()),
-                    &mut held,
-                    observation,
-                    pending,
-                )
-                .await
+        // One action is chosen here, so the peer watch is entered once for
+        // whichever reply the loop asked for.
+        let handling = async {
+            match action {
+                ObservedAction::Frame(frame) => dispatch_frame(frame, state, handles).await,
+                ObservedAction::Drain => drain_parked(state, &mut handles).await,
+                ObservedAction::Handler(outcome) => {
+                    state
+                        .streams
+                        .finish_active(outcome, handles.reborrow())
+                        .await
+                }
+                ObservedAction::FailBody(reason) => {
+                    fail_body_ending_with(state, &mut handles, reason).await
+                }
+                ObservedAction::Expire(ids) => {
+                    let budget = ChunkBudget::measure(&handles, &state.parked);
+                    state.streams.expire(&ids, budget, handles.reborrow()).await
+                }
             }
         };
+        let dispatch = handle_watching_peer(handling, &mut held, observation, pending).await;
         // A dispatch that ends the connection abandons any failure buffered
         // behind it, so the failure is reported here as the disconnect it is.
         settle_dispatch(dispatch, self.inbound, &self.recovery)
