@@ -126,14 +126,14 @@ belongs to whichever one its section names.
 
 ### Captures
 
-| Capture              | Revision                                                | Date       | Covers                                                   |
-| -------------------- | ------------------------------------------------------- | ---------- | -------------------------------------------------------- |
-| Original             | `d28b54e`                                               | 2026-10-11 | Every table except those noted                           |
-| Corrected            | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool                          |
-| Prepared ownership   | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation                 |
-| Configured dispatch  | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only                             |
-| Controlled #648 pair | `3376f734` / `cfc7d2a7`                                 | 2026-11-22 | Startup allocations, before and after                    |
-| Final ownership      | `f0457f71`                                              | 2026-11-22 | Actor, push, startup, and pool; final #647 pool evidence |
+| Capture              | Revision                                                | Date       | Covers                                                             |
+| -------------------- | ------------------------------------------------------- | ---------- | ------------------------------------------------------------------ |
+| Original             | `d28b54e`                                               | 2026-10-11 | Every table except those noted                                     |
+| Corrected            | PR [#756](https://github.com/leynos/wireframe/pull/756) | 2026-10-12 | Push, startup, allocation, pool                                    |
+| Prepared ownership   | `dcce92e5`                                              | 2026-11-20 | Startup, configured startup, preparation                           |
+| Configured dispatch  | `0221dfa5`                                              | 2026-11-20 | Configured startup rows only                                       |
+| Controlled #648 pair | `3376f734` / `cfc7d2a7`                                 | 2026-11-22 | Startup allocations, before and after                              |
+| Final ownership      | `fe9991f2`                                              | 2026-11-26 | Full programme; actor, push, startup, configured startup, and pool |
 
 The third capture was taken for
 [#648](https://github.com/leynos/wireframe/issues/648), on the branch that
@@ -170,12 +170,11 @@ deltas between them, appear in
 [Issue #648: prepared ownership](#issue-648-prepared-ownership).
 
 The sixth capture is the final runtime-ownership capture for this work. It was
-taken after #643 and #647 and before #644, #648, and #879, so it is the final
-pool evidence for the persistent scheduler and does not re-measure the
-application-owned values that #648 changed. Its section records the before and
-after figures, the task-churn contract, and the measured uncontended
+taken after the full programme landed, including #644, #648, and #879, so it
+records the final-state values for every scope. Its section carries the before
+and after figures, the task-churn contract, and the measured uncontended
 difference, and it cross-references the controlled #648 pair for the
-preparation question.
+attribution-grade preparation comparison.
 
 The original capture is the first published set, taken before the review of
 [#756](https://github.com/leynos/wireframe/pull/756). The corrected capture
@@ -1172,11 +1171,11 @@ the clearest evidence that the 16-allocation movement belongs to preparation
 and not to the connection loop: #648 does not touch the actor's drain loop at
 all.
 
-## Final runtime-ownership capture (2026-11-22)
+## Final runtime-ownership capture (2026-11-26)
 
 This capture closes the evidence obligation of
 [#639](https://github.com/leynos/wireframe/issues/639) and records the tree
-after the implemented ownership slices:
+after the full ownership programme landed:
 
 - [#640](https://github.com/leynos/wireframe/issues/640), local hot-path
   ownership;
@@ -1185,21 +1184,22 @@ after the implemented ownership slices:
   and readiness;
 - [#643](https://github.com/leynos/wireframe/issues/643), connection-local
   runtime;
+- [#644](https://github.com/leynos/wireframe/issues/644) and
+  [#879](https://github.com/leynos/wireframe/issues/879), protocol ownership
+  and the complete hook set;
 - [#645](https://github.com/leynos/wireframe/issues/645) and
   [#646](https://github.com/leynos/wireframe/issues/646), pool core and
   borrowed permit races;
 - [#647](https://github.com/leynos/wireframe/issues/647), the persistent
-  scheduler actor.
+  scheduler actor; and
+- [#648](https://github.com/leynos/wireframe/issues/648), the application-owned
+  ownership collapse.
 
-The capture predates
-[#644](https://github.com/leynos/wireframe/issues/644), [#648](https://github.com/leynos/wireframe/issues/648),
-and [#879](https://github.com/leynos/wireframe/issues/879). Those later slices
-change the prepared application's internal ownership and the protocol hook set,
-not the pool, actor-drain, or push paths measured here, so the pool evidence
-below remains the evidence for #647. The application-owned allocation question
-belongs to the controlled #648 pair in
-[Issue #648: prepared ownership](#issue-648-prepared-ownership), and the
-startup allocation rows from this capture are deliberately not compared here.
+The controlled #648 pair in
+[Issue #648: prepared ownership](#issue-648-prepared-ownership) remains the
+attribution-grade comparison for the application-owned allocation change. This
+capture records the final-state values for every scope, including the pool
+evidence for #647 and the hot paths #640 touched.
 
 It is deliberately not presented as a controlled before/after experiment: the
 two revisions pin different Rust toolchains, and the host was shared with other
@@ -1208,10 +1208,10 @@ with the caveats stated below.
 
 ### Captures and environment
 
-| Capture | Revision                                   | Date       | Toolchain            | Covers                                                                                |
-| ------- | ------------------------------------------ | ---------- | -------------------- | ------------------------------------------------------------------------------------- |
-| Before  | `d29c51d1f38513b9b6ec8ab38b1479652369d786` | 2026-10-22 | `nightly-2026-03-26` | #640-#642, #645, and the #646 borrowed permit race; spawn-on-demand scheduler         |
-| After   | `f0457f71ba15a46c3e8cf3d1be0c51f29d7d34d8` | 2026-11-22 | `nightly-2026-11-20` | The same slices plus #643 and the #647 persistent scheduler; #644 and #648 not landed |
+| Capture | Revision                                   | Date       | Toolchain            | Covers                                                                                               |
+| ------- | ------------------------------------------ | ---------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| Before  | `d29c51d1f38513b9b6ec8ab38b1479652369d786` | 2026-10-22 | `nightly-2026-03-26` | #640-#642, #645, and the #646 borrowed permit race; spawn-on-demand scheduler                        |
+| After   | `fe9991f21bbb25236dbac31ac503e6c56fc1e10a` | 2026-11-26 | `nightly-2026-11-25` | The full programme including #643, #644, #647, #648, and #879; persistent scheduler and prepared app |
 
 Both captures ran:
 
@@ -1231,9 +1231,9 @@ timeout.
 The machine is the named baseline class: AMD Ryzen 9 3900 (12 cores, 24
 hardware threads), 125 GiB, Rocky Linux 10.2, kernel `6.12.0-211.62.1.el10_2`.
 The load average during the timed runs was approximately `61` for the before
-capture and `49` for the after capture on 24 threads, because other agents were
-building and testing on the same host. That is a larger confound than the
-earlier captures carried, and it is why no timing ratio below is presented as a
+capture and `15` for the after capture on 24 threads, because other agents were
+building and testing on the same host. The toolchain and load differences
+remain a confound, and it is why no timing ratio below is presented as a
 speed-up this work delivered. The counts are integers, and a deterministic
 workload reproduces them more reliably than a timing, but allocation counts
 include runtime and harness work and still vary between runs: the earlier
@@ -1274,27 +1274,25 @@ middleware pass per connection:
 The architectural change is therefore exact, not inferred: the prepared root
 converts a per-connection factory and transform cost into a fixed one-time
 cost. Its timing advantage grows with connection count for the same reason; at
-16 connections and two routes the after capture measures `52.783 µs` against
-`103.83 µs` for the per-connection path. Those figures are this run's
+16 connections and two routes the after capture measures 48.784 µs against
+86.944 µs for the per-connection path. Those figures are this run's
 observations, not a controlled comparison.
 
 ### Actor and push hot paths
 
-The actor and push timings describe the same benchmark code at both revisions;
-the connection-runtime and pool changes do not drive either scope. The
-after-capture actor drain figures are:
+The after-capture actor drain figures are:
 
 | Workload                                       | Lower     | Estimate  | Upper     |
 | ---------------------------------------------- | --------- | --------- | --------- |
-| `frames_256_capacity_512_cancel_disabled`      | 132.89 µs | 137.25 µs | 141.95 µs |
-| `frames_512_capacity_512_cancel_disabled`      | 253.94 µs | 262.97 µs | 271.17 µs |
-| `frames_1024_capacity_512_cancel_disabled`     | 515.60 µs | 531.79 µs | 548.33 µs |
-| `frames_256_capacity_512_cancel_before_run`    | 42.602 µs | 44.563 µs | 46.597 µs |
-| `frames_512_capacity_512_cancel_before_run`    | 79.844 µs | 81.585 µs | 83.417 µs |
-| `frames_1024_capacity_512_cancel_before_run`   | 165.89 µs | 172.89 µs | 179.98 µs |
-| `frames_256_capacity_512_cancel_during_drain`  | 105.33 µs | 110.44 µs | 115.78 µs |
-| `frames_512_capacity_512_cancel_during_drain`  | 237.50 µs | 265.05 µs | 302.94 µs |
-| `frames_1024_capacity_512_cancel_during_drain` | 380.33 µs | 394.89 µs | 415.72 µs |
+| `frames_256_capacity_512_cancel_disabled`      | 104.68 µs | 108.46 µs | 112.59 µs |
+| `frames_512_capacity_512_cancel_disabled`      | 208.15 µs | 211.45 µs | 215.99 µs |
+| `frames_1024_capacity_512_cancel_disabled`     | 426.24 µs | 433.73 µs | 442.63 µs |
+| `frames_256_capacity_512_cancel_before_run`    | 35.586 µs | 36.943 µs | 38.175 µs |
+| `frames_512_capacity_512_cancel_before_run`    | 68.630 µs | 70.255 µs | 72.209 µs |
+| `frames_1024_capacity_512_cancel_before_run`   | 137.61 µs | 140.12 µs | 143.29 µs |
+| `frames_256_capacity_512_cancel_during_drain`  | 92.110 µs | 95.515 µs | 99.070 µs |
+| `frames_512_capacity_512_cancel_during_drain`  | 181.22 µs | 189.10 µs | 198.44 µs |
+| `frames_1024_capacity_512_cancel_during_drain` | 366.21 µs | 371.74 µs | 377.16 µs |
 
 *Table: Actor drain, after capture.*
 
@@ -1302,31 +1300,30 @@ The push send path is:
 
 | Workload                                      | Lower     | Estimate  | Upper     |
 | --------------------------------------------- | --------- | --------- | --------- |
-| `uncontended_high_capacity_64_sends_64`       | 23.680 µs | 25.399 µs | 27.462 µs |
-| `backpressure_high_capacity_8_sends_64`       | 82.471 µs | 96.724 µs | 111.30 µs |
-| `drained_high_capacity_64_sends_1024`         | 238.23 µs | 271.25 µs | 302.82 µs |
-| `drained_low_capacity_64_sends_1024`          | 257.50 µs | 289.52 µs | 341.41 µs |
-| `overflow_return_error_capacity_8_sends_256`  | 3.3214 µs | 3.4497 µs | 3.6021 µs |
-| `overflow_drop_capacity_8_sends_256`          | 15.695 µs | 16.020 µs | 16.442 µs |
-| `overflow_warn_and_drop_capacity_8_sends_256` | 25.019 µs | 25.474 µs | 25.894 µs |
+| `uncontended_high_capacity_64_sends_64`       | 18.578 µs | 19.770 µs | 21.058 µs |
+| `backpressure_high_capacity_8_sends_64`       | 48.741 µs | 52.461 µs | 57.952 µs |
+| `drained_high_capacity_64_sends_1024`         | 176.72 µs | 188.19 µs | 200.54 µs |
+| `drained_low_capacity_64_sends_1024`          | 188.20 µs | 206.15 µs | 223.99 µs |
+| `overflow_return_error_capacity_8_sends_256`  | 3.1479 µs | 3.1956 µs | 3.2500 µs |
+| `overflow_drop_capacity_8_sends_256`          | 14.089 µs | 14.295 µs | 14.507 µs |
+| `overflow_warn_and_drop_capacity_8_sends_256` | 21.571 µs | 21.931 µs | 22.305 µs |
 
 *Table: Push send, after capture.*
 
 The awaited-wait observations prove the scenario took the path its label claims:
-`uncontended_high_capacity_64_sends_64` recorded `0` waits over `64` capacity
-probes, while `backpressure_high_capacity_8_sends_64` recorded `7` waits over
-`64` probes. The overflow scenarios deliberately use the non-blocking path and
+`uncontended_high_capacity_64_sends_64` recorded 0 waits over 64 capacity
+probes, while `backpressure_high_capacity_8_sends_64` recorded 7 waits over 64
+probes. The overflow scenarios deliberately use the non-blocking path and
 record zero probes.
 
 The before capture measures 92.551 µs, 211.51 µs, and 433.92 µs for the
 cancel-disabled actor rows, and 27.760 µs for the uncontended push row. The
-differences are mixed: the actor row rises to 137.25 µs while the push row
-falls to 25.399 µs. With different toolchains and load, neither direction is
-attributable to the change. Commit #640 removed an atomic clone from the
-cancellation wait and a sender clone from the push fast path; neither removes
-an allocation, so the allocation counters cannot be expected to move. Treat
-these rows as inconclusive performance evidence for a clarity change, not as a
-measured improvement.
+actor rows are close to unchanged at 512 and 1024 frames and higher at 256
+(108.46 µs); the push row falls to 19.770 µs. Commit #640 removed an atomic
+clone from the cancellation wait and a sender clone from the push fast path;
+neither removes an allocation, so the allocation counters cannot be expected to
+move. Treat these rows as inconclusive performance evidence for a clarity
+change, not as a measured improvement.
 
 ### Pool acquisition
 
@@ -1335,34 +1332,32 @@ single contender. The after capture measures:
 
 | Workload                                            | Lower     | Estimate  | Upper     |
 | --------------------------------------------------- | --------- | --------- | --------- |
-| `uncontended_pool_1_acquisitions_256_contenders_1`  | 3.3594 ms | 3.5412 ms | 3.7564 ms |
-| `uncontended_pool_4_acquisitions_256_contenders_1`  | 3.4004 ms | 3.4829 ms | 3.5662 ms |
-| `uncontended_pool_16_acquisitions_256_contenders_1` | 3.4483 ms | 3.5756 ms | 3.7231 ms |
+| `uncontended_pool_1_acquisitions_256_contenders_1`  | 3.1338 ms | 3.2001 ms | 3.2775 ms |
+| `uncontended_pool_4_acquisitions_256_contenders_1`  | 2.9570 ms | 3.0472 ms | 3.1834 ms |
+| `uncontended_pool_16_acquisitions_256_contenders_1` | 3.0190 ms | 3.1526 ms | 3.3205 ms |
 
 *Table: Uncontended pool acquisition, after capture.*
 
 The matching before-capture rows are 155.32 µs, 150.99 µs, and 157.69 µs, so
-the uncontended burst is roughly 23× slower after the change at every pool
-size. Both captures resolve the immediate case under one scheduler authority,
-but with different hand-offs. Before #647, the calling task locked the
-scheduler state to enqueue the request and then called
-`try_acquire_immediately` itself, spawning a service task only when no slot had
-capacity. After #647, the calling task sends a mailbox command and awaits a
-oneshot reply from the persistent task. The comparison is therefore between two
-scheduler designs, not between a scheduler and a lock-free caller path.
+the uncontended burst is roughly 20× slower after the change at every pool
+size. The before capture resolves the immediate case in the calling task under
+the scheduler's mutex and spawns a service task only on contention; the after
+capture sends a mailbox command and awaits a oneshot reply from the persistent
+task. The comparison is therefore between two scheduler designs with different
+hand-offs, not between a scheduler and a lock-free caller path.
 
 The contended observations are the sharpest evidence of the architectural
 change:
 
 | Workload                                                       | Attempts | Successes | Failures | Scheduler spawns | Capacity waits | Median     | p90         | Max         |
 | -------------------------------------------------------------- | -------- | --------- | -------- | ---------------- | -------------- | ---------- | ----------- | ----------- |
-| `contended_fifo_pool_1_contenders_16_rounds_8` (after)         | 20       | 20        | 0        | 0                | 2832           | 579.789 µs | 985.035 µs  | 2.342346 ms |
+| `contended_fifo_pool_1_contenders_16_rounds_8` (after)         | 20       | 20        | 0        | 0                | 2843           | 502.778 µs | 611.379 µs  | 886.653 µs  |
 | `contended_fifo_pool_1_contenders_16_rounds_8` (before)        | 20       | 20        | 0        | 164              | 2045           | 376.386 µs | 535.939 µs  | 846.253 µs  |
-| `contended_fifo_pool_4_contenders_16_rounds_8` (after)         | 20       | 20        | 0        | 0                | 2439           | 430.596 µs | 1.028556 ms | 1.624195 ms |
+| `contended_fifo_pool_4_contenders_16_rounds_8` (after)         | 20       | 20        | 0        | 0                | 1595           | 249.174 µs | 418.196 µs  | 505.438 µs  |
 | `contended_fifo_pool_4_contenders_16_rounds_8` (before)        | 20       | 19        | 1        | 146              | 1548           | 227.733 µs | 305.444 µs  | 550.129 µs  |
-| `contended_round_robin_pool_4_contenders_16_rounds_8` (after)  | 20       | 20        | 0        | 0                | 2248           | 963.795 µs | 2.127883 ms | 4.628942 ms |
+| `contended_round_robin_pool_4_contenders_16_rounds_8` (after)  | 20       | 20        | 0        | 0                | 1188           | 332.525 µs | 385.396 µs  | 1.539214 ms |
 | `contended_round_robin_pool_4_contenders_16_rounds_8` (before) | 20       | 19        | 1        | 166              | 1421           | 347.755 µs | 801.392 µs  | 1.127108 ms |
-| `contended_fifo_pool_16_contenders_17_rounds_8` (after)        | 20       | 20        | 0        | 0                | 408            | 765.652 µs | 2.62762 ms  | 3.077538 ms |
+| `contended_fifo_pool_16_contenders_17_rounds_8` (after)        | 20       | 20        | 0        | 0                | 364            | 367.595 µs | 714.34 µs   | 1.321561 ms |
 | `contended_fifo_pool_16_contenders_17_rounds_8` (before)       | 20       | 7         | 13       | 245              | 341            | 299.384 µs | 1.134887 ms | 1.134887 ms |
 
 *Table: Contended pool acquisition, before and after. `Scheduler spawns` is the
@@ -1381,51 +1376,60 @@ contention behaviour recorded above; the after capture completed 20 of 20
 attempts at every measured size and recorded no failures at all, so the
 spurious disconnect is retired in this workload as the #647 section predicted.
 
-The contended latencies are higher after the change: FIFO at four slots rises
-from a 227.733 µs median to 430.596 µs, and round-robin at four slots from
-347.755 µs to 963.795 µs. The direction is consistent with the mailbox round
-trip that dominates the uncontended path, amplified by contenders queueing
-behind one actor, but these captures do not isolate that cause from the
-toolchain and load differences. The increase itself is larger than the
-run-to-run spread either capture shows, so it is recorded as a real observation
-and the attribution stays a hypothesis.
+The contended medians are close to the before capture at four and sixteen
+slots: FIFO at four moves from 227.733 µs to 249.174 µs, round-robin at four
+from 347.755 µs to 332.525 µs, and FIFO at sixteen from 299.384 µs to 367.595
+µs. The one-slot FIFO median rises from 376.386 µs to 502.778 µs. The largest
+structural difference is reliability: the before capture lost 13 of 20
+sixteen-slot bursts and the after capture lost none. The mailbox is one
+plausible contributor to the remaining timing differences, but these captures
+do not isolate it from the toolchain and load differences, so the attribution
+stays a hypothesis.
 
 ### Allocations and task counts
 
 Counts are process-global deltas over four iterations and include runtime and
 harness work; compare them only across runs of the same binary.
 
-| Scope                                               | Before | After |
-| --------------------------------------------------- | ------ | ----- |
-| `frames_256_capacity_128_cancel_disabled`           | 2133   | 3101  |
-| `drained_high_capacity_64_sends_256`                | 41     | 40    |
-| `overflow_drop_capacity_8_sends_256`                | 56     | 56    |
-| `uncontended_pool_1_acquisitions_256_contenders_1`  | 1177   | 2053  |
-| `uncontended_pool_4_acquisitions_256_contenders_1`  | 1028   | 2053  |
-| `uncontended_pool_16_acquisitions_256_contenders_1` | 1028   | 2053  |
-| `contended_fifo_pool_1_contenders_16_rounds_8`      | 1731   | 5873  |
-| `contended_fifo_pool_4_contenders_16_rounds_8`      | 1013   | 3134  |
-| `contended_fifo_pool_16_contenders_17_rounds_8`     | 1344   | 2200  |
+| Scope                                                                            | Before | After |
+| -------------------------------------------------------------------------------- | ------ | ----- |
+| `frames_256_capacity_128_cancel_disabled`                                        | 2133   | 3101  |
+| `drained_high_capacity_64_sends_256`                                             | 41     | 43    |
+| `overflow_drop_capacity_8_sends_256`                                             | 56     | 56    |
+| `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`           | 160    | 420   |
+| `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16` | 408    | 680   |
+| `uncontended_pool_1_acquisitions_256_contenders_1`                               | 1177   | 2053  |
+| `uncontended_pool_4_acquisitions_256_contenders_1`                               | 1028   | 2053  |
+| `uncontended_pool_16_acquisitions_256_contenders_1`                              | 1028   | 2053  |
+| `contended_fifo_pool_1_contenders_16_rounds_8`                                   | 1731   | 5883  |
+| `contended_fifo_pool_4_contenders_16_rounds_8`                                   | 1013   | 2583  |
+| `contended_fifo_pool_16_contenders_17_rounds_8`                                  | 1344   | 1761  |
 
 *Table: Allocation observations, before and after.*
 
 The sensitivity probes remain `1` allocation for a shared-`Arc` clone over 256
 items and `256` for a fresh `Arc` per item; the counter is therefore blind to a
-shared-`Arc` clone by construction. #640 removed atomic clone operations, not
-allocations, so the actor and push counts are expected to be stable within the
-run-to-run spread recorded for earlier captures: push and overflow are
-unchanged at 40 and 56, while the actor row moved from 2133 to 3101. That rise
-is outside the spread earlier captures showed for this scope; it is recorded
-without attribution rather than assigned to the ownership change.
+shared-`Arc` clone by construction. The push and overflow counts are 43 and 56
+against 41 and 56; the actor row moved from 2133 to 3101. That rise is outside
+the spread earlier captures showed for this scope; it is recorded without
+attribution rather than assigned to the ownership change.
 
-The uncontended pool window reads 2053 against 1028-1177, and the contended
-windows read 2200-5873 against 1013-1731. The acquisition path now constructs a
-command and a oneshot reply channel, and the scheduler constructs the lease and
-sends it through that reply. The process-global counter sees that machinery and
-the runtime work around it; the table records the measured increase, not a
-separate per-value allocation attribution. The startup scopes are excluded from
-this table because #648 re-measured that question with a controlled pair; see
-[Issue #648: prepared ownership](#issue-648-prepared-ownership).
+The pool windows read 2053 against 1028-1177 uncontended and 1761-5883 against
+1013-1731 contended. The acquisition path now constructs a command and a
+oneshot reply channel, and the scheduler constructs the lease and sends it
+through that reply. The process-global counter sees that machinery and the
+runtime work around it; the table records the measured increase, not a separate
+per-value allocation attribution.
+
+The startup rows now measure the post-#648 prepared application: 420
+allocations for the plain prepared root and 680 for the per-connection path
+over four iterations, against 160 and 408 before the connection runtime and
+prepared-ownership work. The configured workload, which installs a serializer,
+an assembler, both callbacks, and a protocol, records 484 for four connections
+and 100 for preparation only. The controlled before/after pair in
+[Issue #648: prepared ownership](#issue-648-prepared-ownership) is the
+attribution-grade evidence for those four values; this table records the
+final-state counts.
 
 The task-count assertions in
 `tests/runtime_ownership_benchmark_helpers/pool.rs` are the deterministic
@@ -1441,8 +1445,8 @@ The evidence supports four claims:
 1. **The application topology changed exactly as accepted.** One factory call
    and one middleware transformation per route per layer now serve every
    connection, replacing one factory call and a full transform pass per
-   connection. The 16-connection, two-route startup row falls from 103.83 µs on
-   the comparison path to 52.783 µs on the prepared path.
+   connection. The 16-connection, two-route startup row falls from 86.944 µs on
+   the comparison path to 48.784 µs on the prepared path.
 2. **The pool's ownership changed exactly as accepted.** A pool owns one
    persistent scheduler task for its lifetime. The contended observation
    reports zero scheduler spawns per run against 146-245 before, and the before
@@ -1451,21 +1455,21 @@ The evidence supports four claims:
    service task.
 3. **The hot-path ownership changes are performance-neutral to mixed.** The
    actor and push timings differ from the before capture by amounts that load
-   and toolchain can explain in either direction: actor cancel-disabled rises
-   from 92.551 µs to 137.25 µs at 256 frames, while uncontended push falls from
-   27.760 µs to 25.399 µs. The push allocation count is stable (41 to 40); the
+   and toolchain can explain in either direction: actor cancel-disabled is
+   108.46 µs against 92.551 µs at 256 frames, while uncontended push falls from
+   27.760 µs to 19.770 µs. The push allocation count is 43 against 41; the
    actor row rose from 2133 to 3101, which is recorded without attributing a
-   cause. The startup allocation question belongs to the controlled #648 pair,
-   not to this capture.
-4. **Uncontended pool acquisition shows a roughly 23x observed difference.**
-   A 256-acquisition burst measures 3.5412 ms after the change against 155.32
-   µs before, or about 13.8 µs per acquisition against 0.61 µs. The direction
-   is consistent with removing the caller-side fast path that ADR 013 section 1
-   named — every acquisition is now a mailbox command and a oneshot reply — but
-   the captures do not isolate that cause from the toolchain and load
-   differences, so the attribution is a hypothesis. This is one uncontrolled
-   pair, not a controlled before/after experiment, so the size of the
-   difference is reported rather than labelled a regression. Contended
+   cause. The startup allocation and topology evidence is reconciled with the
+   controlled #648 pair above.
+4. **Uncontended pool acquisition shows a roughly 20x observed difference.**
+   A 256-acquisition burst measures 3.2001 ms after the change against 155.32
+   µs before, or about 12.5 µs per acquisition against 0.61 µs. The direction
+   is consistent with removing the caller-side immediate grant that ADR 013
+   section 1 named — every acquisition is now a mailbox command and a oneshot
+   reply — but the captures do not isolate that cause from the toolchain and
+   load differences, so the attribution is a hypothesis. This is one
+   uncontrolled pair, not a controlled before/after experiment, so the size of
+   the difference is reported rather than labelled a regression. Contended
    reliability improved at the same time, so the trade is not one-directional.
    A project that needs sub-microsecond uncontended acquisition should add the
    caller-side fast path or state and meet a latency budget; the current

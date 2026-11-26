@@ -798,10 +798,10 @@ blocked race or a later release. The latency cost of that choice is recorded in
 rather than bounded by a numeric target, because
 [#647](https://github.com/leynos/wireframe/issues/647) did not set one. The
 final capture is recorded in
-[Runtime-ownership baselines](../runtime-ownership-baselines.md#final-runtime-ownership-capture-2026-11-22),
+[Runtime-ownership baselines](../runtime-ownership-baselines.md#final-runtime-ownership-capture-2026-11-26),
 including the machine and load caveats that apply to its timings. It measures
-a 256-acquisition uncontended burst at 3.5412 ms after the actor against 155.32
-µs before it, or about 13.8 µs per acquisition against 0.61 µs: a roughly 23×
+a 256-acquisition uncontended burst at 3.2001 ms after the actor against 155.32
+µs before it, or about 12.5 µs per acquisition against 0.61 µs: a roughly 20×
 observed difference on the single-caller path. The captures use different
 toolchains and shared-host loads, so the size and cause are recorded as
 observations, not as a controlled regression measurement. Contended bursts
