@@ -804,14 +804,15 @@ rather than bounded by a numeric target, because
 final capture is recorded in
 [Runtime-ownership baselines](../runtime-ownership-baselines.md#final-runtime-ownership-capture-2026-11-26),
 including the machine and load caveats that apply to its timings. It measures
-a 256-acquisition uncontended burst at 3.2001 ms after the actor against 155.32
-µs before it, or about 12.5 µs per acquisition against 0.61 µs: a roughly 20×
+a 256-acquisition uncontended burst at 3.2001 ms after the actor against 151.94
+µs before it, or about 12.5 µs per acquisition against 0.59 µs: a roughly 21×
 observed difference on the single-caller path. The captures use different
 toolchains and shared-host loads, so the size and cause are recorded as
 observations, not as a controlled regression measurement. Contended bursts
 improved at the same time, completing 20 of 20 attempts at every measured size
-against 7 of 20 at 16 slots before, and reporting zero scheduler spawns per
-run. The trade is visible in both directions and is not described as neutral.
+while the before capture still lost bursts to the spurious disconnect, and
+reporting zero scheduler spawns per run. The trade is visible in both
+directions and is not described as neutral.
 [#945](https://github.com/leynos/wireframe/issues/945) carries the follow-up: a
 future change should restore a caller-side fast path or state and meet a
 latency budget.
