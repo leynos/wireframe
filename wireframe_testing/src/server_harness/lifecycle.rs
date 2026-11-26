@@ -211,9 +211,9 @@ async fn await_readiness(
                 Ok(()) => Err(TestError::Msg(
                     "server exited before signalling ready".to_owned(),
                 )),
-                Err(error) => Err(TestError::Msg(format!(
-                    "server exited before signalling ready; cleanup also failed: {error}"
-                ))),
+                // The plan keeps this defensive arm's cleanup failure typed:
+                // callers distinguish a server error from a readiness timeout.
+                Err(error) => Err(error),
             }
         }
         Err(elapsed) => {

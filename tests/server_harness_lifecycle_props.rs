@@ -121,9 +121,18 @@ async fn exercise_shutdown_trace(
     let mut saw_success = false;
 
     for (index, operation) in trace.iter().enumerate() {
+        let outcome_before = handle.shutdown_outcome();
         if let Some(result) = apply_operation(&mut handle, *operation).await {
             check_no_regression(index, saw_success, &result)?;
             saw_success |= result.is_ok();
+        }
+        if outcome_before == Some(ShutdownOutcome::Completed) {
+            prop_assert_eq!(
+                handle.shutdown_outcome(),
+                Some(ShutdownOutcome::Completed),
+                "call {} regressed the completed outcome",
+                index
+            );
         }
     }
 

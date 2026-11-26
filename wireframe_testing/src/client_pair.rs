@@ -248,9 +248,18 @@ where
     let listener = unused_listener()?;
     let server = WireframeServer::new(app_factory).workers(1);
     let (bound, addr, ready_rx) = bind_with_readiness(server, listener)?;
-    let running_server = start_bound(bound, addr, ready_rx, options)
-        .await
-        .map_err(map_pair_startup_error)?;
+
+    // Startup runs in a task, as it did before the delegation. A factory that
+    // panics must surface as the pair's historical message rather than
+    // unwinding into the caller.
+    let running_server = match tokio::spawn(start_bound(bound, addr, ready_rx, options)).await {
+        Err(join_error) => {
+            return Err(TestError::Msg(format!(
+                "server task failed to start: {join_error}"
+            )));
+        }
+        Ok(result) => result.map_err(map_pair_startup_error)?,
+    };
 
     let builder = configure_client(WireframeClientBuilder::new());
     let client = builder.connect(addr).await?;

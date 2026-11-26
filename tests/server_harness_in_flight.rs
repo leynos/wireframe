@@ -192,7 +192,7 @@ fn drop_outside_runtime_releases_listener(#[case] park_handlers: bool) -> TestRe
 }
 
 #[rstest]
-#[case(Duration::from_millis(1), true)]
+#[case(Duration::from_millis(300), true)]
 #[case(Duration::from_secs(5), false)]
 #[tokio::test]
 async fn shutdown_bound_is_reported(
