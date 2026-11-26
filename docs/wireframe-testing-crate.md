@@ -25,17 +25,17 @@ deterministically without external exporters.
 
 ## Crate layout
 
+Paths below are relative to the `wireframe_testing/` package.
+
 - `src/lib.rs` re-exports the public API.
-- `src/helpers.rs` provides in-memory drivers and codec-aware encode/decode
-  helpers.
+- `src/helpers/` provides in-memory drivers and codec-aware encode/decode
+  helpers, with reusable frame fixtures in `src/helpers/codec_fixtures.rs`.
 - `src/integration_helpers.rs` exposes shared helpers for integration tests.
 - `src/reassembly/` contains deterministic assertion helpers for fragment and
   message-assembly outcomes.
 - `src/observability/` implements the observability harness from ADR 006,
   split into `mod.rs`, `labels.rs`, and `assertions.rs`.
 - `src/logging.rs` retains the standalone `LoggerHandle` fixture.
-- `src/fixtures/` (or `src/codec_fixtures.rs`) stores reusable frame fixtures
-  for the default codec and example codecs.
 - `src/multi_packet.rs` keeps the `collect_multi_packet` helper.
 - `src/client_pair.rs` provides the in-process server/client pair harness for
   loopback integration tests (roadmap `17.3.2`).

@@ -2,7 +2,17 @@
 
 ## Status
 
-Proposed.
+Accepted on 2026-11-26 by the repository maintainer following implementation
+review in [#649](https://github.com/leynos/wireframe/issues/649). Every Phase 4
+refinement has landed: [#644](https://github.com/leynos/wireframe/issues/644)
+consolidated protocol ownership and hook dispatch,
+[#648](https://github.com/leynos/wireframe/issues/648) collapsed the nested
+application-owned `Arc` layers beneath `PreparedApp`, and
+[#879](https://github.com/leynos/wireframe/issues/879) completed the hook set
+by dispatching `on_eof` for truncated frames. The decision text below is
+retained unchanged; the resolved questions, final guarantees, corrections, and
+deferred follow-up are recorded in
+[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-26).
 
 The `PreparedApp` transition and server-startup preparation described here are
 implemented by [#641](https://github.com/leynos/wireframe/issues/641) and
@@ -12,10 +22,13 @@ pipeline, fragment reassembly, message-assembly state, the deserialization
 failure counter, resolved budgets, the read timeout, and connection setup state
 — together with the centralized lifecycle finalization described in section 5.
 [#644](https://github.com/leynos/wireframe/issues/644) implements the protocol
-ownership and hook-dispatch consolidation in section 6. Other ownership listed
-under `ConnectionRuntime` in section 1, including outbound connection-actor
-state, peer metadata, and the teardown guard, remains sequenced work. The
-broader ownership decision remains proposed while that work continues.
+ownership and hook-dispatch consolidation in section 6, and
+[#648](https://github.com/leynos/wireframe/issues/648) completes the nested
+ownership collapse. The connection-local runtime now covers the ownership
+listed under `ConnectionRuntime` in section 1, including the connection
+context, outbound connection-actor state, peer metadata, and the teardown
+guard. The dated addenda below record the final hook, lifecycle, and nested
+ownership contracts.
 
 First proposed on 2026-08-08 in issue
 [#637](https://github.com/leynos/wireframe/issues/637); imported and refined on
@@ -919,3 +932,215 @@ reaches no protocol callback, because no response exists to report. And a frame
 a push policy discards is now counted by `wireframe_push_drops_total`, labelled
 by policy and by whether a dead-letter queue was absent, full, or closed, so a
 loss that its producer was told had succeeded stays observable.
+
+## Acceptance and implementation outcome (2026-11-26)
+
+### Status and decision-maker
+
+- **Status:** Accepted.
+- **Acceptance date:** 2026-11-26.
+- **Decision-maker:** the Wireframe maintainer (`leynos`), owner of Epic
+  [#635](https://github.com/leynos/wireframe/issues/635), acting on the
+  implementation review recorded by
+  [#649](https://github.com/leynos/wireframe/issues/649).
+- **Sign-off:** the maintainer's publication instruction in issue #649 and
+  PR [#946](https://github.com/leynos/wireframe/pull/946). The maintainer
+  authored the publishing branch, so no separate GitHub review submission
+  records it.
+- **Accepted architecture:** Option C, one prepared application per server run
+  and one connection-local runtime per connection. All three lifecycle phases,
+  the startup/readiness contract, the exactly-once finalization contract, and
+  the Phase 4 protocol and nested-ownership refinements are implemented.
+
+### Resolved outstanding decisions
+
+The three questions listed under "Outstanding decisions before acceptance" are
+resolved as follows.
+
+1. **`PreparedApp` and `ConnectionRuntime` visibility.**
+   `PreparedApp` is public as `wireframe::app::PreparedApp`: `prepare()`
+   returns it, and applications drive it directly on accepted streams. Its
+   public surface is `handle_connection`, `handle_connection_result`,
+   `protocol`, `protocol_hooks`, and `message_assembler`. The shutdown-aware
+   `handle_connection_with_shutdown` entry point is crate-private and is used
+   by the server. `ConnectionRuntime` remains crate-private in
+   `src/app/connection_runtime/`; no public constructor or type alias exposes
+   it. This is a deliberate pre-1.0 choice: the runtime is an implementation
+   boundary, while the prepared template is a user-facing value.
+2. **Public migration for `WireframeServer::new(factory)`.**
+   The factory is evaluated once per server run, before readiness. The
+   `from_app` constructor supplies an already-built application to the same
+   preparation path. `AppFactory` retains its `Send + Sync + Clone + 'static`
+   bounds for source compatibility even though evaluation now moves the factory
+   rather than cloning it; its rustdoc states one server run. The behaviour
+   change is recorded in the
+   [v0.3.0 to v0.4.0 migration guide](../v0-3-0-to-v0-4-0-migration-guide.md),
+   together with the deprecated `WireframeApp::handle_connection` and
+   `handle_connection_result` entry points (`since = "0.4.0"`). Removal is
+   acceptable before 1.0 and is deferred to a named breaking release.
+   [#648](https://github.com/leynos/wireframe/issues/648) additionally relaxed
+   the connection serializer bound to `Send + Sync + 'static` (neither `Clone`
+   nor `Default` is needed) and changed both `message_assembler()` accessors to
+   return `Option<&dyn MessageAssembler>`; both are 0.4.0 breaking changes
+   pinned by trybuild fixtures.
+3. **Testkit preparation helper.**
+   `wireframe_testing::drive_prepared_with_frames` and its siblings call
+   `PreparedApp::handle_connection_result` over a duplex stream, so tests can
+   drive a prepared application without depending on private internals. This is
+   the Phase 1 drive helper the migration plan required.
+
+### Startup, readiness, and failure guarantees
+
+`run_with_shutdown` and `spawn` follow one order:
+
+1. evaluate `AppFactory` once;
+2. consume the builder with `prepare().await`, transforming every route's
+   middleware chain once;
+3. construct one `Arc<PreparedApp>`;
+4. spawn the accept loops with that root;
+5. send the readiness signal through `ready_tx`.
+
+Readiness therefore means "preparation succeeded and the worker tasks are
+installed", not "the listener has accepted a connection". The accept loops are
+spawned before the readiness send; no loop can exist before preparation
+succeeds, because the spawn takes the prepared root by value. The
+[server configuration](../server/configuration.md) diagram and prose state this
+order.
+
+A factory or preparation failure returns `ServerError::FactoryBuild` or
+`ServerError::Prepare` and closes the readiness channel observably rather than
+leaving a waiter parked. No connection is accepted by a server whose template
+failed to prepare. Preparation outcome and duration are recorded in
+`wireframe_application_preparations_total` and
+`wireframe_application_preparation_duration_seconds`; startup failure and
+duration are recorded in `wireframe_server_startup_failures_total` and
+`wireframe_server_startup_duration_seconds`. A shutdown that wins the startup
+race records the `cancelled` outcome and returns without signalling readiness.
+
+### Lifecycle finalization limits
+
+The implemented finalization contract matches section 5:
+
+- teardown runs at most once, and only after setup armed the finalizer;
+- teardown runs on clean completion, decode, protocol, assembly, transport, and
+  cancellation paths, and after a handler panic recovered inside
+  `ConnectionRuntime::run`;
+- the framed stream is dropped before teardown is awaited, so a callback that
+  waits for the peer to observe closure cannot deadlock;
+- teardown-callback panics are isolated and not retried;
+- `panic = "abort"` builds cannot run teardown after a panic;
+- a connection future dropped or aborted while running, a setup that panics or
+  never completes, and a teardown callback that panics are accepted gaps.
+
+`PrepareError::MiddlewareTransform { source }` reports a route middleware
+transform that failed and chains the transform's source error.
+`PrepareError::InvalidPushConfig { source }` reports a stored push-queue
+template that cannot be built, rejected before any connection exists. No
+variant is reserved but unimplemented.
+
+### Protocol and hook behaviour
+
+The final dispatch contract is the
+[#644](https://github.com/leynos/wireframe/issues/644) consolidation plus the
+[2026-11-20 end-of-file addendum](#addendum-2026-11-20--end-of-file-dispatch-on-prepared-connections)
+above:
+
+- one `ProtocolHooks` value owns protocol dispatch for one connection. Its
+  `Protocol` form wraps one `ProtocolDispatch`, so a protocol-backed connection
+  holds exactly one strong protocol reference once setup completes.
+- the connection's `FramePipeline` is the only hook owner on the prepared path;
+  the connection actor it builds runs in no-hook mode. Every packet-oriented
+  outbound path runs `before_send` exactly once per emitted packet: handler
+  responses of every form, push frames, streamed and multi-packet frames, and
+  stream-end terminators.
+- `on_connection_setup` runs once per connection, after the `PushHandle` is
+  published in the `SessionRegistry` and before the actor starts.
+- `on_eof` runs when a peer disconnects mid-header or mid-frame, with the
+  structured condition and every byte received for the abandoned frame; a clean
+  close at a frame boundary, a decode failure, and a transport error do not
+  invoke it. A custom decoder opts in by returning `CodecError::Eof` from
+  `decode_eof` and leaving the incomplete bytes buffered.
+- `handle_error` runs for a protocol error reported by a driven response; an
+  inbound frame the decoder rejects reaches no protocol callback.
+- `stream_end_frame` and `on_command_end` run in the inbound handler after the
+  actor finishes driving one response.
+- the deprecated direct response helpers on `WireframeApp` still bypass
+  `before_send` because they write to a caller-supplied stream outside a
+  prepared connection.
+
+The pipeline does not clamp or reject a frame that `before_send` enlarged. With
+the default `LengthDelimitedFrameCodec`, an oversized frame fails the send and
+ends the connection; a custom encoder defines its own oversized-frame behaviour
+and must enforce `max_frame_length` itself.
+
+### Corrections and annotations
+
+- Section 1's "application data" bullet is superseded by
+  [ADR 017](adr-0017-remove-route-extractors-and-app-data.md). `PreparedApp` no
+  longer carries an application-data store.
+- Section 5's peer-address sentence is superseded by the current
+  `ConnectionProcessingContext`, which carries the connection identity and the
+  optional peer address. `peer_addr` is absent for in-memory duplex streams and
+  for entry points with no accepted socket to report.
+- The traceability path `src/app/prepared_app.rs` is now the module
+  `src/app/prepared_app/`; `src/app/connection_runtime/` is implemented. The
+  remaining paths in that list exist as named.
+- Section 7's requirement that examples stop maintaining a separate
+  `Arc<WireframeApp>` bootstrap is satisfied: `ping_pong`, `packet_enum`, and
+  `echo` construct one application and pass it to `WireframeServer::from_app`,
+  while `metadata_routing` prepares once and drives the prepared app over a
+  duplex pair.
+- The `WireframeAppBuilder` alias suggested in section 1 and Phase 5 was not
+  introduced. `WireframeApp` remains the builder name for source compatibility;
+  the vocabulary drift is acknowledged here rather than hidden behind an alias.
+- The older `message_assembler()` descriptions that returned a cloneable
+  `Option<&Arc<dyn MessageAssembler>>` are superseded by the #648 addendum:
+  both the builder and prepared accessors now return a borrow.
+
+### Deferred work
+
+- Removal of the deprecated `WireframeApp::handle_connection` and
+  `handle_connection_result` entry points in a named breaking release.
+- Bounded model checking of preparation-once and readiness ordering. The
+  finalizer's at-most-once property is covered by `proptest`; the broader
+  bounded-model obligation from the Verification section remains outstanding.
+- A `WireframeAppBuilder` alias, if the project later decides the vocabulary
+  change is worth the churn.
+- The remaining [#598](https://github.com/leynos/wireframe/issues/598) mutation
+  gaps outside the accessors this ADR changed.
+  [#648](https://github.com/leynos/wireframe/issues/648) implemented the
+  `message_assembler()` disposition by returning a borrow; the `protocol()` and
+  `should_deserialize_after_parse()` mutants remain uncovered, and the
+  `ServiceRequest::frame()` mutations are unviable against the `const` accessor.
+
+### Public API and semver consequences
+
+The following public changes are part of the 0.4.0 boundary and are recorded in
+the migration guide:
+
+- `WireframeServer::new(factory)` evaluates its factory once per server run
+  rather than once per accepted connection. This is a behaviour change without
+  a signature change; factory side effects and per-connection assumptions must
+  move to `on_connection_setup`.
+- `WireframeServer::from_app`, `WireframeApp::prepare`, `PreparedApp`,
+  `PrepareError`, and the `ServerError::{FactoryBuild, Prepare}` variants are
+  additive.
+- `WireframeApp::handle_connection` and `handle_connection_result` are
+  deprecated since 0.4.0, not removed.
+- `ConnectionContext` is `#[non_exhaustive]` and exposes `connection_id()` and
+  `peer_addr()`.
+- `AppFactory` retains its `Clone` bound for source compatibility. Removing a
+  supertrait bound would require downstream generic code to state the bound
+  itself, so the change is deferred even though evaluation no longer needs it.
+- [#648](https://github.com/leynos/wireframe/issues/648): `message_assembler()`
+  now returns `Option<&dyn MessageAssembler>` instead of a cloneable handle,
+  and the connection serializer bound is `Send + Sync + 'static` rather than
+  `Clone`. Both are breaking for 0.4.0 and pinned by trybuild fixtures.
+
+### Issue dispositions
+
+| Issue                                                                                                | Final disposition                                                                                                                                                                                                                  | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| ---------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| [#547](https://github.com/leynos/wireframe/issues/547), application responses bypass protocol hooks  | Completed (closed 2026-11-04, PR [#848](https://github.com/leynos/wireframe/pull/848)); consolidated by [#644](https://github.com/leynos/wireframe/pull/923) and completed by [#879](https://github.com/leynos/wireframe/pull/925) | Every packet-oriented outbound path runs `before_send` exactly once; the direct helpers remain documented bypasses                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| [#549](https://github.com/leynos/wireframe/issues/549), teardown skipped on stream-processing errors | Completed (closed 2026-11-01, PR [#841](https://github.com/leynos/wireframe/pull/841)); centralized by [#643](https://github.com/leynos/wireframe/pull/886)                                                                        | `tests/prepared_app/lifecycle_matrix.rs` drives every terminal path and asserts exactly-once teardown with the exact non-`Clone` setup value; cancellation is covered in `src/app/connection_runtime/ordering_tests.rs`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| [#598](https://github.com/leynos/wireframe/issues/598), untested public accessor mutants             | Open; the #649 targeted run caught 2, found 3 unviable, and missed 6                                                                                                                                                               | The 2026-11-22 targeted run (pre-#648 candidate, local `cargo-mutants --lib`) caught both `max_frame_length` trait variants, found the three `ServiceRequest::frame()` variants unviable against the `const` accessor, and missed `should_deserialize_after_parse() -> true`, `WireframeApp::protocol() -> None`, `WireframeApp::message_assembler() -> None`, `PreparedApp::message_assembler() -> None`, and the two builder field-deletion mutants. #648 has since changed both assembler accessors to borrows, implementing that disposition; the remaining mutants keep this issue open. The `extractor/request.rs` mutant is retired by [ADR 017](adr-0017-remove-route-extractors-and-app-data.md) |

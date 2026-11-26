@@ -58,13 +58,14 @@ reference when navigating the project's design and architecture material.
 - [ADR 010: transport frame boundary for zero-copy](adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
   Accepted actor and codec-driver boundary for zero-copy transport framing.
 - [ADR 011: runtime ownership and task-lifetime boundaries](adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
-  Proposed policy for aligning `Arc`, spawning, and borrowing with real runtime
+  Accepted policy for aligning `Arc`, spawning, and borrowing with real runtime
   lifetimes.
 - [ADR 012: prepared application templates and connection-local runtimes](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
-  Proposed separation of the application builder, prepared template, and
-  connection runtime.
+  Accepted separation of the application builder, prepared template, and
+  connection runtime, with the protocol and nested-ownership refinements
+  implemented.
 - [ADR 013: single-owner client-pool scheduler and slot graph](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
-  Proposed persistent scheduler actor and index-based slot ownership for the
+  Accepted persistent scheduler actor and index-based slot ownership for the
   client pool.
 - [ADR 014: server shutdown ownership and terminal observation](adrs/adr-0014-server-shutdown-ownership-and-terminal-observation.md)
   Proposed awaitable server shutdown and supervisor-failure observation.

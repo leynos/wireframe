@@ -43,7 +43,7 @@ Primary code surfaces:
 
 Related decisions:
 
-- [ADR 011: runtime ownership and task-lifetime boundaries](adr-011-runtime-ownership-and-task-lifetime-boundaries.md),
+- [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md),
   which owns the benchmarks whose allocation counting once needed a handwritten
   allocator.
 

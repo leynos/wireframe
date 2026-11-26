@@ -162,7 +162,7 @@ publication, cancellation, and close interleavings. Reuse RFC 0002's pure
 scheduling-decision approach for bounded state exploration of production
 transitions; do not claim Loom schedules ordinary Tokio primitives.
 
-This proposal refines the ownership concerns in ADR 011 and proposed ADR 012.
-The current actor's sink-driven response integration is not full duplex:
+This proposal refines the ownership concerns in ADR 011 and ADR 012. The
+current actor's sink-driven response integration is not full duplex:
 independent inbound dispatch and writer progress remain implementation work.
 Extend that connection-local runtime rather than introduce a parallel actor.

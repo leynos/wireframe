@@ -2433,18 +2433,21 @@ Upstream artefacts and their revisions at the time of writing:
 - Issue [#639](https://github.com/leynos/wireframe/issues/639) — this task.
   Its Scope, Method, and Acceptance criteria are the primary requirements.
 - [ADR 011](../adrs/adr-0011-runtime-ownership-and-task-lifetime-boundaries.md),
-  status Proposed, 411 lines — rules R1-R7, and a `## Verification` section
-  requiring "benchmark coverage for affected hot paths".
+  status Proposed at the time of this plan; now Accepted (2026-11-26), 411
+  lines then — rules R1-R7, and a `## Verification` section requiring
+  "benchmark coverage for affected hot paths".
 - [ADR 012](../adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md),
-  status Proposed — `## Verification` requires "Connection-startup benchmarks
-  compare the old and prepared paths".
+  status Proposed at the time of this plan; now Accepted (2026-11-26) —
+  `## Verification` requires "Connection-startup benchmarks compare the old and
+  prepared paths".
 - [ADR 013](../adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md),
-  status Proposed — `## Verification` requires "Criterion/allocation benchmarks
-  compare uncontended and contended acquire/drop before and after, explicitly
-  naming uncontended single-caller acquire/drop latency", "Uncontended
-  acquire/drop creates no additional scheduler task after pool construction;
-  the pool retains exactly one persistent scheduler task", and "Pool task count
-  remains constant under repeated acquisitions".
+  status Proposed at the time of this plan; now Accepted (2026-11-26) —
+  `## Verification` requires "Criterion/allocation benchmarks compare
+  uncontended and contended acquire/drop before and after, explicitly naming
+  uncontended single-caller acquire/drop latency", "Uncontended acquire/drop
+  creates no additional scheduler task after pool construction; the pool
+  retains exactly one persistent scheduler task", and "Pool task count remains
+  constant under repeated acquisitions".
 - `docs/roadmap.md` phase 20.1.3 (issue #643) is the extraction work this
   baseline precedes; 20.1.1 and 20.1.2 are already complete.
 

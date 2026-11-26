@@ -548,6 +548,15 @@ flowchart TD
   or true per-socket concurrent transport use, revisit this boundary and decide
   whether to extend or replace the slot wrapper.
 
+**Annotation (2026-11-22):** Since
+[#647](https://github.com/leynos/wireframe/issues/647), the first steps of the
+flowchart above run inside the pool's persistent scheduler task rather than in
+the calling task: `acquire()` sends a command, and the scheduler rotates the
+slots and grants the in-flight permit before replying. The `bb8` checkout,
+preamble, idle recycle, and lease-drop steps are unchanged. See
+[ADR 013](adrs/adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md)
+for the accepted ownership model.
+
 ## Decision record for 17.3.1
 
 - Decision: ship streaming-response consumption as a trait plus adaptor stream

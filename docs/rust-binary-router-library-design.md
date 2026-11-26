@@ -27,14 +27,19 @@ combined with a layered architecture and high-level abstractions, seeks to
 provide developers with a more declarative and less error-prone environment for
 building robust network services.
 
-> **Implementation status (2026-11-09).** The extractor and application-data
-> design described in sections 4.5, 5.1–5.3, 5.6, and 7 was not implemented as
-> a dispatch mechanism.
+> **Implementation status (2026-11-09, extended 2026-11-22).** The extractor
+> and application-data design described in sections 4.5, 5.1–5.3, 5.6, and 7
+> was not implemented as a dispatch mechanism.
 > [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md)
 > removes the `wireframe::extractor` module and `WireframeApp::app_data` before
 > 1.0. Route handlers receive only a reference to their envelope; shared state
-> reaches a handler through a captured `Arc`. The sections below are retained as
-> a historical design record.
+> reaches a handler through a captured `Arc`. The application and server
+> ownership described in those sections is also historical: the implemented
+> topology prepares one immutable application per server run and shares it
+> across connection tasks, with per-connection state in the lifecycle setup
+> value rather than a factory invocation per worker or per connection. See
+> [ADR 012](adrs/adr-0012-prepared-application-templates-and-connection-local-runtimes.md).
+> The sections below are retained as a historical design record.
 
 ## 2. Methodology
 

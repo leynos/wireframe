@@ -2,7 +2,11 @@
 
 ## Status
 
-Proposed.
+Accepted on 2026-11-26 by the repository maintainer following implementation
+review in [#649](https://github.com/leynos/wireframe/issues/649). The decision
+text below is retained unchanged; the resolved questions, rule dispositions,
+corrections, and deferred follow-up are recorded in
+[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-26).
 
 First proposed on 2026-08-08 in issue
 [#636](https://github.com/leynos/wireframe/issues/636); imported and refined on
@@ -431,3 +435,147 @@ per-iteration one. The rest of this ADR is unchanged.
 
 [^4]: Alice Ryhl,
     [Actors with Tokio](https://ryhl.io/blog/actors-with-tokio/).
+
+## Acceptance and implementation outcome (2026-11-26)
+
+### Status and decision-maker
+
+- **Status:** Accepted.
+- **Acceptance date:** 2026-11-26.
+- **Decision-maker:** the Wireframe maintainer (`leynos`), owner of Epic
+  [#635](https://github.com/leynos/wireframe/issues/635), acting on the
+  implementation review recorded by
+  [#649](https://github.com/leynos/wireframe/issues/649).
+- **Sign-off:** the maintainer's publication instruction in issue #649 and
+  PR [#946](https://github.com/leynos/wireframe/pull/946). The maintainer
+  authored the publishing branch, so no separate GitHub review submission
+  records it.
+- **Relationship to other records:** this ADR complements
+  [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
+  and is complemented by
+  [ADR 012](adr-0012-prepared-application-templates-and-connection-local-runtimes.md)
+  and
+  [ADR 013](adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md). It
+  supersedes no earlier decision record.
+
+### Resolved outstanding decisions
+
+The two questions left open above are resolved by the records they named:
+
+- Application preparation frequency and the `AppFactory` migration path are
+  decided in
+  [ADR 012](adr-0012-prepared-application-templates-and-connection-local-runtimes.md):
+  one factory evaluation and one preparation per server run, with one
+  `Arc<PreparedApp>` shared by independent connection tasks.
+- The client-pool command transport, shutdown protocol, and bounded-waiter
+  integration are decided in
+  [ADR 013](adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md): one
+  persistent scheduler task, an unbounded command mailbox, bounded waiter
+  admission, and an awaitable `close()`.
+
+No decision remains outstanding for this ADR. Every implementation slice named
+in the migration plan has landed, including
+[#644](https://github.com/leynos/wireframe/issues/644) and
+[#648](https://github.com/leynos/wireframe/issues/648), which were sequenced
+after the first publication review.
+
+### Rule disposition
+
+Every rule has a recorded lint-or-checklist disposition, as the Verification
+section requires. No mechanical lint was added for R3 or R4: both remain
+grep-able lint candidates, and the
+[developers' guide checklist](../developers-guide.md#ownership-and-async-lifetime-checklist)
+is the delivered review artefact for all seven rules.
+
+| Rule                                          | Disposition                              | Implementation evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| --------------------------------------------- | ---------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R1, spawn only for an independent lifetime    | Applied; review-enforced                 | The spawn sites are the accept loops, one task per accepted connection, and one scheduler task per client pool. Neither the push send path nor pool acquire/drop spawns ([#640](https://github.com/leynos/wireframe/issues/640), [#647](https://github.com/leynos/wireframe/issues/647)).                                                                                                                                                                                                                                                                                                                                                                      |
+| R2, `Arc` at graph roots                      | Applied in full                          | `Arc<PreparedApp>` is the one application root and `Arc<PoolCore>` roots the pool's slot storage. [#648](https://github.com/leynos/wireframe/issues/648) boxed the serializer, lifecycle callbacks, and message assembler beneath the root, and moved handler `Arc`s out of the consumed builder. The protocol keeps its `Arc` because [#644](https://github.com/leynos/wireframe/issues/644) gives each connection exactly one strong reference through `ProtocolHooks`, and `PreparedApp::protocol` is a public cloneable handle. The inventory is recorded in the [developers' guide](../developers-guide.md#application-owned-values-beneath-preparedapp). |
+| R3, borrow owned handles within the task      | Applied where identified; lint candidate | The connection actor and accept loops await `CancellationToken::cancelled()` on an owned token instead of cloning it into `cancelled_owned()`. `PushHandle` probes with `try_reserve()` and clones the sender only when the queue is full ([#640](https://github.com/leynos/wireframe/issues/640)). The one remaining `cancelled_owned()` is the server supervisor's one-time shutdown hand-off, which is a task-boundary value rather than a per-iteration clone.                                                                                                                                                                                             |
+| R4, move sole-owned values directly           | Applied; lint candidate                  | `ConnectionActor` stores its connection-local `Fragmenter` by value, and `FnService` stores its callback by value ([#640](https://github.com/leynos/wireframe/issues/640)).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| R5, actors for one-owner mutable coordination | Applied                                  | The client pool runs one persistent scheduler task that owns the waiter queues, fairness rotation, and admission state; the `Arc<Mutex<SchedulerState>>` and the servicing flag are gone ([#647](https://github.com/leynos/wireframe/issues/647)).                                                                                                                                                                                                                                                                                                                                                                                                             |
+| R6, preserve legitimate shared handles        | Preserved                                | `PushHandle` and channel senders used by independent producers, `SessionRegistry` weak references, `OwnedSemaphorePermit`, the one prepared-application root, the one pool-core root, the public `Handler` alias, and the protocol handle remain shared.                                                                                                                                                                                                                                                                                                                                                                                                       |
+| R7, do not substitute `Rc`                    | Applied                                  | Core runtime types remain `Send + Sync`; no thread-local sharing was introduced.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+
+### Corrections to the accepted text
+
+- The push-handle module path in the Context section was corrected from
+  `src/push/queues/handle.rs` to the module directory `src/push/queues/handle/`.
+- R6's final bullet, "application data values returned as owned shared
+  handles", is superseded by
+  [ADR 017](adr-0017-remove-route-extractors-and-app-data.md). The
+  `wireframe::extractor` module, `AppDataStore`, and `WireframeApp::app_data`
+  are removed before 1.0; shared state now reaches a handler as an `Arc`
+  captured by its closure. No application-data handle remains for R6 to govern.
+- The server-supervisor section's claim that the drop guard does not cancel
+  accepted connection tasks remains superseded by the 2026-11-14 addendum in
+  this record, which now governs the prepared server.
+- The `ProtocolHooks::from_protocol` example in the Context section is now
+  historical: [#644](https://github.com/leynos/wireframe/issues/644) replaced
+  the six forwarding closures with one protocol owner per connection, and
+  [#879](https://github.com/leynos/wireframe/issues/879) completed the hook set
+  by dispatching `on_eof` for truncated frames.
+
+### Implementation and verification evidence
+
+- [#639](https://github.com/leynos/wireframe/issues/639) established the
+  runtime-ownership baselines in
+  [`docs/runtime-ownership-baselines.md`](../runtime-ownership-baselines.md),
+  including the factory and middleware-transform counts and the persistent
+  scheduler's zero-spawn acquisition contract.
+- [#640](https://github.com/leynos/wireframe/issues/640) applied R3 and R4 to
+  the connection actor, push handle, and middleware callback.
+- [#641](https://github.com/leynos/wireframe/issues/641),
+  [#642](https://github.com/leynos/wireframe/issues/642), and
+  [#643](https://github.com/leynos/wireframe/issues/643) established the
+  prepared application root and the connection-local runtime described in ADR
+  012.
+- [#644](https://github.com/leynos/wireframe/issues/644) consolidated protocol
+  ownership and hook dispatch, and
+  [#648](https://github.com/leynos/wireframe/issues/648) collapsed the nested
+  application-owned `Arc` layers beneath `PreparedApp`.
+- [#645](https://github.com/leynos/wireframe/issues/645),
+  [#646](https://github.com/leynos/wireframe/issues/646), and
+  [#647](https://github.com/leynos/wireframe/issues/647) established the
+  single-owner pool topology described in ADR 013.
+- Tests that pin the rules include
+  `src/connection/tests/grace.rs` for shutdown precedence,
+  `src/client/tests/pool_lifecycle.rs` for scheduler shutdown and slot rotation,
+  `tests/runtime_ownership_benchmark_helpers/startup.rs` for the one-factory,
+  one-transform-per-route application root, and
+  `tests/prepared_app/ownership.rs` for the prepared-root drop behaviour.
+- [#649](https://github.com/leynos/wireframe/issues/649) published this record
+  and the review checklist.
+
+### Deferred follow-up
+
+- A mechanical lint for R3 and R4. The rules are expressed in the checklist
+  today; no `disallowed_methods` or Dylint rule was added, because the
+  remaining violations are shape-dependent rather than a fixed method call.
+- Bounded model checking of the pool state machine
+  ([ADR 013](adr-0013-single-owner-client-pool-scheduler-and-slot-graph.md));
+  the Loom suites cover push queues and connection gauges, not the pool.
+
+### Public API and semver consequences
+
+This ADR changes no public type. `PushHandle`, `Handler`, and the other R6
+handles remain cloneable; `Fragmenter`, push, and middleware contracts are
+unchanged. The ownership policy is expressed in private representation and in
+review guidance. The accessor and nested-ownership consequences that may change
+public signatures belong to ADR 012 and are recorded there.
+
+### Issue dispositions
+
+The ownership-adjacent issues are dispositioned in ADR 012 and ADR 013. No
+issue is superseded by this ADR alone:
+
+- [#535](https://github.com/leynos/wireframe/issues/535)
+- [#539](https://github.com/leynos/wireframe/issues/539)
+- [#547](https://github.com/leynos/wireframe/issues/547)
+- [#548](https://github.com/leynos/wireframe/issues/548)
+- [#549](https://github.com/leynos/wireframe/issues/549)
+- [#550](https://github.com/leynos/wireframe/issues/550)
+- [#593](https://github.com/leynos/wireframe/issues/593)
+- [#598](https://github.com/leynos/wireframe/issues/598)
+
+Each is dispositioned in those two records.
