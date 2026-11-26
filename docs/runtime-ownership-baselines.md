@@ -1399,7 +1399,7 @@ harness work; compare them only across runs of the same binary.
 | Scope                                                                            | Before      | After |
 | -------------------------------------------------------------------------------- | ----------- | ----- |
 | `frames_256_capacity_128_cancel_disabled`                                        | 2133        | 3101  |
-| `drained_high_capacity_64_sends_256`                                             | 41          | 43    |
+| `drained_high_capacity_64_sends_256`                                             | 43          | 43    |
 | `overflow_drop_capacity_8_sends_256`                                             | 56          | 56    |
 | `prepared_root_routes_2_layers_2_connections_4_factory_1_transforms_4`           | 160         | 420   |
 | `per_connection_factory_routes_2_layers_2_connections_4_factory_4_transforms_16` | 408         | 680   |
@@ -1456,7 +1456,7 @@ The evidence supports four claims:
    the comparison path to 48.784 µs on the prepared path.
 2. **The pool's ownership changed exactly as accepted.** A pool owns one
    persistent scheduler task for its lifetime. The contended observation
-   reports zero scheduler spawns per run against 146-245 before, and the before
+   reports zero scheduler spawns per run against 366-416 before, and the before
    capture's intermittently failing bursts become 20 of 20 successes at every
    size. Capacity release is observed through the blocked permit race rather
    than a spawned service task.
