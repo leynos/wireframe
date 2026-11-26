@@ -2,11 +2,11 @@
 
 ## Status
 
-Accepted on 2026-11-22 by the repository maintainer following implementation
+Accepted on 2026-11-26 by the repository maintainer following implementation
 review in [#649](https://github.com/leynos/wireframe/issues/649). The decision
 text below is retained unchanged; the resolved questions, rule dispositions,
 corrections, and deferred follow-up are recorded in
-[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-22).
+[Acceptance and implementation outcome](#acceptance-and-implementation-outcome-2026-11-26).
 
 First proposed on 2026-08-08 in issue
 [#636](https://github.com/leynos/wireframe/issues/636); imported and refined on
@@ -436,16 +436,20 @@ per-iteration one. The rest of this ADR is unchanged.
 [^4]: Alice Ryhl,
     [Actors with Tokio](https://ryhl.io/blog/actors-with-tokio/).
 
-## Acceptance and implementation outcome (2026-11-22)
+## Acceptance and implementation outcome (2026-11-26)
 
 ### Status and decision-maker
 
 - **Status:** Accepted.
-- **Acceptance date:** 2026-11-22.
+- **Acceptance date:** 2026-11-26.
 - **Decision-maker:** the Wireframe maintainer (`leynos`), owner of Epic
   [#635](https://github.com/leynos/wireframe/issues/635), acting on the
   implementation review recorded by
   [#649](https://github.com/leynos/wireframe/issues/649).
+- **Sign-off:** the maintainer's publication instruction in issue #649 and
+  PR [#946](https://github.com/leynos/wireframe/pull/946). The maintainer
+  authored the publishing branch, so no separate GitHub review submission
+  records it.
 - **Relationship to other records:** this ADR complements
   [ADR 010](adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md)
   and is complemented by
