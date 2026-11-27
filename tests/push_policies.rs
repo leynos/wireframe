@@ -6,7 +6,7 @@ mod support;
 
 use std::io;
 
-use futures::{FutureExt, future::BoxFuture};
+use futures::FutureExt;
 use rstest::{fixture, rstest};
 use serial_test::serial;
 use tokio::sync::mpsc;
@@ -27,13 +27,12 @@ struct PolicyCase {
 }
 
 type DlqSetup = fn(&mpsc::Sender<u8>, &mut Option<mpsc::Receiver<u8>>) -> TestResult<()>;
-type DlqAssertion = for<'a> fn(&'a mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'a, TestResult<()>>;
 
 #[derive(Clone, Copy)]
-struct DlqCase {
+struct DlqCase<A> {
     setup: DlqSetup,
     policy: PushPolicy,
-    assertion: DlqAssertion,
+    assertion: A,
     expected: &'static str,
 }
 
@@ -219,31 +218,29 @@ fn close_dlq(_: &mpsc::Sender<u8>, rx: &mut Option<mpsc::Receiver<u8>>) -> TestR
 }
 
 /// Asserts that one message is queued and the DLQ then reports empty.
-fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestResult<()>> {
-    Box::pin(async move {
-        let receiver = rx
-            .as_mut()
-            .ok_or_else(|| io::Error::other("receiver missing"))?;
-        let value = receiver
-            .recv()
-            .await
-            .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?;
-        if value != 99 {
-            return Err(io::Error::other("unexpected DLQ value").into());
-        }
-        if receiver.try_recv().is_ok() {
-            return Err(io::Error::other("expected DLQ to be empty").into());
-        }
-        Ok(())
-    })
+async fn assert_dlq_full(rx: &mut Option<mpsc::Receiver<u8>>) -> TestResult<()> {
+    let receiver = rx
+        .as_mut()
+        .ok_or_else(|| io::Error::other("receiver missing"))?;
+    let value = receiver
+        .recv()
+        .await
+        .ok_or_else(|| io::Error::new(io::ErrorKind::UnexpectedEof, "dlq recv failed"))?;
+    if value != 99 {
+        return Err(io::Error::other("unexpected DLQ value").into());
+    }
+    if receiver.try_recv().is_ok() {
+        return Err(io::Error::other("expected DLQ to be empty").into());
+    }
+    Ok(())
 }
 
-/// Confirms no receiver is present when the DLQ is closed.
-fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestResult<()>> {
-    Box::pin(async { Ok(()) })
-}
+/// Performs no further check: the setup step has already dropped the receiver
+/// to close the DLQ, and the drop warning is asserted from the captured logs.
+async fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> TestResult<()> { Ok(()) }
 
-/// Parameterized checks for error logs when DLQ interactions fail.
+/// Parameterized checks that each DLQ failure logs a `Warn` record whose
+/// message contains the expected substring.
 #[rstest]
 #[case::dlq_full(
     DlqCase {
@@ -262,11 +259,14 @@ fn assert_dlq_closed(_: &mut Option<mpsc::Receiver<u8>>) -> BoxFuture<'_, TestRe
     }
 )]
 #[serial(push_policies)]
-fn dlq_error_scenarios(
+fn dlq_error_scenarios<A>(
     mut logger: LoggerHandle,
-    #[case] case: DlqCase,
+    #[case] case: DlqCase<A>,
     builder: PushQueuesBuilder<u8>,
-) -> TestResult {
+) -> TestResult
+where
+    A: AsyncFnOnce(&mut Option<mpsc::Receiver<u8>>) -> TestResult<()>,
+{
     let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()?;
