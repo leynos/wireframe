@@ -115,7 +115,10 @@ mod tests {
     //! Regression tests for step error propagation.
 
     use super::*;
-    use crate::fixtures::client_messaging::{client_messaging_world, install_panicking_server};
+    use crate::fixtures::client_messaging::{
+        client_messaging_world,
+        teardown::install_panicking_server,
+    };
 
     /// Replacing a server must report the old one's panic as a step failure.
     #[test]
