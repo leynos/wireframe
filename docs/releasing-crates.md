@@ -41,15 +41,23 @@ run uses the same bytes. To move the pin, edit `pyproject.toml`, run
 
 ## Publishing
 
-Push an annotated tag for the merged commit. Its name is `v` followed by the
-version, and the commit must be on `main`. Fetch `main` first, so that
-`origin/main` names the merged commit rather than an earlier one:
+Push an annotated tag for the release merge commit. Its name is `v` followed by
+the version, and the commit must be on `main`. Tag that commit by its SHA, not
+`origin/main`: if anything has merged since, `origin/main` names a later
+commit, and the workflow would publish its unreviewed content under the release
+version. Read the SHA from the merged pull request, and confirm that it is on
+`main` before tagging it:
 
 ```bash
 git fetch origin main
-git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" origin/main
+release_sha=$(gh pr view <release-pr> --json mergeCommit --jq .mergeCommit.oid)
+git merge-base --is-ancestor "$release_sha" origin/main
+git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" "$release_sha"
 git push origin v0.4.0-alpha1
 ```
+
+`git merge-base --is-ancestor` exits non-zero when the commit is not on `main`;
+stop there rather than tagging it.
 
 The `Release` workflow then runs these jobs:
 
