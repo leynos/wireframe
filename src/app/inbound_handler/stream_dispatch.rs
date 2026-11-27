@@ -230,9 +230,7 @@ where
         }
         // Reported before the body is failed: failing it tears the exchange
         // down, and the identity is gone by then.
-        if let Some(active) = state.streams.active.as_ref() {
-            stream_diagnostics::body_stalled(active.identity(), STALLED_BODY_BOUND);
-        }
+        state.streams.report_stall(now);
         let reason = io::Error::new(
             io::ErrorKind::TimedOut,
             "request body admission made no progress within the stall bound",
@@ -255,8 +253,7 @@ where
         state: &mut LoopState,
         queued: QueuedBytes,
     ) -> io::Result<bool> {
-        // Bodies a quarantine pause evicted while reading are failed here for
-        // the same reason a timed purge is: the pause cannot answer a handler.
+        // Bodies a quarantine pause evicted are failed here, like a timed purge.
         let mut expired = std::mem::take(&mut self.inbound.evicted_streams);
         {
             let mut handles = self.handles(queued.clone());

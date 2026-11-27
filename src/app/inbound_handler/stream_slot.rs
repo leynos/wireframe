@@ -105,6 +105,23 @@ impl ConnectionStreams {
             .is_some_and(|since| now.saturating_duration_since(since) >= bound)
     }
 
+    /// Report a live body whose chunk admission made no progress.
+    ///
+    /// The interval reported is the one actually spent stalled, not the bound
+    /// that ended it: the two differ whenever the loop reaches the check late.
+    pub(super) fn report_stall(&self, now: Instant) {
+        if let Some(active) = self.active.as_ref() {
+            let elapsed = self.stall_elapsed_at(now);
+            stream_diagnostics::body_stalled(active.identity(), elapsed);
+        }
+    }
+
+    /// Return how long the current stall has lasted, or zero when no stall is running.
+    pub(super) fn stall_elapsed_at(&self, now: Instant) -> Duration {
+        self.stalled_since
+            .map_or(Duration::ZERO, |since| now.saturating_duration_since(since))
+    }
+
     /// Return how much of the stall bound one more drive may consume.
     ///
     /// A drive that is already stalled must not run past the point where the
