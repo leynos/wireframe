@@ -67,7 +67,7 @@ struct PreparedServerRuntime<
     on_preamble_failure: Option<PreambleFailure>,
     /// Optional readiness notification sent after accept loops are spawned.
     ready_tx: Option<oneshot::Sender<()>>,
-    /// Listener retained until every accept loop exits.
+    /// Listener shared with every accept loop; dropped once they hold clones.
     listener: Arc<TcpListener>,
     /// Retry policy copied into each accept loop.
     backoff_config: BackoffConfig,
@@ -146,6 +146,7 @@ where
             );
         }
 
+        drop(self.listener); // Every loop holds a clone; the socket dies with them.
         record_server_startup_duration(ServerStartupOutcome::Success, startup_started.elapsed());
 
         if let Some(tx) = self.ready_tx

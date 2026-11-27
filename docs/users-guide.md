@@ -1994,29 +1994,33 @@ connection loop derives a child token from it. Cancelling the worker token
 therefore reaches in-flight connections: the loop observes its child at the
 frame-read boundary between frames, and a write or response wait that cannot
 make progress is abandoned rather than pinning the drain. On the graceful path,
-the server waits for every tracked connection task to return. Each worker runs
-`accept_loop`, which clones the prepared application root, rewinds leftover
-preamble bytes, and hands the stream to it. Transient accept failures trigger
-exponential backoff capped by the configured maximum delay.[^18][^19] Preamble
-hooks support asynchronous success handlers and asynchronous failure callbacks
-that receive the stream, enabling replies or decode-error logging before the
-application runs. A success handler that returns an error fails closed: the
-error is logged, the connection is closed, and `WireframeApp` never receives
-the stream. Write any rejection response before returning the error; the server
-writes nothing on the handler's behalf. The server bounds the read with
-`DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default; `preamble_timeout` replaces
-that deadline and `disable_preamble_timeout` removes it. The deadline covers
-only the preamble read, and timeouts use the failure callback path.[^20] A
-preamble that encodes to no bytes, such as the default `()`, decodes without
+the server waits for every tracked connection task to return. The listener is
+released as soon as the accept loops exit, which can be before those tasks
+return, so the address refuses new connections during that tail. Each worker
+runs `accept_loop`, which clones the prepared application root, rewinds
+leftover preamble bytes, and hands the stream to it. Transient accept failures
+trigger exponential backoff capped by the configured maximum delay.[^18][^19]
+Preamble hooks support asynchronous success handlers and asynchronous failure
+callbacks that receive the stream, enabling replies or decode-error logging
+before the application runs. A success handler that returns an error fails
+closed: the error is logged, the connection is closed, and `WireframeApp` never
+receives the stream. Write any rejection response before returning the error;
+the server writes nothing on the handler's behalf. The server bounds the read
+with `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default; `preamble_timeout`
+replaces that deadline and `disable_preamble_timeout` removes it. The deadline
+covers only the preamble read, and timeouts use the failure callback path.[^20]
+A preamble that encodes to no bytes, such as the default `()`, decodes without
 reading at all, so an accepted connection reaches application setup even when
 its client sends nothing and waits for the first push.
 
 For an awaitable lifecycle outside the foreground task, call
 `WireframeServer::spawn().await`. It returns a cloneable `ServerShutdown`:
-`stop()` requests non-blocking, idempotent shutdown. `drained().await` returns
-`Ok(())` only after every accept loop has exited and the listener has been
-released. `ServerError::AbnormalTermination` reports an unexpected supervisor
-exit; it does not by itself prove that the drain completed. Existing in-flight
+`stop()` requests non-blocking, idempotent shutdown. The listener is released
+once the accept loops exit, independently of whether in-flight connection tasks
+have finished; `drained().await` returns `Ok(())` only after every accept loop
+has exited, the listener has been released, and the tracker has drained.
+`ServerError::AbnormalTermination` reports an unexpected supervisor exit; it
+does not by itself prove that the drain completed. Existing in-flight
 connections retain the same graceful-drain policy as `run_with_shutdown`.
 Dropping the final `ServerShutdown` clone also requests shutdown; retain a
 clone and await `drained()` when the terminal outcome matters.

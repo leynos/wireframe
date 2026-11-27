@@ -376,6 +376,50 @@ behaviour.
 
 The rest of this ADR is unchanged.
 
+## Addendum: 2026-11-25 — the listener is released when the accept loops exit
+
+Issue [#974](https://github.com/leynos/wireframe/issues/974), a follow-up to
+the roadmap 17.3.3 plan in
+[#655](https://github.com/leynos/wireframe/pull/655), found that this ADR's
+decision-2 guarantee "a successful result proves every accept loop has exited
+and the listener has been released" was true, but the ADR never said when the
+release happened relative to in-flight work. The supervisor held its own
+`Arc<TcpListener>` for the whole of `run_with_shutdown`, including the final
+tracker wait, so the listener stayed bound after every accept loop had exited
+whenever a request was still in flight. Its figure and its drain section
+accordingly showed the supervisor owning the listener for the entire run.
+
+The supervisor now drops its own listener handle immediately after spawning the
+accept loops, before it records the startup outcome or signals readiness. Every
+loop already holds a clone, so the supervisor has no further use for one: the
+socket's lifetime becomes exactly the accept loops' lifetime, and it closes
+when the last loop exits.
+
+This addendum supersedes the ownership shown in decision 2's figure and its
+"the listener has been released" clause, and the corresponding sentence in
+section 2:
+
+- the listener is released when the accept loops exit, independently of
+  whether in-flight connection tasks have finished; either may complete first;
+- a handler that never returns therefore no longer pins the port, and
+  connections made during the drain are refused instead of sitting unaccepted
+  in the backlog;
+- `drained()` is unchanged: a clean outcome still proves the tracker drained,
+  so it still waits for in-flight requests, and the release it reports has
+  already happened.
+
+The trade-off is deliberate and narrow, and it is the one the issue measured.
+If every accept loop ended unexpectedly while the supervisor was still running,
+the socket now closes where it previously stayed bound with nothing accepting
+on it; a bound socket that nobody accepts on is the worse of the two states.
+The graceful drain is unchanged, so this is a statement about when the socket
+closes, not about whether in-flight work completes. In particular, a request
+that has not yet produced a response can still be abandoned by the stop, and a
+stalled response can be cancelled; a completed handler response is not
+guaranteed for work that had not started writing.
+
+The rest of this ADR is unchanged.
+
 ## References
 
 - [ADR 011: runtime ownership and task-lifetime boundaries](adr-0011-runtime-ownership-and-task-lifetime-boundaries.md)
