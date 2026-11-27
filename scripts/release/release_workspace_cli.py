@@ -41,15 +41,22 @@ class SurveyError(RuntimeError):
 
 @dataclasses.dataclass(frozen=True, slots=True)
 class Registry:
-    """Carry the network and delay boundaries the commands use."""
+    """Carry the network, delay, and clock boundaries the commands use.
+
+    ``monotonic_clock_ns`` times each download against its budget, so a test
+    can drive verification without reading the real clock.
+    """
 
     opener: cabc.Callable[..., crates_io_registry_http.HttpResponse]
     sleeper: cabc.Callable[[float], None]
+    monotonic_clock_ns: cabc.Callable[[], int]
 
 
 def _live_registry() -> Registry:
-    """Return the allowlisted opener and a real delay."""
-    return Registry(crates_io_registry_http.default_opener, time.sleep)
+    """Return the allowlisted opener, a real delay, and the monotonic clock."""
+    return Registry(
+        crates_io_registry_http.default_opener, time.sleep, time.monotonic_ns
+    )
 
 
 def observe_state(crate: CrateArchive, registry: Registry) -> RegistryState:
@@ -179,7 +186,7 @@ def verify_published(candidate: Candidate, registry: Registry) -> None:
                     status_path=status_path,
                     opener=registry.opener,
                     sleeper=registry.sleeper,
-                    monotonic_clock_ns=time.monotonic_ns,
+                    monotonic_clock_ns=registry.monotonic_clock_ns,
                 )
             )
             observation = release_crates_io_adapter.observe_download_file(

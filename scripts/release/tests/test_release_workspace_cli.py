@@ -2,6 +2,7 @@
 
 import itertools
 import json
+import time
 import typing as typ
 import urllib.error
 
@@ -31,6 +32,19 @@ REFUSED_STATES = (
 )
 
 
+class FakeClock:
+    """Advance one millisecond per reading, and count the readings."""
+
+    def __init__(self) -> None:
+        """Start before the first reading."""
+        self.readings = 0
+
+    def __call__(self) -> int:
+        """Return the next reading in nanoseconds."""
+        self.readings += 1
+        return self.readings * 1_000_000
+
+
 class Release(typ.NamedTuple):
     """Carry the paths one recorded candidate occupies."""
 
@@ -54,15 +68,19 @@ class Release(typ.NamedTuple):
     def survey(self, *outcomes: FakeResponse | BaseException) -> tuple[int, str]:
         """Survey a scripted registry, returning the exit code and outputs."""
         output = self.root / "github-output"
-        registry = Registry(FakeOpener(*outcomes), lambda _delay: None)
+        registry = Registry(FakeOpener(*outcomes), lambda _delay: None, FakeClock())
         arguments = ["survey", "--candidate", str(self.candidate)]
         arguments += ["--github-output", str(output)]
         result = main(arguments, registry=registry)
         return result, output.read_text() if output.exists() else ""
 
-    def verify(self, *outcomes: FakeResponse | BaseException) -> int:
+    def verify(
+        self, *outcomes: FakeResponse | BaseException, clock: FakeClock | None = None
+    ) -> int:
         """Verify against a scripted registry, returning the exit code."""
-        registry = Registry(FakeOpener(*outcomes), lambda _delay: None)
+        registry = Registry(
+            FakeOpener(*outcomes), lambda _delay: None, clock or FakeClock()
+        )
         return main(["verify", "--candidate", str(self.candidate)], registry=registry)
 
 
@@ -172,6 +190,26 @@ def test_published_bytes_that_match_are_verified(release: Release) -> None:
         for crate in read_candidate(release.candidate).crates
     ]
     assert release.verify(*archives) == EXIT_OK
+
+
+def test_verification_reads_only_the_injected_clock(
+    release: Release, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Download budgets are timed by the registry's clock, not the real one."""
+    release.record(TAG)
+    archives = [
+        FakeResponse(200, (release.packages / crate.filename).read_bytes())
+        for crate in read_candidate(release.candidate).crates
+    ]
+
+    def real_clock() -> int:
+        """Fail the test if verification reads the real clock."""
+        pytest.fail("verification read the real monotonic clock")
+
+    monkeypatch.setattr(time, "monotonic_ns", real_clock)
+    clock = FakeClock()
+    assert release.verify(*archives, clock=clock) == EXIT_OK
+    assert clock.readings > 0
 
 
 @pytest.mark.parametrize(
