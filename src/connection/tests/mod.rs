@@ -1,5 +1,7 @@
 //! Unit tests for connection actor scheduling and response installation.
 
+mod availability;
+
 mod completion;
 
 mod grace;
