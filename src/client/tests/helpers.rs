@@ -19,7 +19,11 @@ use wireframe_testing::{ServerMode, process_frame};
 use crate::{
     client::{ClientError, WireframeClient, WireframeClientBuilder},
     serializer::{BincodeSerializer, MessageCompatibilitySerializer, Serializer},
+    test_helpers::ServerTaskGuard,
 };
+
+/// Error type used by the guarded bodies in these helpers.
+type BodyError = Box<dyn std::error::Error + Send + Sync>;
 
 /// Type alias for async hooks that return their input after performing side effects.
 ///
@@ -172,21 +176,47 @@ pub async fn spawn_frame_server(mode: ServerMode) -> TestResult<(SocketAddr, Fra
     .await
 }
 
+/// Connect to a single-accept listener whose accept task is already guarded.
+///
+/// The accept handle is owned before the connection is attempted, so a failed
+/// connect aborts and awaits it instead of leaving it detached. On success the
+/// accept task is joined, propagating both its `JoinError` and its inner I/O
+/// error, and the accepted stream is returned so the caller controls when the
+/// peer observes the close.
+pub async fn connect_guarded<F, C>(
+    configure_builder: F,
+) -> TestResult<(
+    WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>,
+    TcpStream,
+)>
+where
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
+    C: Send + 'static,
+{
+    let (addr, accept) = spawn_listener().await?;
+
+    let (client, accepted) = ServerTaskGuard::new(accept)
+        .run_and_join(async move {
+            let client = configure_builder(WireframeClient::builder())
+                .connect(addr)
+                .await?;
+            Ok::<_, BodyError>(client)
+        })
+        .await?;
+
+    Ok((client, accepted?))
+}
+
 /// Helper function to test that a builder option is correctly applied to the TCP socket.
 pub async fn assert_builder_option<F, A>(configure_builder: F, assert_option: A) -> TestResult
 where
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder,
     A: FnOnce(&WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>>),
 {
-    let (addr, accept) = spawn_listener().await?;
-
-    let client = configure_builder(WireframeClient::builder())
-        .connect(addr)
-        .await?;
-
+    // The accept task is reaped before the assertion runs, so a panicking
+    // assertion cannot leave it detached.
+    let (client, _server_stream) = connect_guarded(configure_builder).await?;
     assert_option(&client);
-
-    let _server_stream = accept.await??;
     Ok(())
 }
 
@@ -201,12 +231,9 @@ where
     F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
     C: Send + 'static,
 {
-    let (addr, accept) = spawn_listener().await?;
-    let client = configure_builder(WireframeClient::builder())
-        .connect(addr)
-        .await?;
+    let (client, server_stream) = connect_guarded(configure_builder).await?;
     // Server stream is dropped here, simulating a disconnected server.
-    let _server = accept.await??;
+    drop(server_stream);
     Ok(client)
 }
 
@@ -258,15 +285,15 @@ where
     C: Send + 'static,
 {
     let error_count = Arc::new(AtomicUsize::new(0));
-    let (addr, accept) = spawn_listener().await?;
+    let count = error_count.clone();
 
-    let mut client = configure_builder(WireframeClient::builder(), error_count.clone())
-        .connect(addr)
-        .await?;
+    // The accept task is reaped before the disconnection is provoked, so a
+    // failed connect cannot leave it detached.
+    let (mut client, server_stream) =
+        connect_guarded(move |builder| configure_builder(builder, count)).await?;
 
     // Drop the server side to cause a disconnection
-    let server = accept.await??;
-    drop(server);
+    drop(server_stream);
 
     // Try to receive - should fail and invoke error hook
     let result: Result<Vec<u8>, ClientError> = client.receive().await;
