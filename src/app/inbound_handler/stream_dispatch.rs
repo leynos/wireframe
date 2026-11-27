@@ -228,6 +228,11 @@ where
         if !state.streams.stall_expired_at(STALLED_BODY_BOUND, now) {
             return Ok(false);
         }
+        // Reported before the body is failed: failing it tears the exchange
+        // down, and the identity is gone by then.
+        if let Some(active) = state.streams.active.as_ref() {
+            stream_diagnostics::body_stalled(active.identity(), STALLED_BODY_BOUND);
+        }
         let reason = io::Error::new(
             io::ErrorKind::TimedOut,
             "request body admission made no progress within the stall bound",

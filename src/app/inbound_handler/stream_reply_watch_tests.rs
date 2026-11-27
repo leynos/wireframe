@@ -22,6 +22,7 @@ use std::{
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use tokio::{io::AsyncReadExt, sync::Notify, time::Instant};
+use wireframe::serializer::{BincodeSerializer, Serializer};
 use wireframe_testing::{TestError, TestResult};
 
 use super::watch_support::{
@@ -32,7 +33,6 @@ use super::watch_support::{
     bounded_for,
     ensure,
     open_body,
-    read_reply,
     send_complete,
     spawn_connection_buffering,
     spawn_pushing,
@@ -277,32 +277,68 @@ async fn an_expired_body_reply_is_bounded_when_the_peer_stops_reading() -> TestR
 
 /// A full push lane must not starve a handler that has resolved.
 ///
-/// The loop's wait polls the push lanes first, so a producer that keeps a lane
-/// ready wins every pass and the handler's reply is never written unless the
-/// loop gives the handler its own turn after a batch. This scenario keeps the
-/// lane fed with a burst and requires the reply to arrive anyway.
+/// The handler holds its reply until released, and the release only fires once
+/// the burst below has been accepted, so every push is already queued when the
+/// reply becomes due. The loop's wait polls the push lanes first, so without a
+/// turn of its own the handler's reply would only be written after the lane
+/// drained — this requires push frames to still arrive after the reply.
 #[tokio::test(start_paused = true)]
 async fn a_ready_push_lane_does_not_starve_a_resolved_handler() -> TestResult {
     let started = Arc::new(Notify::new());
-    let (mut scenario, handle) = spawn_pushing(resolved_handler_app(Arc::clone(&started))?).await?;
+    let release = Arc::new(Notify::new());
+    let (mut scenario, handle) = spawn_pushing(held_handler_app(
+        Arc::clone(&started),
+        Arc::clone(&release),
+    )?)
+    .await?;
 
     open_body(&mut scenario.client, LIVE_ROUTE, LIVE_KEY, &started).await?;
-    // A burst larger than either lane keeps pushes ready across several passes.
-    for _ in 0..8 {
-        handle
-            .push_high_priority(Bytes::from_static(b"push"))
-            .await
-            .map_err(|_| TestError::Msg("the push queue must accept the frame".into()))?;
+    // Each push is accepted only as the loop drains the lane, so the bursts
+    // keep frames queued across several passes rather than landing in one
+    // batch. The release lands between them, so pushes are still arriving when
+    // the reply becomes due.
+    let push = || {
+        let lanes = handle.clone();
+        async move {
+            lanes
+                .push_high_priority(Bytes::from_static(b"push"))
+                .await
+                .map_err(|_| TestError::Msg("the push queue must accept the frame".into()))
+        }
+    };
+    for _ in 0..4 {
+        push().await?;
     }
-    let reply = bounded_for(
-        STEP_WAIT,
-        "the handler's reply arriving behind a full push lane",
-        read_reply(&mut scenario.client, "the handler's reply"),
-    )
-    .await??;
+    release.notify_one();
+    for _ in 0..4 {
+        push().await?;
+    }
+
+    let mut seen_reply = false;
+    let mut pushes_after_reply = 0;
+    for _ in 0..9 {
+        let frame = bounded_for(
+            STEP_WAIT,
+            "a frame from the connection",
+            scenario.client.next(),
+        )
+        .await?
+        .ok_or("the connection closed before every frame arrived")??;
+        // A push is written as its raw payload; the reply is an encoded
+        // envelope, so a frame that does not decode is a push.
+        let is_reply = BincodeSerializer
+            .deserialize::<Envelope>(&frame)
+            .is_ok_and(|(envelope, _)| envelope.payload_bytes() == b"done");
+        if is_reply {
+            seen_reply = true;
+        } else if seen_reply {
+            pushes_after_reply += 1;
+        }
+    }
+    ensure(seen_reply, "the handler's reply must be delivered")?;
     ensure(
-        reply == b"done".to_vec(),
-        "the handler's reply must be delivered while pushes are ready",
+        pushes_after_reply > 0,
+        "the reply must be delivered while frames are still queued, not after the lane drains",
     )?;
     SinkExt::<Bytes>::close(&mut scenario.client).await?;
     let joined = bounded_for(STEP_WAIT, "the connection ending", scenario.connection).await?;
@@ -310,13 +346,15 @@ async fn a_ready_push_lane_does_not_starve_a_resolved_handler() -> TestResult {
     Ok(())
 }
 
-/// An application whose streaming handler resolves immediately.
-fn resolved_handler_app(started: Arc<Notify>) -> TestResult<App> {
+/// An application whose streaming handler holds its reply until released.
+fn held_handler_app(started: Arc<Notify>, release: Arc<Notify>) -> TestResult<App> {
     let handler: StreamingHandler =
         Arc::new(move |_parts: RequestParts, _body: RequestBodyStream| {
             let start_signal = Arc::clone(&started);
+            let release_signal = Arc::clone(&release);
             Box::pin(async move {
                 start_signal.notify_one();
+                release_signal.notified().await;
                 Some(Bytes::from_static(b"done"))
             })
         });

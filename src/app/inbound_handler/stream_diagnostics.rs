@@ -13,6 +13,8 @@
 //! failure across connections. Payload bytes are never logged; the message
 //! identifier and the category carry the whole diagnosis.
 
+use std::time::Duration;
+
 use tracing::{debug, warn};
 
 use super::stream_active::BodyIdentity;
@@ -203,6 +205,69 @@ pub(super) fn no_live_handler(key: MessageKey) {
         ?key,
         error_category = NO_HANDLER,
         "streaming failure for a message with no live handler"
+    );
+}
+
+/// Report a body chunk that could not be admitted within the connection's wait.
+///
+/// The chunk is retried on every step, so this is not a failure on its own; it
+/// is the point where a handler that never reads becomes visible, because only
+/// the handler can make room in its own channel.
+pub(super) fn admission_timed_out(identity: BodyIdentity, wait: Duration) {
+    report_admission(identity, wait, false);
+}
+
+/// Report a body abandoned because its admission made no progress.
+///
+/// The stall bound is longer than one wait: a chunk that cannot be admitted is
+/// retried, and this is the accumulated interval that ends the body so the loop
+/// can reach the peer again.
+pub(super) fn body_stalled(identity: BodyIdentity, elapsed: Duration) {
+    report_admission(identity, elapsed, true);
+}
+
+/// Emit the one event an admission wait produces.
+///
+/// Both endings share the operation, identity, and category; they differ in
+/// which field names the interval and in whether the body is still alive.
+fn report_admission(identity: BodyIdentity, interval: Duration, is_stalled: bool) {
+    let millis = u64::try_from(interval.as_millis()).unwrap_or(u64::MAX);
+    let BodyIdentity {
+        message_id,
+        correlation_id,
+    } = identity;
+    if is_stalled {
+        warn!(
+            operation = CHUNK_DELIVERY,
+            message_id,
+            correlation_id = ?correlation_id,
+            error_category = ADMISSION_TIMEOUT,
+            elapsed_ms = millis,
+            "request body admission made no progress"
+        );
+    } else {
+        warn!(
+            operation = CHUNK_DELIVERY,
+            message_id,
+            correlation_id = ?correlation_id,
+            error_category = ADMISSION_TIMEOUT,
+            wait_ms = millis,
+            "request body chunk waited for admission without settling"
+        );
+    }
+}
+
+/// Report a final chunk the handler did not admit before the shared deadline.
+///
+/// The body is abandoned at this point and its reply suppressed, so no later
+/// record of it can exist.
+pub(super) fn final_chunk_timed_out(identity: BodyIdentity) {
+    warn!(
+        operation = CHUNK_DELIVERY,
+        message_id = identity.message_id,
+        correlation_id = ?identity.correlation_id,
+        error_category = ABANDONED_BODY,
+        "final request body chunk was not admitted before the deadline"
     );
 }
 

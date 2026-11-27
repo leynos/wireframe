@@ -214,6 +214,7 @@ async fn send_final_chunk(deadline: Instant, delivery: FinalDelivery) -> Deliver
         // The handler never made room, so the body it was owed is abandoned.
         // The wait already returned `Deadline`, which suppresses the reply.
         Err(_elapsed) => {
+            stream_diagnostics::final_chunk_timed_out(identity);
             StreamingBodyOutcome::Abandoned.record();
             Delivery::TimedOut
         }

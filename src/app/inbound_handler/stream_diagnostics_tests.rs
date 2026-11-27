@@ -16,7 +16,10 @@ use tracing_test::traced_test;
 
 use super::{
     abandoned_chunk,
+    admission_timed_out,
+    body_stalled,
     final_chunk_refused,
+    final_chunk_timed_out,
     handler_deadline_exceeded,
     no_live_handler,
     no_streaming_handler,
@@ -38,7 +41,7 @@ use crate::{
 /// The category names a body outcome, a delivery outcome, or the closed
 /// channel that ended the delivery; payload bytes never appear in either
 /// field, so an operator can filter on them without application data.
-const EVENTS: [(&str, &str); 10] = [
+const EVENTS: [(&str, &str); 13] = [
     (
         "timed out delivering the request body failure",
         "delivery_timeout",
@@ -70,6 +73,18 @@ const EVENTS: [(&str, &str); 10] = [
         "reply_abandoned",
     ),
     ("final request-body chunk refused", "abandoned_body"),
+    (
+        "request body chunk waited for admission without settling",
+        "admission_timeout",
+    ),
+    (
+        "request body admission made no progress",
+        "admission_timeout",
+    ),
+    (
+        "final request body chunk was not admitted before the deadline",
+        "abandoned_body",
+    ),
 ];
 
 /// Identity every event in this module reports under.
@@ -95,6 +110,9 @@ fn emit_every_event() {
     no_live_handler(key);
     handler_deadline_exceeded(5);
     final_chunk_refused(identity, SendChunkError::Closed);
+    admission_timed_out(identity, std::time::Duration::from_millis(250));
+    body_stalled(identity, std::time::Duration::from_secs(30));
+    final_chunk_timed_out(identity);
 }
 
 /// Every helper emits the message and category the guide documents.

@@ -14,7 +14,7 @@ use std::{future::Future, pin::Pin, time::Duration};
 use bytes::Bytes;
 use tokio::time::timeout;
 
-use super::stream_handles::ChunkBudget;
+use super::{stream_diagnostics, stream_handles::ChunkBudget};
 use crate::{
     message_assembler::{MessageKey, StreamingAssemblyId},
     metrics::StreamingBodyOutcome,
@@ -140,6 +140,7 @@ impl ActiveStream {
                 // The chunk is still unadmitted, so the connection reports a
                 // body that cannot make progress rather than one that ended.
                 StreamingBodyOutcome::AdmissionTimeout.record();
+                stream_diagnostics::admission_timed_out(self.identity(), wait);
                 PendingEvent::Idle
             }
         }
