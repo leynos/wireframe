@@ -21,10 +21,12 @@ use super::{
 use crate::{rewind_stream::RewindStream, serializer::Serializer};
 
 /// Initial read-buffer hint bounded by the configured maximum frame length.
-// Equivalent mutant: a pre-allocation hint later min'd against the codec's
-// max_frame_length, so `*`→`+`/`/` cannot change observable behaviour.
+// Equivalent mutant: the value only sizes a `reserve` hint on the private
+// `Framed` read buffer. No client API exposes that capacity, and it neither
+// sets nor enforces frame limits (`build_codec()` does that) nor changes which
+// frames are decoded, so no behavioural test can distinguish the mutants.
 #[cfg_attr(test, mutants::skip)]
-const INITIAL_READ_BUFFER_CAPACITY: usize = 64 * 1024;
+const fn initial_read_buffer_capacity() -> usize { 64 * 1024 }
 
 /// Cloneable connection recipe used by pooled reconnect paths.
 pub(crate) struct ClientBuildParts<S, P, C> {
@@ -91,7 +93,7 @@ where
         let codec = codec_config.build_codec();
         let mut framed = Framed::new(RewindStream::new(leftover, stream), codec);
         let initial_read_buffer_capacity = core::cmp::min(
-            INITIAL_READ_BUFFER_CAPACITY,
+            initial_read_buffer_capacity(),
             codec_config.max_frame_length_value(),
         );
         framed
