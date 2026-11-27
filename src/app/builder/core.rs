@@ -1,4 +1,7 @@
 //! Core builder types for `WireframeApp`.
+//!
+//! [`WireframeApp`] holds the routes, streaming handlers, middleware and
+//! configuration the builder modules populate; see [`super::routing`].
 
 use std::{collections::HashMap, sync::Arc};
 
@@ -12,7 +15,7 @@ use crate::{
         error::Result,
         lifecycle::{ConnectionSetup, ConnectionTeardown},
         memory_budgets::MemoryBudgets,
-        middleware_types::Middleware,
+        middleware_types::{Middleware, StreamingHandler},
     },
     codec::{FrameCodec, LengthDelimitedFrameCodec, RecoveryConfig, RecoveryPolicyHook},
     hooks::WireframeProtocol,
@@ -37,6 +40,8 @@ pub struct WireframeApp<
     pub(in crate::app) handlers: HashMap<u32, Route<E>>,
     /// Middleware applied in registration order around each handler.
     pub(in crate::app) middleware: Vec<Box<dyn Middleware<E>>>,
+    /// Streaming handlers keyed by the protocol message identifier.
+    pub(in crate::app) streaming_handlers: HashMap<u32, StreamingHandler>,
     /// Serializer retained by every connection built from this application.
     ///
     /// The builder owns the serializer outright. Preparation moves it into
@@ -103,6 +108,7 @@ where
         let codec = F::default();
         Self {
             handlers: HashMap::new(),
+            streaming_handlers: HashMap::new(),
             middleware: Vec::new(),
             serializer: Box::new(S::default()),
             on_connect: None,

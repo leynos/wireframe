@@ -1,98 +1,64 @@
 //! Shared frame and stream processing for prepared application routes.
 //!
-//! [`process_stream`] is the entry point once a transport is framed. The
-//! application path reaches it through `ConnectionRuntime::run`, after the
-//! setup hook has run. The server's TCP path reaches it through
-//! `PreparedApp::handle_connection_with_shutdown`, which runs
-//! `process_connection` for the accepted socket. The connection spawner's own
-//! `process_stream` is a different function: it completes the preamble
-//! handshake and hands the socket to the prepared application, so it never
-//! calls the frame loop directly. This function builds a [`ConnectionLoop`],
-//! which owns the read half, the buffered inbound state and the response actor,
-//! and runs it until the peer closes, the server stops, or a transport error
-//! ends the connection. Each iteration applies memory pressure, waits for a
-//! push batch or an inbound frame, then acts on it; the sibling modules named
-//! in the parent overview own each of those steps.
+//! [`process_stream`] prepares the framed transport, assembly state, push
+//! queues, and response actor for one connection, then hands the reader, sink,
+//! and actor to [`stream_dispatch::run`]. [`decode_and_assemble`] turns a raw frame
+//! into a [`FrameOutcome`] by decoding its envelope in
+//! [`parse_envelope`](super::dispatch::parse_envelope), reassembling fragments,
+//! and applying protocol-level assembly against the route tables carried by
+//! [`StreamProcessingContext`].
+//!
+//! The streaming loop reaches this module through
+//! [`stream_frame::dispatch_frame`](super::stream_frame::dispatch_frame), which
+//! calls [`decode_and_assemble`] for every inbound frame.
 //!
 //! Push queues and the stop token arrive through [`StreamProcessingContext`]:
 //! the queue template the actor clones into these lanes, the server shutdown
 //! token, from which the loop derives a child token so its own exit cancels
-//! only this connection, the [`SessionRegistry`] the actor registers with, and
-//! the peer address diagnostics report. The loop observes shutdown between
-//! units, so a handler kept alive by its own pushes still ends when the server
-//! stops.
-//!
-//! A decoder failure is not an end of stream. The framed transport reports it
-//! as an in-band [`DecodedItem::Failure`], and the loop's
-//! [`RecoveryCoordinator`] asks the application's recovery hook what to do:
-//! discard the frame, quarantine the connection briefly, or disconnect with the
-//! decoder's own error. A failure buffered behind a response that ends the
-//! connection is reported by [`settle_dispatch`], and one still buffered when
-//! reading stops by [`report_pending_failure`], so every failure is observed
-//! exactly once even when no policy can act on it.
+//! only this connection, the [`SessionRegistry`](crate::session::SessionRegistry)
+//! the actor registers with, and the peer address diagnostics report.
 
-use std::{collections::HashMap, net::SocketAddr, sync::Arc};
+use std::{collections::HashMap, net::SocketAddr, sync::Arc, time::Duration};
 
 use tokio::io::{self, AsyncRead, AsyncWrite};
 use tokio_util::sync::CancellationToken;
 
-// The modules below re-export the names their sibling steps use, so the loop's
-// own file imports only what its definition, construction and read wait need.
 use super::{
     super::{
+        StreamingHandler,
         codec_driver::FramePipeline,
         envelope::{Envelope, Packet},
-        frame_handling,
+        frame_handling::{self, FrameOutcome},
         memory_budgets::MemoryBudgets,
+        recovery_codec::DecodedItem,
     },
+    MAX_DESER_FAILURES,
     actor::{
         CancellationGuard,
         ConnectionActorInit,
         ConnectionResponseActor,
         build_connection_actor,
-        observe_peer,
     },
+    dispatch::parse_envelope,
     frames::InboundFrames,
-    framing::{TransportSink, TransportStream, prepare_connection_framing, report_truncation},
-    push_service::{StreamStep, StreamWait, next_stream_step},
-    recovery::{RecoveryCoordinator, report_pending_failure},
+    framing::{prepare_connection_framing, report_truncation},
+    recovery,
+    stream_dispatch::{self, DispatchContext},
 };
 use crate::{
     codec::{FrameCodec, RecoveryConfig, RecoveryPolicyHook},
     frame::FrameMetadata,
     hooks::{ConnectionContext, ProtocolHooks},
-    message_assembler::MessageAssembler,
+    message::{DecodeWith, EncodeWith},
+    message_assembler::{MessageAssembler, MessageAssemblyState},
     middleware::HandlerService,
     push::PushQueuesBuilder,
     serializer::Serializer,
     session::SessionRegistry,
 };
-// The sibling step modules are inherent methods on the loop and reach its
-// private state, so they live in sibling files to keep this module within the
-// size limit. They import the shared vocabulary below rather than repeating
-// its crate paths.
-#[path = "core_dispatch.rs"]
-mod dispatch_steps;
-#[path = "core_pushes.rs"]
-mod push_steps;
-// The memory-pressure exit has to drive the loop's own `step`, because the
-// failure it reports never reaches the read or dispatch steps.
 #[cfg(test)]
-#[path = "core_pressure_tests.rs"]
-mod pressure_tests;
-
-pub(super) use super::{
-    super::{frame_handling::Dispatch, recovery_codec::DecodedItem},
-    dispatch::{FrameHandlingContext, handle_frame},
-    frames::InboundExpiry,
-    peer_watch::{PeerObservation, handle_watching_peer},
-    push_service::{PushBatch, PushTransport, deliver_pushes, drain_queued},
-    recovery::{hold_or_end, resolve_read_item, settle_dispatch},
-};
-pub(super) use crate::{
-    connection::PendingPushes,
-    message::{DecodeWith, EncodeWith},
-};
+#[path = "core_tests.rs"]
+mod tests;
 
 /// Immutable stream-wide configuration shared by all inbound frames.
 pub(crate) struct StreamProcessingContext<'a, S, E, F>
@@ -103,7 +69,9 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer borrowed from the prepared root for the connection lifetime.
+    /// Streaming handlers keyed by message identifier.
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
+    /// Serializer shared by all frames on the connection.
     pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
@@ -112,13 +80,13 @@ where
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks applied to every outbound frame on this connection.
-    ///
-    /// The hooks own the connection's single strong protocol reference. Setup
-    /// dispatches through this value while it is still borrowed, and the same
-    /// value then moves into the frame pipeline.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
+    /// Optional hook consulted when a decoder fails on this connection.
+    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
+    /// Global recovery settings copied for this connection.
+    pub(crate) recovery_config: RecoveryConfig,
     /// Maximum interval to wait for the next inbound frame.
     pub(crate) read_timeout_ms: u64,
     /// Server shutdown signal; cancelling it stops this connection.
@@ -129,217 +97,104 @@ where
     pub(crate) session_registry: Arc<SessionRegistry<F::Frame>>,
     /// Peer address of the accepted socket, when the server reported one.
     pub(crate) peer_addr: Option<SocketAddr>,
-    /// Optional hook consulted when a decoder fails on this connection.
-    pub(crate) recovery_hook: Option<&'a dyn RecoveryPolicyHook>,
-    /// Global recovery settings copied for this connection.
-    pub(crate) recovery_config: RecoveryConfig,
 }
 
-/// Per-connection state driven by the inbound read loop.
-struct ConnectionLoop<'a, S, E, F, W>
+/// Inputs the inbound frame buffer is built from.
+struct BoundState<'a, F>
 where
-    S: Serializer,
-    E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Unpin,
 {
-    /// Write half of the connection's framed transport.
-    sink: TransportSink<W, F>,
-    /// Read half of the connection's framed transport.
-    reader: TransportStream<W, F>,
-    /// Per-connection codec clone retaining framing state.
-    codec: F,
-    /// Buffered inbound item and the state a read timeout purges.
-    inbound: InboundFrames<DecodedItem<F::Frame>, F::Frame>,
-    /// Consecutive deserialization failures seen on this connection.
-    deser_failures: u32,
-    /// Serializer borrowed for the connection lifetime.
-    serializer: &'a S,
-    /// Middleware chains applied to decoded envelopes.
-    routes: &'a HashMap<u32, HandlerService<E>>,
+    /// Fragmentation settings used to initialize the frame pipeline.
+    fragmentation: Option<crate::fragment::FragmentationConfig>,
+    /// Protocol hooks applied to every outbound frame on this connection.
+    protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional assembler consulted while handling frames.
     message_assembler: Option<&'a dyn MessageAssembler>,
-    /// Byte budgets enforced while reading.
-    budgets: MemoryBudgets,
-    /// Maximum interval to wait for the next inbound frame.
-    read_timeout_ms: u64,
-    /// Token whose cancellation stops this connection's inbound read.
-    shutdown: CancellationToken,
-    /// Hook consultation and drop accounting for decoder failures.
-    recovery: RecoveryCoordinator<'a>,
-    /// Whether the next wait should poll the inbound read before the queues.
-    ///
-    /// Set after a push batch so a continuously ready push lane cannot win
-    /// every biased pass and starve the client's frames.
-    serve_read_first: bool,
-    /// Actor that owns outbound ordering for this connection.
-    response_actor: ConnectionResponseActor<F>,
-    /// Cancelled only by a clean EOF, which is permanent for the connection.
-    peer_eof: CancellationToken,
-    /// Cancels the connection token when this state is dropped.
-    _cancel_on_exit: CancellationGuard,
+    /// Largest frame the negotiated codec accepts.
+    requested_frame_length: usize,
+    /// Byte budgets the connection enforces while reading.
+    effective_budgets: MemoryBudgets,
 }
 
-impl<'a, S, E, F, W> ConnectionLoop<'a, S, E, F, W>
+/// Build the inbound buffer and its assembly state for one connection.
+fn build_inbound_frames<F>(
+    state: BoundState<'_, F>,
+) -> InboundFrames<DecodedItem<F::Frame>, F::Frame>
 where
-    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync + 'static,
-    E: Packet,
     F: FrameCodec,
-    W: AsyncRead + AsyncWrite + Send + Unpin,
-    Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    /// Prepare framing, assembly, budgets, and the output actor for `stream`.
-    fn new(stream: W, context: StreamProcessingContext<'a, S, E, F>) -> io::Result<Self> {
-        let StreamProcessingContext {
-            routes,
-            serializer,
-            codec,
-            message_assembler,
-            fragmentation,
-            mut protocol_hooks,
-            memory_budgets,
-            read_timeout_ms,
-            shutdown,
-            push_queues,
-            session_registry,
-            peer_addr,
-            recovery_hook,
-            recovery_config,
-        } = context;
-        let (sink, reader, connection_codec) = prepare_connection_framing(stream, codec).split();
-        let requested_frame_length = connection_codec.max_frame_length();
-        let budgets =
-            frame_handling::resolve_effective_budgets(memory_budgets, requested_frame_length);
-        // A child token so the guard below cancels only this connection, while
-        // a server shutdown still reaches it through the parent.
-        let connection_shutdown = shutdown.child_token();
-        let read_shutdown = connection_shutdown.clone();
-        let peer_eof = CancellationToken::new();
-        // Protocol setup borrows the hooks value that will own this
-        // connection's single protocol reference, then that same value moves
-        // into the pipeline below. Cloning the protocol for setup would give
-        // the connection a second strong reference while setup is pending.
-        let (response_actor, cancel_on_exit, connection_context) =
-            build_connection_actor(ConnectionActorInit {
-                protocol_hooks: &mut protocol_hooks,
-                shutdown: connection_shutdown,
-                registry: &session_registry,
-                push_queues: &push_queues,
-                context: ConnectionContext::default().with_peer_addr(peer_addr),
-            })?;
-        let mut inbound = InboundFrames {
-            // A frame read while the previous one was still being handled, so
-            // the loop never polls the read half twice for one inbound frame.
-            pending: None,
-            pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
-            message_assembly: message_assembler.map(|_| {
-                frame_handling::new_message_assembly_state(
-                    fragmentation,
-                    requested_frame_length,
-                    Some(budgets),
-                )
-            }),
-            // Armed on the first silent read, so a fresh connection never
-            // starts by purging state it has not buffered.
-            read_deadline: None,
-        };
-        // The sink-owned pipeline runs `before_send` too, so it must know
-        // which connection the callback is running for. Installing the value
-        // setup observed — rather than rebuilding an equal one — means state
-        // setup leaves in the context carries into every later callback.
-        inbound.pipeline.set_context(connection_context);
-        Ok(Self {
-            sink,
-            reader,
-            codec: connection_codec,
-            inbound,
-            deser_failures: 0,
-            serializer,
-            routes,
-            message_assembler,
-            budgets,
-            read_timeout_ms,
-            shutdown: read_shutdown,
-            recovery: RecoveryCoordinator::new(recovery_hook, recovery_config)
-                .with_peer_address(peer_addr),
-            serve_read_first: false,
-            response_actor,
-            peer_eof,
-            _cancel_on_exit: cancel_on_exit,
-        })
+    let BoundState {
+        fragmentation,
+        protocol_hooks,
+        message_assembler,
+        requested_frame_length,
+        effective_budgets,
+    } = state;
+    InboundFrames {
+        // A frame read while the previous one was still being handled, so the
+        // loop never polls the read half twice for one inbound frame.
+        pending: None,
+        pipeline: FramePipeline::with_hooks(fragmentation, protocol_hooks),
+        message_assembly: message_assembler.map(|_| {
+            frame_handling::new_message_assembly_state(
+                fragmentation,
+                requested_frame_length,
+                Some(effective_budgets),
+            )
+        }),
+        // Armed on the first silent read, so a fresh connection never starts by
+        // purging state it has not buffered.
+        read_deadline: None,
+        evicted_streams: Vec::new(),
     }
+}
 
-    /// Read and process frames until the stream closes or an I/O error occurs.
-    ///
-    /// Every error that ends the connection passes this one boundary, whichever
-    /// step observed it; that is where a truncation is reported.
-    async fn run(mut self) -> io::Result<()> {
-        let outcome = self.drive().await;
-        self.report_buffered_failure();
-        if let Err(error) = &outcome {
-            // The reader still holds what the peer abandoned; report it first.
-            report_truncation::<W, F>(&*self.reader, &mut self.inbound.pipeline, error);
-        }
-        outcome
-    }
+/// Inputs the response actor is built from, other than its protocol hooks.
+struct ActorSetup<'a, F>
+where
+    F: FrameCodec,
+{
+    /// Connection-local stop token the actor observes.
+    shutdown: CancellationToken,
+    /// Registry the connection publishes its push handle to.
+    registry: &'a Arc<SessionRegistry<F::Frame>>,
+    /// Template cloned to build this connection's push queues.
+    push_queues: &'a PushQueuesBuilder<F::Frame>,
+    /// Peer address of the accepted socket, when the server reported one.
+    peer_addr: Option<SocketAddr>,
+}
 
-    /// Report a failure still buffered when reading stops.
-    ///
-    /// Reading can stop for a reason that is not the failure itself: memory
-    /// pressure, a cancelled read, or a response that ends the connection.
-    /// Reporting it here is the only observation such a failure receives.
-    fn report_buffered_failure(&mut self) {
-        report_pending_failure(&mut self.inbound, &self.recovery);
-    }
-
-    /// Perform inbound work until the connection ends.
-    async fn drive(&mut self) -> io::Result<()> {
-        // Each iteration performs one unit of work, so the loop body is empty;
-        // `step` reports whether the connection may continue.
-        while self.step().await? {}
-        Ok(())
-    }
-
-    /// Perform one unit of inbound work, reporting whether to continue.
-    async fn step(&mut self) -> io::Result<bool> {
-        if let Err(error) = self.inbound.relieve_pressure(self.budgets).await {
-            // Memory pressure ends the connection before another read, so a
-            // failure buffered from an earlier pass would otherwise be lost
-            // behind the pressure error. Reporting it first keeps the
-            // once-per-failure counter true for every failure.
-            self.report_buffered_failure();
-            return Err(error);
-        }
-        let Some(step) = self.wait_for_step().await? else {
-            return Ok(false);
-        };
-        self.serve_read_first = matches!(&step, StreamStep::Pushes(_));
-        self.handle_step(step).await
-    }
-
-    /// Wait for the next unit of work, or `None` once the server has stopped.
-    ///
-    /// The wait is raced against the connection's shutdown token. The read
-    /// observes shutdown itself, but the push arm is polled first and a ready
-    /// lane wins every biased pass, so without this arm a busy push stream
-    /// would hide the stop from the connection task and the server drain
-    /// waiting on it.
-    async fn wait_for_step(&mut self) -> io::Result<Option<StreamStep<F, DecodedItem<F::Frame>>>> {
-        tokio::select! {
-            biased;
-            () = self.shutdown.cancelled() => Ok(None),
-            step = next_stream_step(
-                &mut self.response_actor.actor,
-                StreamWait {
-                    inbound: &mut self.inbound,
-                    reader: &mut self.reader,
-                    read_timeout_ms: self.read_timeout_ms,
-                    shutdown: &self.shutdown,
-                    read_first: self.serve_read_first,
-                },
-            ) => step.map(Some),
-        }
-    }
+/// Build the response actor and report the context setup observed.
+///
+/// The hooks are borrowed rather than cloned, so setup dispatches through the
+/// one strong protocol reference they already hold; the caller moves the same
+/// value into the connection's pipeline. The cancellation guard is returned
+/// too: it cancels the connection's shutdown token when dropped, so it must
+/// live for as long as the connection does.
+fn build_actor<F>(
+    protocol_hooks: &mut ProtocolHooks<F::Frame, ()>,
+    setup: ActorSetup<'_, F>,
+) -> io::Result<(
+    ConnectionResponseActor<F>,
+    CancellationGuard,
+    ConnectionContext,
+)>
+where
+    F: FrameCodec,
+{
+    let ActorSetup {
+        shutdown,
+        registry,
+        push_queues,
+        peer_addr,
+    } = setup;
+    build_connection_actor::<F>(ConnectionActorInit {
+        protocol_hooks,
+        shutdown,
+        registry,
+        push_queues,
+        context: ConnectionContext::default().with_peer_addr(peer_addr),
+    })
 }
 
 /// Read and process frames until the stream closes or an I/O error occurs.
@@ -354,5 +209,189 @@ where
     W: AsyncRead + AsyncWrite + Send + Unpin,
     Envelope: DecodeWith<S> + EncodeWith<S>,
 {
-    ConnectionLoop::new(stream, context)?.run().await
+    let connection = context;
+    let (mut sink, mut reader, connection_codec) =
+        prepare_connection_framing(stream, connection.codec).split();
+    let requested_frame_length = connection_codec.max_frame_length();
+    let effective_budgets = frame_handling::resolve_effective_budgets(
+        connection.memory_budgets,
+        requested_frame_length,
+    );
+    // A child token so the guard below cancels only this connection, while a
+    // server shutdown still reaches it through the parent.
+    let connection_shutdown = connection.shutdown.child_token();
+    // Cancelled only by a clean EOF, which is permanent for the connection.
+    let peer_eof = CancellationToken::new();
+    // Protocol setup borrows the hooks value that will own this connection's
+    // single protocol reference, then that same value moves into the pipeline
+    // below. Cloning the protocol for setup would give the connection a second
+    // strong reference while setup is pending.
+    let mut protocol_hooks = connection.protocol_hooks;
+    let (mut response_actor, _cancel_on_exit, connection_context) = build_actor::<F>(
+        &mut protocol_hooks,
+        ActorSetup {
+            shutdown: connection_shutdown,
+            registry: &connection.session_registry,
+            push_queues: &connection.push_queues,
+            peer_addr: connection.peer_addr,
+        },
+    )?;
+    let mut inbound = build_inbound_frames::<F>(BoundState {
+        fragmentation: connection.fragmentation,
+        protocol_hooks,
+        message_assembler: connection.message_assembler,
+        requested_frame_length,
+        effective_budgets,
+    });
+    // Installing the value setup observed — rather than rebuilding an equal
+    // one — means state setup leaves in the context carries into every later
+    // callback. The sink-owned pipeline runs `before_send` too, so it must
+    // know which connection the callback is running for.
+    inbound.pipeline.set_context(connection_context);
+    let dispatch = DispatchContext {
+        routes: connection.routes,
+        streaming_routes: connection.streaming_routes,
+        serializer: connection.serializer,
+        codec: &connection_codec,
+        message_assembler: connection.message_assembler,
+        effective_budgets,
+        read_timeout_ms: connection.read_timeout_ms,
+    };
+    let recovery =
+        recovery::RecoveryCoordinator::new(connection.recovery_hook, connection.recovery_config)
+            .with_peer_address(connection.peer_addr);
+    let outcome = stream_dispatch::run(stream_dispatch::Connection {
+        reader: &mut reader,
+        sink: &mut sink,
+        inbound: &mut inbound,
+        actor: &mut response_actor.actor,
+        ctx: &dispatch,
+        shutdown: connection.shutdown,
+        peer_eof: &peer_eof,
+        recovery,
+        wait: Duration::from_millis(connection.read_timeout_ms),
+    })
+    .await;
+    if let Err(error) = &outcome {
+        // The reader still holds what the peer abandoned; report it first.
+        report_truncation::<W, F>(&reader, &mut inbound.pipeline, error);
+    }
+    outcome
+}
+
+/// Borrowed inputs for turning one raw frame into a dispatch outcome.
+pub(super) struct FrameBuildContext<'a, S, F>
+where
+    S: Serializer + Send + Sync,
+    F: FrameCodec,
+{
+    /// Raw frame borrowed while decoding its envelope metadata and payload.
+    pub(super) frame: &'a F::Frame,
+    /// Serializer used to decode the envelope.
+    pub(super) serializer: &'a S,
+    /// Optional assembly strategy for multi-frame protocol messages.
+    pub(super) message_assembler: Option<&'a dyn MessageAssembler>,
+    /// Streaming route identifiers eligible for incremental delivery.
+    pub(super) streaming_routes: &'a HashMap<u32, StreamingHandler>,
+    /// Whether a streaming body already owns the dispatch slot.
+    pub(super) stream_live: bool,
+    /// Pipeline needed to reassemble fragmented input and emit responses.
+    pub(super) pipeline: &'a mut FramePipeline<F::Frame>,
+    /// Mutable assembly state retained across inbound frames.
+    pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
+    /// Failure counter used to enforce the malformed-input limit.
+    pub(super) deser_failures: &'a mut u32,
+}
+
+/// Decode, reassemble, and assemble one inbound frame.
+///
+/// A frame that completes a logical message resets the consecutive-failure
+/// counter; a frame that merely validates does not. See
+/// [`clear_deser_failures_after`] for why each outcome is classified that way.
+pub(super) fn decode_and_assemble<S, F>(
+    context: FrameBuildContext<'_, S, F>,
+) -> io::Result<FrameOutcome>
+where
+    S: Serializer + FrameMetadata<Frame = Envelope> + Send + Sync,
+    F: FrameCodec,
+    Envelope: DecodeWith<S>,
+{
+    let FrameBuildContext {
+        frame,
+        serializer,
+        message_assembler,
+        streaming_routes,
+        stream_live,
+        pipeline,
+        message_assembly,
+        deser_failures,
+    } = context;
+    let mut failure_tracker =
+        frame_handling::DeserFailureTracker::new(deser_failures, MAX_DESER_FAILURES);
+    let Some(envelope) = frame_handling::decode_envelope::<F>(
+        parse_envelope(serializer, F::frame_payload(frame)),
+        frame,
+        &mut failure_tracker,
+    )?
+    else {
+        return Ok(FrameOutcome::Pending);
+    };
+    let Some(reassembled_envelope) = frame_handling::reassemble_if_needed(
+        pipeline,
+        deser_failures,
+        envelope,
+        MAX_DESER_FAILURES,
+    )?
+    else {
+        return Ok(FrameOutcome::Pending);
+    };
+    let outcome = frame_handling::assemble_if_needed(
+        frame_handling::AssemblyRuntime::new(
+            message_assembler,
+            message_assembly,
+            streaming_routes,
+            stream_live,
+        ),
+        deser_failures,
+        reassembled_envelope,
+        MAX_DESER_FAILURES,
+    )?;
+
+    clear_deser_failures_after(&outcome, deser_failures);
+    Ok(outcome)
+}
+
+/// Clear the consecutive-failure counter after a frame that completed a message.
+///
+/// Only a completed message proves the peer is making progress, so only that
+/// kind of frame ends the current failure run:
+///
+/// - a buffered message, or a streaming-route message assembled into a pre-filled fallback, arrived
+///   in full;
+/// - a streaming first frame or continuation that is also the last frame completes its message;
+/// - a non-final streaming frame or a discarded continuation validated, but established no
+///   completion;
+/// - a [`FrameOutcome::Pending`] frame may be an accepted partial or a rejected frame, and a
+///   [`FrameOutcome::StreamFailed`] rejection was counted before its outcome was built.
+///
+/// A peer that follows each rejected message with a fresh non-final first frame
+/// would otherwise reset the count every time and never reach
+/// [`MAX_DESER_FAILURES`] while completing no valid message.
+const fn clear_deser_failures_after(outcome: &FrameOutcome, deser_failures: &mut u32) {
+    if completes_message(outcome) {
+        *deser_failures = 0;
+    }
+}
+
+/// Return whether the outcome finished a logical message.
+const fn completes_message(outcome: &FrameOutcome) -> bool {
+    match outcome {
+        FrameOutcome::Buffered(_) | FrameOutcome::StreamFallback { .. } => true,
+        FrameOutcome::StreamStarted { is_last, .. } | FrameOutcome::StreamChunk { is_last, .. } => {
+            *is_last
+        }
+        FrameOutcome::Pending | FrameOutcome::Discarded | FrameOutcome::StreamFailed { .. } => {
+            false
+        }
+    }
 }

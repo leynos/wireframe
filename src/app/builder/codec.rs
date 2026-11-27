@@ -34,6 +34,7 @@ where
         // configuration are deliberately dropped.
         let Self {
             handlers,
+            streaming_handlers,
             middleware,
             serializer,
             on_connect,
@@ -46,6 +47,11 @@ where
         } = self;
         WireframeApp {
             handlers,
+            // A streaming handler takes `RequestParts` and a body stream and
+            // returns bytes, so it names no frame type and survives a codec
+            // change. Resetting it would silently unregister routes the
+            // caller registered before this call.
+            streaming_handlers,
             middleware,
             serializer,
             on_connect,

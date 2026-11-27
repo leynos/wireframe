@@ -1,4 +1,20 @@
 //! Routing and middleware configuration for `WireframeApp`.
+//!
+//! [`WireframeApp::route`] and [`WireframeApp::route_response`] register
+//! buffered handlers, while [`WireframeApp::streaming_route`] registers a
+//! [`StreamingHandler`] that receives a request body as its frames arrive.
+//! [`WireframeApp::wrap`] appends a middleware component to the chain that the
+//! buffered routes run through.
+//!
+//! Buffered and streaming registrations share one identifier space, so either
+//! insertion rejects an identifier already present in the other map with
+//! [`WireframeError::DuplicateRoute`]. Streaming routes stay outside the
+//! middleware chain and are served by the dispatch slot in
+//! [`crate::app::inbound_handler`].
+
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod tests;
 
 use super::WireframeApp;
 use crate::{
@@ -7,7 +23,7 @@ use crate::{
         Packet,
         Route,
         error::Result,
-        middleware_types::{Handler, Middleware, ResponseHandler},
+        middleware_types::{Handler, Middleware, ResponseHandler, StreamingHandler},
     },
     codec::FrameCodec,
     serializer::Serializer,
@@ -25,7 +41,7 @@ where
     /// # Errors
     ///
     /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id`
-    /// has already been registered.
+    /// has already been registered, buffered or streaming.
     pub fn route(self, id: u32, handler: Handler<E>) -> Result<Self> {
         self.insert_route(id, Route::Unit(handler))
     }
@@ -55,11 +71,34 @@ where
     }
 
     /// Insert a route after rejecting duplicate identifiers.
+    ///
+    /// Buffered and streaming registrations share one identifier space, so a
+    /// buffered route may not shadow a streaming route (or the reverse).
     fn insert_route(mut self, id: u32, route: Route<E>) -> Result<Self> {
-        if self.handlers.contains_key(&id) {
+        if self.handlers.contains_key(&id) || self.streaming_handlers.contains_key(&id) {
             return Err(WireframeError::DuplicateRoute(id));
         }
         self.handlers.insert(id, route);
+        Ok(self)
+    }
+
+    /// Register a streaming route that maps `id` to `handler`.
+    ///
+    /// A streaming handler receives [`RequestParts`](crate::request::RequestParts)
+    /// and a [`RequestBodyStream`](crate::request::RequestBodyStream) instead
+    /// of a fully assembled envelope. When the first frame for `id` completes
+    /// the message, the handler still receives a one-chunk stream. Middleware
+    /// registered with [`wrap`](Self::wrap) does not run for streaming routes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WireframeError::DuplicateRoute`] if a handler for `id` has
+    /// already been registered, buffered or streaming.
+    pub fn streaming_route(mut self, id: u32, handler: StreamingHandler) -> Result<Self> {
+        if self.handlers.contains_key(&id) || self.streaming_handlers.contains_key(&id) {
+            return Err(WireframeError::DuplicateRoute(id));
+        }
+        self.streaming_handlers.insert(id, handler);
         Ok(self)
     }
 

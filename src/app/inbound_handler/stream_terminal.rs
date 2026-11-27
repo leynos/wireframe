@@ -1,0 +1,289 @@
+//! Terminating a streaming request body while its handler is still running.
+//!
+//! A body failure needs a slot on the same bounded channel that carries body
+//! chunks, and only the handler can free one. These helpers therefore deliver
+//! the failure while polling the handler, rather than before or after it, and
+//! bound the whole exchange so an unresponsive handler cannot hold the
+//! connection open.
+
+use std::{future::Future, io, time::Duration};
+
+use bytes::Bytes;
+use tokio::time::{Instant, sleep_until, timeout, timeout_at};
+
+use super::{
+    stream_active::{BodyIdentity, HandlerFuture, PendingSend},
+    stream_diagnostics,
+    stream_handles::ChunkBudget,
+};
+use crate::{metrics::StreamingBodyOutcome, request::AccountedBodySender};
+
+#[cfg(test)]
+#[cfg(feature = "metrics")]
+#[path = "stream_outcome_delivery_tests.rs"]
+mod outcome_tests;
+
+/// How a handler finished while the connection was waiting for its reply.
+///
+/// A handler that returns `None` has deliberately chosen not to reply, which is
+/// a normal outcome. A handler still running when the wait expires has produced
+/// no answer at all, and the connection has abandoned it. Keeping the two apart
+/// means the abandoned case can be reported instead of silently looking like a
+/// deliberate silence.
+#[derive(Debug, Eq, PartialEq)]
+pub(super) enum HandlerWait {
+    /// The handler finished within the wait, with or without a reply.
+    Replied(Option<Bytes>),
+    /// The handler produced no answer the connection could wait for.
+    Deadline,
+}
+
+/// One body failure the handler has yet to observe.
+pub(super) struct TerminalFailure {
+    /// Message whose body failed.
+    pub(super) identity: BodyIdentity,
+    /// Failure the handler should observe instead of a clean end of stream.
+    pub(super) error: io::Error,
+}
+
+/// What became of an attempt to deliver a body failure to its handler.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub(super) enum Delivery {
+    /// The handler's channel accepted the failure.
+    Accepted,
+    /// The channel did not accept it within the wait.
+    TimedOut,
+    /// The handler had already dropped its body.
+    ReceiverGone,
+}
+
+/// Await the handler under the connection's teardown bound.
+pub(super) async fn await_handler(wait: Duration, handler: &mut HandlerFuture) -> HandlerWait {
+    timeout(wait, handler.as_mut())
+        .await
+        .map_or_else(|_elapsed| HandlerWait::Deadline, HandlerWait::Replied)
+}
+
+/// Deliver a terminal body error while the handler drains, then await it.
+///
+/// The error needs a slot on the same bounded channel that carries body chunks,
+/// so delivering it before polling the handler would deadlock whenever that
+/// channel is full: only the handler can free a slot, and it is not running.
+/// The timeout on the delivery would then drop the error, the sender would
+/// close, and a truncated body would look like a clean end of stream.
+///
+/// Polling both together lets the handler take the queued chunks and then
+/// observe the failure. The wait bounds the whole exchange, so a handler that
+/// never reads still cannot hold the connection open.
+pub(super) async fn deliver_then_await(
+    wait: Duration,
+    failure: TerminalFailure,
+    sender: AccountedBodySender,
+    handler: &mut HandlerFuture,
+) -> HandlerWait {
+    let deadline = Instant::now() + wait;
+    race_delivery(
+        deadline,
+        deliver_terminal(deadline, failure, sender),
+        handler,
+        StreamingBodyOutcome::DeliveryTimeout,
+    )
+    .await
+}
+
+/// Deliver a body's completed final chunk, then await the handler.
+///
+/// The body is already whole when this runs: the chunk that ends it had been
+/// read from the socket before an inbound failure closed the exchange, so
+/// nothing was truncated. Handing that chunk over therefore needs no terminal
+/// error, and reporting one instead would turn a complete upload into a
+/// truncated body.
+///
+/// The delivery is metered like any other chunk, but the accounting exception
+/// for an empty account still applies, so a body whose only chunk is this one
+/// is delivered whatever its size. When the account is already charged, the
+/// chunk waits for the handler to make room and is abandoned if the wait
+/// expires. Admitting it regardless would leave the connection over its
+/// aggregate limit for as long as the handler held the chunk, and would report
+/// a body as delivered that the bounded wait then dropped.
+pub(super) async fn deliver_final_chunk_then_await(
+    wait: Duration,
+    delivery: FinalDelivery,
+    handler: &mut HandlerFuture,
+) -> HandlerWait {
+    let deadline = Instant::now() + wait;
+    let sending = send_final_chunk(deadline, delivery);
+    race_delivery(deadline, sending, handler, StreamingBodyOutcome::Abandoned).await
+}
+
+/// A completed final chunk on its way to its handler.
+///
+/// Grouped because the three travel together: the identity names the body in
+/// diagnostics, the pending send carries the chunk and its sender, and the
+/// budget is the admission measurement taken when the exchange closed.
+pub(super) struct FinalDelivery {
+    /// Body whose final chunk this is.
+    pub(super) identity: BodyIdentity,
+    /// Chunk that ends the body, with the sender it travels through.
+    pub(super) pending: PendingSend,
+    /// Admission measurement the chunk must fit before it is handed over.
+    pub(super) budget: ChunkBudget,
+}
+
+/// Race one delivery against the handler under one connection deadline.
+///
+/// Racing rather than sequencing is what lets a delivery that needs a channel
+/// slot make progress: only the handler can free one, and it is not running
+/// while a delivery is awaited on its own.
+///
+/// The delivery and the handler share one deadline. Giving the delivery its own
+/// wait would arm it one poll later than the outer bound, so the outer bound
+/// could fire first and drop the delivery before it recorded anything. When the
+/// deadline expires with the delivery still pending, the outcome it still owed
+/// is therefore recorded here, exactly once.
+pub(super) async fn race_delivery<D>(
+    deadline: Instant,
+    delivery: D,
+    handler: &mut HandlerFuture,
+    unsettled: StreamingBodyOutcome,
+) -> HandlerWait
+where
+    D: Future<Output = Delivery>,
+{
+    tokio::pin!(delivery);
+    let timer = sleep_until(deadline);
+    tokio::pin!(timer);
+    let mut delivered: Option<Delivery> = None;
+    loop {
+        tokio::select! {
+            // Biased so a settled delivery is acted on before the handler is
+            // polled again: when the failure could not be handed over, its
+            // reply cannot describe that failure.
+            biased;
+            outcome = &mut delivery, if delivered.is_none() => {
+                delivered = Some(outcome);
+                if outcome == Delivery::TimedOut {
+                    return HandlerWait::Deadline;
+                }
+            }
+            outcome = handler.as_mut() => {
+                // The reply settled before the failure did, so the body was
+                // abandoned undelivered. `deliver_terminal` records the
+                // outcome for every delivery it completes itself, and this
+                // branch is only reachable while none has.
+                if delivered.is_none() {
+                    StreamingBodyOutcome::Abandoned.record();
+                }
+                return HandlerWait::Replied(outcome);
+            }
+            () = &mut timer => {
+                // The deadline expired with the delivery unsettled, so this
+                // future drops it. Nothing else will report for it, so the
+                // outcome it owed is recorded once before returning.
+                if delivered.is_none() {
+                    unsettled.record();
+                }
+                return HandlerWait::Deadline;
+            }
+        }
+    }
+}
+
+/// Hand a completed final chunk to its handler, reporting what became of it.
+///
+/// A final chunk is the last thing a body sends, so no later chunk can report
+/// its fate: the outcome recorded here is the whole record of the body.
+async fn send_final_chunk(deadline: Instant, delivery: FinalDelivery) -> Delivery {
+    let FinalDelivery {
+        identity,
+        pending,
+        budget,
+    } = delivery;
+    let PendingSend { sender, chunk, .. } = pending;
+    let admitted = sender.send_chunk(chunk, budget.other_retained, budget.limit);
+    match timeout_at(deadline, admitted).await {
+        Ok(Ok(())) => {
+            StreamingBodyOutcome::Delivered.record();
+            Delivery::Accepted
+        }
+        Ok(Err(gone)) => {
+            stream_diagnostics::final_chunk_refused(identity, gone);
+            StreamingBodyOutcome::Abandoned.record();
+            Delivery::ReceiverGone
+        }
+        // The handler never made room, so the body it was owed is abandoned.
+        // The wait already returned `Deadline`, which suppresses the reply.
+        Err(_elapsed) => {
+            stream_diagnostics::final_chunk_timed_out(identity);
+            StreamingBodyOutcome::Abandoned.record();
+            Delivery::TimedOut
+        }
+    }
+}
+
+/// Tell the handler that its body failed, without waiting indefinitely.
+///
+/// The outcome is returned rather than only logged, because it decides whether
+/// waiting for the handler can still produce a reply worth forwarding.
+async fn deliver_terminal(
+    deadline: Instant,
+    failure: TerminalFailure,
+    sender: AccountedBodySender,
+) -> Delivery {
+    let TerminalFailure { identity, error } = failure;
+    match timeout_at(deadline, sender.send_terminal(error)).await {
+        Ok(Ok(())) => {
+            StreamingBodyOutcome::Terminal.record();
+            Delivery::Accepted
+        }
+        Ok(Err(gone)) => {
+            stream_diagnostics::terminal_receiver_gone(identity, gone);
+            StreamingBodyOutcome::Abandoned.record();
+            Delivery::ReceiverGone
+        }
+        Err(_elapsed) => {
+            stream_diagnostics::terminal_delivery_timed_out(identity);
+            StreamingBodyOutcome::DeliveryTimeout.record();
+            Delivery::TimedOut
+        }
+    }
+}
+
+/// What closing a live exchange must deliver before awaiting its handler.
+///
+/// A body that completes while it closes is not a failure: a whole message
+/// followed by a half-close is a common client shape, and reporting it as a
+/// truncated body would turn a complete upload into an error reply.
+pub(super) enum BodyClose {
+    /// The body completed, and its final chunk still has to reach the handler.
+    FinalChunk(PendingSend),
+    /// The body was truncated, and the handler is owed the reason.
+    Fail {
+        /// Failure the handler should observe.
+        failure: TerminalFailure,
+        /// Open body sender the failure is delivered through.
+        sender: AccountedBodySender,
+    },
+    /// Nothing can be delivered, so only the handler's own reply remains.
+    AwaitReply,
+}
+
+/// Decide what a closing exchange still owes its handler.
+///
+/// A pending final chunk takes precedence: it ends the body, so the failure
+/// that closed the exchange has nothing left to truncate.
+pub(super) fn body_close(
+    pending: Option<PendingSend>,
+    terminal: Option<io::Error>,
+    sender: Option<AccountedBodySender>,
+    identity: BodyIdentity,
+) -> BodyClose {
+    match (pending, terminal, sender) {
+        (Some(final_chunk), ..) if final_chunk.is_last() => BodyClose::FinalChunk(final_chunk),
+        (_, Some(error), Some(open_sender)) => BodyClose::Fail {
+            failure: TerminalFailure { identity, error },
+            sender: open_sender,
+        },
+        _ => BodyClose::AwaitReply,
+    }
+}

@@ -98,6 +98,7 @@ use tokio_util::sync::CancellationToken;
 use tracing::error;
 
 use super::{
+    StreamingHandler,
     envelope::{Envelope, Packet},
     inbound_handler::core::{StreamProcessingContext, process_stream},
     lifecycle::ConnectionTeardown,
@@ -127,7 +128,9 @@ where
 {
     /// Immutable middleware chains used to dispatch decoded envelopes.
     pub(crate) routes: &'a HashMap<u32, HandlerService<E>>,
-    /// Serializer borrowed from the prepared root for the connection lifetime.
+    /// Streaming handlers keyed by message identifier.
+    pub(crate) streaming_routes: &'a HashMap<u32, StreamingHandler>,
+    /// Serializer shared by all frames on the connection.
     pub(crate) serializer: &'a S,
     /// Codec configuration shared by all frames on the connection.
     pub(crate) codec: &'a F,
@@ -136,9 +139,6 @@ where
     /// Fragmentation settings used to initialize the frame pipeline.
     pub(crate) fragmentation: Option<crate::fragment::FragmentationConfig>,
     /// Protocol hooks built for this connection from the installed protocol.
-    ///
-    /// The hooks own the connection's single strong protocol reference and
-    /// dispatch setup themselves before moving into the frame pipeline.
     pub(crate) protocol_hooks: ProtocolHooks<F::Frame, ()>,
     /// Optional byte budgets enforced while processing the connection.
     pub(crate) memory_budgets: Option<MemoryBudgets>,
@@ -259,6 +259,7 @@ where
     async fn process(stream: W, config: InboundConfig<'a, S, E, F>) -> io::Result<()> {
         let InboundConfig {
             routes,
+            streaming_routes,
             serializer,
             codec,
             message_assembler,
@@ -277,19 +278,20 @@ where
             stream,
             StreamProcessingContext {
                 routes,
+                streaming_routes,
                 serializer,
                 codec,
                 message_assembler,
                 fragmentation,
                 protocol_hooks,
                 memory_budgets,
+                recovery_hook,
+                recovery_config,
                 read_timeout_ms,
                 shutdown,
                 push_queues,
                 session_registry,
                 peer_addr,
-                recovery_hook,
-                recovery_config,
             },
         )
         .await

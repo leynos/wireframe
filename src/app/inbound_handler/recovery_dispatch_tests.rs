@@ -16,7 +16,7 @@ use tokio_util::sync::CancellationToken;
 use super::{test_support::*, *};
 use crate::app::{
     frame_handling::Dispatch,
-    inbound_handler::frames::InboundFrames,
+    inbound_handler::frames::{InboundFrames, NextFrame},
     recovery_codec::DecodedItem,
 };
 
@@ -113,11 +113,11 @@ async fn continue_then_end_read(
     shutdown.cancel();
     let mut reader = futures::stream::empty();
     let read = inbound
-        .next(&mut reader, 50, &shutdown)
+        .next_frame(&mut reader, 50, &shutdown)
         .await
         .expect("a cancelled read ends without an error");
 
-    assert!(read.is_none(), "shutdown ends the read");
+    assert!(matches!(read, NextFrame::Closed), "shutdown ends the read");
     assert!(
         inbound.pending.is_some(),
         "the buffered failure survives the cancelled read"

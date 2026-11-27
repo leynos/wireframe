@@ -49,6 +49,8 @@ mod server_startup;
 
 mod server_supervisor;
 
+mod streaming_bodies;
+
 pub use app_response_sends::APP_RESPONSE_SENDS;
 pub(crate) use app_response_sends::{AppResponseSendOutcome, inc_app_response_send};
 pub use client_pool::{
@@ -89,6 +91,18 @@ pub(crate) use server_startup::{
 pub use server_supervisor::SERVER_SUPERVISOR_ABNORMAL_TERMINATIONS;
 #[cfg(not(loom))]
 pub(crate) use server_supervisor::inc_server_supervisor_abnormal_termination;
+pub use streaming_bodies::{
+    STREAMING_BODIES_PARKED,
+    STREAMING_BODY_BYTES_QUEUED,
+    STREAMING_BODY_OUTCOMES,
+};
+pub(crate) use streaming_bodies::{
+    StreamingBodyOutcome,
+    add_parked_body,
+    add_queued_body_bytes,
+    release_parked_bodies,
+    release_queued_body_bytes,
+};
 
 /// Name of the gauge tracking active connections.
 pub const CONNECTIONS_ACTIVE: &str = "wireframe_connections_active";

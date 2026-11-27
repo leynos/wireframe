@@ -2,13 +2,15 @@
 //!
 //! The inbound loop must not wait for the next client frame before it can
 //! deliver a server push, and a busy push stream must not starve inbound
-//! traffic. Both sources are therefore polled in one biased `tokio::select!`:
-//! pushes win ties, matching the connection actor's own priority ordering.
+//! traffic. [`super::stream_dispatch`] polls both sources in one biased
+//! `tokio::select!`: pushes win ties, matching the connection actor's own
+//! priority ordering. Bias alone would starve the client, so that loop serves a
+//! buffered frame first and gives the reader one non-blocking attempt after
+//! each batch.
 //!
-//! Bias alone would starve the client, because a continuously ready push lane
-//! wins every pass. Two rules bound that: a frame buffered during dispatch is
-//! always served first, and after each push batch the read gets one
-//! non-blocking attempt, so an inbound frame waits behind at most one batch.
+//! This module owns the write half of that arrangement: the batch the actor
+//! hands over, the transport it is written through, and the drain that follows
+//! a peer closing its write half.
 
 use futures::{Sink, Stream};
 use tokio::io;
@@ -20,12 +22,12 @@ use super::{
         codec_driver::{ActorFrameSink, FramePipeline},
         envelope::Envelope,
     },
-    frames::{InboundExpiry, InboundFrames, NextFrame},
+    frames::InboundExpiry,
     push_write::{finish_write, write_frame},
 };
 use crate::{
     codec::FrameCodec,
-    connection::{ConnectionActor, PendingPushes, PushSink},
+    connection::{ConnectionActor, PushSink},
     push::PushPriority,
     serializer::Serializer,
 };
@@ -33,112 +35,6 @@ use crate::{
 #[cfg(test)]
 #[path = "push_service_tests.rs"]
 mod tests;
-
-/// Outcome of waiting for the next unit of work on a connection.
-///
-/// `I` is the item the framed reader yields. The recovery-aware decoder yields
-/// a frame or a captured decode failure, while `F::Frame` is still the type the
-/// shared state buffers.
-pub(super) enum StreamStep<F: FrameCodec, I> {
-    /// Frames taken from the connection's push queues, in priority order.
-    Pushes(PendingPushes<F::Frame>),
-    /// One item read from the client: a frame, or a captured decode failure.
-    Frame(I),
-    /// Every push lane closed, so only the inbound read remains.
-    Idle,
-    /// The client closed its write half at a frame boundary, or the server
-    /// stopped serving this connection.
-    Closed,
-}
-
-/// Connection state one wait needs beyond the actor.
-///
-/// Grouped because the wait needs the buffered frame, the reader, and the
-/// shutdown token together, and a positional list of that length is easy to
-/// pass in the wrong order.
-pub(super) struct StreamWait<'a, F, R, I>
-where
-    F: FrameCodec,
-{
-    /// Buffered inbound item and the state its read timeout purges.
-    pub(super) inbound: &'a mut InboundFrames<I, F::Frame>,
-    /// Read half of the connection's framed transport.
-    pub(super) reader: &'a mut R,
-    /// Maximum interval to wait for the next inbound frame.
-    pub(super) read_timeout_ms: u64,
-    /// Token whose cancellation stops the read.
-    pub(super) shutdown: &'a CancellationToken,
-    /// Whether the inbound read gets one non-blocking attempt before pushes.
-    pub(super) read_first: bool,
-}
-
-/// Wait for queued pushes or the next inbound frame, whichever happens first.
-///
-/// Push lanes are only polled while they are open; once the last handle is
-/// dropped the select degenerates to a plain read instead of spinning on a
-/// permanently ready `None`.
-///
-/// The read is tried before the push lanes on the turn after a push batch, and
-/// only then. An always-ready push lane would otherwise win every biased pass
-/// and an inbound frame could wait indefinitely behind pushes. A frame
-/// buffered while the previous one was handled must not take that turn for
-/// itself: the select's read arm returns it without waiting, so it is served
-/// as soon as no push batch is ready, while a ready batch is served first and
-/// the buffered frame keeps its place for the next turn. Without that
-/// alternation a client that keeps its pipeline full — the peer watcher
-/// refills the buffered slot during every dispatch — would starve an accepted
-/// push indefinitely.
-///
-/// # Errors
-///
-/// Returns the transport error reported by the reader.
-pub(super) async fn next_stream_step<F, R, I>(
-    actor: &mut ConnectionActor<Envelope, (), F::Frame>,
-    wait: StreamWait<'_, F, R, I>,
-) -> io::Result<StreamStep<F, I>>
-where
-    F: FrameCodec,
-    R: Stream<Item = io::Result<I>> + Unpin,
-{
-    let StreamWait {
-        inbound,
-        reader,
-        read_timeout_ms,
-        shutdown,
-        read_first,
-    } = wait;
-    // Expiry is its own command, run before the loop can be held by a ready
-    // push lane. The wait below observes the same deadline, but a stream of
-    // ready batches cancels it before it fires, so the command is what keeps
-    // buffered state expiring on a push-only connection.
-    inbound.expire_silence(read_timeout_ms);
-    // The turn after a push batch is the reader's; a buffered frame waits for
-    // the select below instead, where a ready push batch outranks it. Probing
-    // on every buffered frame would hand the reader every pass, because the
-    // peer watcher can refill the slot while each frame is dispatched.
-    let should_try_read = read_first;
-    if should_try_read {
-        match inbound.try_next(reader).await? {
-            NextFrame::Ready(frame) => return Ok(StreamStep::Frame(frame)),
-            NextFrame::Closed => return Ok(StreamStep::Closed),
-            NextFrame::TimedOut => {}
-        }
-    }
-
-    let push_lanes_open = actor.has_open_push_lanes();
-    tokio::select! {
-        biased;
-
-        pushes = actor.next_pushes(), if push_lanes_open => Ok(pushes.map_or(
-            StreamStep::Idle,
-            StreamStep::Pushes,
-        )),
-        next = inbound.next(reader, read_timeout_ms, shutdown) => {
-            let frame = next?;
-            Ok(frame.map_or(StreamStep::Closed, StreamStep::Frame))
-        }
-    }
-}
 
 /// Transport resources shared by push writes and the EOF drain.
 ///

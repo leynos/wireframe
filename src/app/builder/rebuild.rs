@@ -66,6 +66,7 @@ where
     {
         WireframeApp {
             handlers: self.handlers,
+            streaming_handlers: self.streaming_handlers,
             middleware: self.middleware,
             serializer: params.serializer,
             on_connect: self.on_connect,
@@ -98,6 +99,7 @@ where
     {
         WireframeApp {
             handlers: self.handlers,
+            streaming_handlers: self.streaming_handlers,
             middleware: self.middleware,
             serializer: self.serializer,
             on_connect,

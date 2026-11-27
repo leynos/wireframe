@@ -69,6 +69,7 @@ where
 {
     ConnectionProcessingContext {
         routes: &prepared.routes,
+        streaming_routes: &prepared.streaming_routes,
         serializer: prepared.serializer.as_ref(),
         codec: &prepared.codec,
         on_connect: prepared.on_connect.as_deref(),

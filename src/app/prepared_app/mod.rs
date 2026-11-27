@@ -1,4 +1,17 @@
 //! Immutable application data prepared for connection handling.
+//!
+//! [`PreparedApp`] holds route services whose middleware chains were built once
+//! by [`WireframeApp::prepare`], plus the streaming handlers, serializer,
+//! codec, hooks, assembler, and budgets that every connection from it shares.
+//! [`PreparedApp::handle_connection_result`] and
+//! [`PreparedApp::handle_connection`] drive an accepted connection over those
+//! services, and the accessors expose the protocol, its hooks, and the
+//! assembler.
+//!
+//! Connection processing itself is in
+//! [`crate::app::inbound_handler::process_connection`]. Streaming handlers are
+//! carried without middleware transformation, so a streaming route never
+//! enters a prepared service chain.
 
 use std::{
     collections::HashMap,
@@ -39,6 +52,8 @@ use crate::{
 
 mod accessors;
 
+mod compat;
+
 /// An immutable application template with fully transformed route services.
 ///
 /// Obtain this type by consuming a [`WireframeApp`] with
@@ -53,6 +68,8 @@ pub struct PreparedApp<
 > {
     /// Fully transformed route services keyed by protocol message identifier.
     pub(in crate::app) routes: HashMap<u32, HandlerService<E>>,
+    /// Streaming handlers, which bypass middleware transformation.
+    pub(in crate::app) streaming_routes: HashMap<u32, super::StreamingHandler>,
     /// Serializer retained by every connection driven by this application.
     ///
     /// Owned by the prepared root and borrowed as `&S` for the connection
@@ -140,9 +157,12 @@ where
 {
     /// Consume builder registrations and prepare immutable route services.
     ///
-    /// Middleware transforms run once for every registered route during this
-    /// transition. The returned template can then drive multiple connections
-    /// without rebuilding its route chains.
+    /// Middleware transforms run once for each buffered route during this
+    /// transition; a streaming route is registered with its handler alone and
+    /// bypasses the middleware chain, because middleware transforms a whole
+    /// payload and a streaming handler owns its body incrementally. The
+    /// returned template can then drive multiple connections without rebuilding
+    /// its route chains.
     ///
     /// # Examples
     ///
@@ -195,6 +215,7 @@ where
             on_connect,
             on_disconnect,
             protocol,
+            streaming_handlers,
             push_dlq,
             push_queues,
             session_registry,
@@ -212,6 +233,7 @@ where
 
         Ok(PreparedApp {
             routes,
+            streaming_routes: streaming_handlers,
             serializer,
             codec,
             on_connect,
@@ -334,6 +356,7 @@ where
             stream,
             ConnectionProcessingContext {
                 routes: &self.routes,
+                streaming_routes: &self.streaming_routes,
                 serializer: self.serializer.as_ref(),
                 codec: &self.codec,
                 on_connect: self.on_connect.as_deref(),
@@ -358,34 +381,6 @@ where
             u64::try_from(clock.now().duration_since(started_at).as_millis()).unwrap_or(u64::MAX);
         span.record("elapsed_ms", elapsed_ms);
         result
-    }
-
-    /// Handle an accepted connection and log any processing failure.
-    ///
-    /// # Examples
-    ///
-    /// ```
-    /// use tokio::io::duplex;
-    /// use wireframe::app::{PreparedApp, WireframeApp};
-    ///
-    /// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
-    /// let prepared: PreparedApp = WireframeApp::new()?.prepare().await?;
-    /// let (client, server) = duplex(64);
-    /// drop(client);
-    /// prepared.handle_connection(server).await;
-    /// # Ok(())
-    /// # }
-    /// ```
-    pub async fn handle_connection<W>(&self, stream: W)
-    where
-        W: AsyncRead + AsyncWrite + Send + Unpin + 'static,
-    {
-        if let Err(error) = self.handle_connection_result(stream).await {
-            log::warn!(
-                "connection handling completed with error: correlation_id={:?}, error={error:?}",
-                None::<u64>
-            );
-        }
     }
 }
 

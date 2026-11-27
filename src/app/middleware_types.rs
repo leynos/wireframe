@@ -1,10 +1,21 @@
 //! Handler and middleware type aliases for `WireframeApp`.
+//!
+//! [`Handler`] and [`ResponseHandler`] are the buffered route handler shapes,
+//! and [`Route`] records which of the two a registration used.
+//! [`StreamingHandler`] is the opt-in shape for streaming routes: it receives
+//! [`RequestParts`] and a [`RequestBodyStream`], and returns an optional
+//! [`Bytes`] reply. Streaming handlers bypass the middleware chain, because
+//! middleware transforms a whole payload while a streaming handler owns its
+//! body incrementally.
 
 use std::{future::Future, pin::Pin, sync::Arc};
+
+use bytes::Bytes;
 
 use super::envelope::{Envelope, Packet};
 use crate::{
     middleware::{HandlerService, Transform},
+    request::{RequestBodyStream, RequestParts},
     response::Response,
 };
 
@@ -58,6 +69,22 @@ impl<E: Packet> Clone for Route<E> {
         }
     }
 }
+
+/// Alias for handlers that consume a streaming request body.
+///
+/// The handler receives routing metadata separately from the body and returns
+/// an optional response payload. The payload is [`Bytes`] rather than
+/// `Vec<u8>`: ADR 008 makes the zero-copy container the stable public payload
+/// type, and a new public surface must not add another `Vec<u8>` hand-off that
+/// the migration would later have to remove.
+/// Returning `None` suppresses the response frame. Streaming handlers do not
+/// run the middleware chain: middleware sees a whole payload, while a
+/// streaming handler owns the body incrementally.
+pub type StreamingHandler = Arc<
+    dyn Fn(RequestParts, RequestBodyStream) -> Pin<Box<dyn Future<Output = Option<Bytes>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// Trait representing middleware components.
 pub trait Middleware<E: Packet>:

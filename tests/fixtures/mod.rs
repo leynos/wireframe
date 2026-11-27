@@ -45,6 +45,7 @@ pub mod serializer_boundaries;
 pub mod server_streaming;
 pub mod slow_io_backpressure;
 pub mod stream_end;
+pub mod streaming_dispatch;
 pub mod streaming_request;
 pub mod test_observability;
 pub mod tested_examples;

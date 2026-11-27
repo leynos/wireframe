@@ -26,6 +26,8 @@ mod header;
 mod partial;
 pub mod series;
 pub mod state;
+mod streaming;
+mod streaming_state;
 pub mod types;
 mod validation;
 
@@ -42,6 +44,13 @@ pub use header::{
 };
 pub use series::MessageSeries;
 pub use state::MessageAssemblyState;
+pub use streaming::{
+    StreamingAssemblyId,
+    StreamingContinuation,
+    StreamingFailure,
+    StreamingFirstFrame,
+};
+pub use streaming_state::PurgedAssemblies;
 pub use types::{
     AssembledMessage,
     CorrelationId,
@@ -130,6 +139,8 @@ pub trait MessageAssembler: Send + Sync + 'static {
     fn parse_frame_header(&self, payload: &[u8]) -> Result<ParsedFrameHeader, io::Error>;
 }
 
+#[cfg(test)]
+mod streaming_tests;
 #[cfg(test)]
 mod test_helpers;
 #[cfg(test)]

@@ -40,6 +40,7 @@ pub(in crate::app::inbound_handler) async fn resolve_read_item<T>(
                 RecoveryState {
                     pipeline: &mut inbound.pipeline,
                     message_assembly: &mut inbound.message_assembly,
+                    evicted_streams: &mut inbound.evicted_streams,
                     shutdown,
                 },
             )

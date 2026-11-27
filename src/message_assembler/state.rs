@@ -16,6 +16,7 @@ use super::{
     budget::{AggregateBudgets, ContinuationLimits, check_aggregate_budgets},
     error::{MessageAssemblyError, MessageSeriesError, MessageSeriesStatus},
     partial::PartialAssembly,
+    streaming::{StreamingAssembly, StreamingAssemblyId},
     types::{AssembledMessage, FirstFrameInput},
     validation,
 };
@@ -81,11 +82,27 @@ use super::{
 #[derive(Debug)]
 pub struct MessageAssemblyState {
     /// Maximum body size permitted for one logical message.
-    max_message_size: NonZeroUsize,
+    pub(super) max_message_size: NonZeroUsize,
     /// Age after which incomplete assemblies are removed.
-    timeout: Duration,
-    /// Active assemblies keyed by protocol message key.
-    assemblies: HashMap<MessageKey, PartialAssembly>,
+    pub(super) timeout: Duration,
+    /// Active buffered assemblies keyed by protocol message key.
+    pub(super) assemblies: HashMap<MessageKey, PartialAssembly>,
+    /// Streaming assemblies. These retain ordering state only, so they are
+    /// deliberately excluded from aggregate budget accounting.
+    pub(super) streaming_assemblies: HashMap<MessageKey, StreamingAssembly>,
+    /// Generation handed to the next streaming assembly.
+    ///
+    /// A key can be reused once its assembly is dropped, so every streaming
+    /// partial carries a generation that lets a later notification name the
+    /// instance it belongs to.
+    pub(super) streaming_generation: u64,
+    /// Streaming assemblies evicted by a purge that ran during admission.
+    ///
+    /// Admission purges expired state for self-maintenance, but the caller that
+    /// can act on an eviction — the connection loop — only observes
+    /// [`Self::purge_expired_detailed`]. Evictions made on the admission path
+    /// are therefore retained here until that call reports them.
+    pub(super) deferred_streaming_evictions: Vec<StreamingAssemblyId>,
     /// Aggregate limits protecting connection and in-flight memory.
     budgets: AggregateBudgets,
 }
@@ -116,6 +133,9 @@ impl MessageAssemblyState {
             max_message_size,
             timeout,
             assemblies: HashMap::new(),
+            streaming_assemblies: HashMap::new(),
+            streaming_generation: 0,
+            deferred_streaming_evictions: Vec::new(),
             budgets: AggregateBudgets {
                 connection: connection_budget,
                 in_flight: in_flight_budget,
@@ -158,11 +178,12 @@ impl MessageAssemblyState {
         input: FirstFrameInput<'_>,
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
-        self.purge_expired_at(now);
+        self.purge_deferring_streaming(now);
         let key = input.header.message_key;
 
-        // Check for duplicate first frame
-        if self.assemblies.contains_key(&key) {
+        // Check for a duplicate first frame across both buffered and
+        // streaming assemblies: a key belongs to exactly one message.
+        if self.assemblies.contains_key(&key) || self.streaming_assemblies.contains_key(&key) {
             return Err(MessageAssemblyError::DuplicateFirstFrame { key });
         }
 
@@ -268,7 +289,7 @@ impl MessageAssemblyState {
         body: &[u8],
         now: Instant,
     ) -> Result<Option<AssembledMessage>, MessageAssemblyError> {
-        self.purge_expired_at(now);
+        self.purge_deferring_streaming(now);
 
         let key = header.message_key;
 
@@ -332,20 +353,16 @@ impl MessageAssemblyState {
 
     /// Remove expired assemblies using an explicit clock reading.
     ///
-    /// Returns the keys of evicted assemblies.
+    /// Returns the keys of evicted buffered assemblies. A streaming eviction
+    /// cannot be reported through this signature, but its consumer is waiting
+    /// on a body that will never complete, so the identity stays deferred and
+    /// the next [`Self::purge_expired_detailed_at`] still reports it. Callers
+    /// that mix the two APIs therefore do not lose the notification.
     pub fn purge_expired_at(&mut self, now: Instant) -> Vec<MessageKey> {
-        let mut evicted = Vec::new();
-        let timeout = self.timeout;
-
-        self.assemblies.retain(|key, partial| {
-            let expired = now.saturating_duration_since(partial.started_at) >= timeout;
-            if expired {
-                evicted.push(*key);
-            }
-            !expired
-        });
-
-        evicted
+        let purged = self.purge_expired_detailed_at(now);
+        self.deferred_streaming_evictions
+            .extend_from_slice(purged.streaming());
+        purged.buffered().to_vec()
     }
 
     /// Total bytes buffered across all in-flight assemblies.

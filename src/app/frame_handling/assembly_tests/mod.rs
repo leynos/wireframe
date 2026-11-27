@@ -1,7 +1,10 @@
 //! Unit tests for inbound message assembly integration.
 #![cfg(test)]
 
+mod streaming_first_frame;
+
 use std::{
+    collections::HashMap,
     fmt::Display,
     io,
     num::NonZeroUsize,
@@ -11,7 +14,7 @@ use std::{
 
 use rstest::{fixture, rstest};
 
-use super::{AssemblyRuntime, assemble_if_needed};
+use super::{AssemblyRuntime, FrameOutcome, assemble_if_needed};
 use crate::{
     app::Envelope,
     message_assembler::{FrameSequence, MessageAssemblyState, MessageKey},
@@ -32,18 +35,34 @@ fn message_assembly_state() -> Result<MessageAssemblyState, &'static str> {
 fn inbound_envelope(id: u32, payload: Vec<u8>) -> Envelope { Envelope::new(id, Some(7), payload) }
 
 /// Test helper to process a frame through the assembly pipeline.
+///
+/// These tests configure no streaming routes, so only a completed buffered
+/// message (or no dispatch at all) is a valid result.
 fn process_assembly_frame(
     assembler: &Arc<dyn crate::message_assembler::MessageAssembler>,
     state: &mut Option<MessageAssemblyState>,
     deser_failures: &mut u32,
     envelope: Envelope,
 ) -> io::Result<Option<Envelope>> {
-    assemble_if_needed(
-        AssemblyRuntime::new(Some(assembler.as_ref()), state),
+    let outcome = assemble_if_needed(
+        AssemblyRuntime::new(Some(assembler.as_ref()), state, &HashMap::new(), false),
         deser_failures,
         envelope,
         10,
-    )
+    )?;
+    Ok(buffered_envelope(outcome))
+}
+
+/// Reduce a buffered-only outcome to the completed envelope it delivered.
+///
+/// A streaming outcome here would mean the test harness registered a route it
+/// did not intend to exercise, so it is a harness fault rather than a result.
+fn buffered_envelope(outcome: FrameOutcome) -> Option<Envelope> {
+    match outcome {
+        FrameOutcome::Pending | FrameOutcome::Discarded => None,
+        FrameOutcome::Buffered(envelope) => Some(envelope),
+        other => panic!("expected a buffered outcome, got {other:?}"),
+    }
 }
 
 fn load_message_assembly_state(

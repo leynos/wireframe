@@ -1,0 +1,206 @@
+//! Tests for the parked-message count the connection state publishes.
+//!
+//! The queue is pure storage; the accounting belongs to the state that owns it
+//! and to the sink that state was built with. These cases build a state whose
+//! sink is a local tally, so an exact assertion is possible without touching
+//! the process-wide gauge.
+
+use std::sync::atomic::{AtomicUsize, Ordering};
+
+#[cfg(feature = "metrics")]
+use metrics_util::debugging::{DebugValue, DebuggingRecorder, Snapshotter};
+
+use super::ParkedMessage;
+use crate::{
+    app::{
+        Envelope,
+        inbound_handler::stream_handles::{LoopState, ParkedAccounting},
+    },
+    request::QueuedBytes,
+};
+
+/// Metric name the parked count is published under.
+#[cfg(feature = "metrics")]
+const PARKED_GAUGE: &str = crate::metrics::STREAMING_BODIES_PARKED;
+
+/// An empty payload is enough to exercise the accounting.
+fn empty_envelope() -> ParkedMessage { ParkedMessage::Envelope(Envelope::new(9, None, Vec::new())) }
+
+/// The parked count is balanced across parking, draining and teardown.
+///
+/// The accounting lives on the connection state that owns the queue: parking
+/// adds one, draining one releases one, and dropping the state releases
+/// whatever a connection still held, which is the path an aborted task or an
+/// unwinding handler also takes. The sink is the test's own, so the assertion
+/// is exact and touches no shared gauge.
+#[test]
+fn the_parked_count_balances_across_parking_draining_and_teardown() {
+    static ADDED: AtomicUsize = AtomicUsize::new(0);
+    static RELEASED: AtomicUsize = AtomicUsize::new(0);
+    fn add() { ADDED.fetch_add(1, Ordering::SeqCst); }
+    fn release(count: usize) { RELEASED.fetch_add(count, Ordering::SeqCst); }
+    ADDED.store(0, Ordering::SeqCst);
+    RELEASED.store(0, Ordering::SeqCst);
+
+    {
+        let mut state = LoopState::with_parked_accounting(
+            QueuedBytes::new(),
+            ParkedAccounting::new(add, release),
+        );
+        state
+            .park(empty_envelope())
+            .expect("the first message fits");
+        state
+            .park(empty_envelope())
+            .expect("the second message fits");
+        assert_eq!(
+            ADDED.load(Ordering::SeqCst),
+            2,
+            "each park is reported once"
+        );
+        assert_eq!(
+            RELEASED.load(Ordering::SeqCst),
+            0,
+            "nothing is released before the queue drains"
+        );
+
+        let drained = state.pop_parked();
+        assert!(drained.is_some(), "the oldest message is drained");
+        assert_eq!(
+            RELEASED.load(Ordering::SeqCst),
+            1,
+            "draining one message releases one"
+        );
+    }
+
+    assert_eq!(
+        RELEASED.load(Ordering::SeqCst),
+        2,
+        "dropping the state releases the message it still held"
+    );
+    assert_eq!(ADDED.load(Ordering::SeqCst), 2, "no park is reported twice");
+}
+
+/// Run `scenario` under a local recorder and return the totals it published.
+///
+/// The recorder is thread-local, so it captures exactly the publications the
+/// scenario makes: whether one happened at all is deterministic even though the
+/// totals are process-wide and race other tests. The scenario takes the
+/// snapshot itself, so a publication made by a teardown that runs after it
+/// cannot stand in for one the scenario was supposed to make.
+#[cfg(feature = "metrics")]
+fn parked_publications(scenario: impl FnOnce(&Snapshotter) -> Vec<f64>) -> Vec<f64> {
+    let recorder = DebuggingRecorder::new();
+    let snapshotter = recorder.snapshotter();
+    ::metrics::with_local_recorder(&recorder, || scenario(&snapshotter))
+}
+
+/// Gauge values this thread has published under the parked series.
+#[cfg(feature = "metrics")]
+fn parked_samples(snapshotter: &Snapshotter) -> Vec<f64> {
+    snapshotter
+        .snapshot()
+        .into_vec()
+        .into_iter()
+        .filter_map(|(key, _, _, value)| {
+            if key.key().name() != PARKED_GAUGE {
+                return None;
+            }
+            match value {
+                DebugValue::Gauge(total) => Some(total.into_inner()),
+                _ => None,
+            }
+        })
+        .collect()
+}
+
+/// A connection built the production way publishes to the shared gauge.
+///
+/// `LoopState::new` is the only place production wires the process-wide parked
+/// gauge. Replacing `ParkedAccounting::process_wide` with a no-op leaves the
+/// local recorder empty and fails here.
+///
+/// The assertion stops at "a sample was published" on purpose. A gauge sample
+/// carries the process-wide total at the moment it was set, not this thread's
+/// contribution, so a concurrent test's park can move the value between two of
+/// these publications; and the recorder keeps only the last value per series, so
+/// the number of publications is not recoverable either. The exact 2 → 1 → 0
+/// sequence is asserted in the sibling test, whose sink is the test's own.
+#[cfg(feature = "metrics")]
+#[test]
+fn a_production_state_publishes_the_shared_parked_gauge() {
+    let published = parked_publications(|snapshotter| {
+        let mut state = LoopState::new(QueuedBytes::new());
+        state
+            .park(empty_envelope())
+            .expect("the first message fits");
+        // Read while the state is still alive: the teardown publishes too, so a
+        // later reading would not show whether parking published at all.
+        parked_samples(snapshotter)
+    });
+
+    assert!(
+        !published.is_empty(),
+        "a production state must publish the parked gauge when it parks a message"
+    );
+}
+
+/// Dropping the loop state releases what the connection still held.
+///
+/// This exercises the destructor directly, not a live connection: it parks two
+/// messages, drains one, and lets the block end. `Drop for LoopState` is the one
+/// path every ending takes, so the same release runs when a connection task is
+/// cancelled while it awaits and when a handler unwinds — but those endings are
+/// not driven here, and no connection-level scenario is claimed.
+///
+/// The sink counts calls and forwards to the process-wide tallies, so the
+/// assertion covers both that the drop releases and that releasing reaches the
+/// shared gauge. The counts are exact because they are per-call; the gauge's own
+/// value is process-wide and would race a concurrent test.
+#[cfg(feature = "metrics")]
+#[test]
+fn dropping_the_loop_state_releases_through_the_shared_tallies() {
+    static ADDED: AtomicUsize = AtomicUsize::new(0);
+    static RELEASED: AtomicUsize = AtomicUsize::new(0);
+    fn add() {
+        ADDED.fetch_add(1, Ordering::SeqCst);
+        crate::metrics::add_parked_body();
+    }
+    fn release(count: usize) {
+        RELEASED.fetch_add(count, Ordering::SeqCst);
+        crate::metrics::release_parked_bodies(count);
+    }
+    ADDED.store(0, Ordering::SeqCst);
+    RELEASED.store(0, Ordering::SeqCst);
+
+    {
+        let mut state = LoopState::with_parked_accounting(
+            QueuedBytes::new(),
+            ParkedAccounting::new(add, release),
+        );
+        state
+            .park(empty_envelope())
+            .expect("the first message fits");
+        state
+            .park(empty_envelope())
+            .expect("the second message fits");
+        assert!(state.pop_parked().is_some(), "one message is drained");
+        assert_eq!(
+            (
+                ADDED.load(Ordering::SeqCst),
+                RELEASED.load(Ordering::SeqCst)
+            ),
+            (2, 1),
+            "two parks and one drain are reported before the connection ends"
+        );
+    }
+
+    assert_eq!(
+        (
+            ADDED.load(Ordering::SeqCst),
+            RELEASED.load(Ordering::SeqCst)
+        ),
+        (2, 2),
+        "the drop that ends the connection releases the message it still held"
+    );
+}

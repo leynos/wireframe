@@ -37,25 +37,29 @@ pub(crate) enum MemoryPressureAction {
 
 /// Evaluate memory budget pressure and return the appropriate action.
 ///
-/// Checks the hard cap first (connection abort at 100% of aggregate limit),
-/// then the soft limit (read pacing at 80%). Returns `Continue` when no
-/// budgets are configured or buffered bytes are below both thresholds.
+/// The hard cap is checked first (connection abort at 100% of the aggregate
+/// limit), then the soft limit (read pacing at 80%). `retained_bytes` covers
+/// request-body chunks queued for a handler and complete messages parked
+/// while a streaming body owns the dispatch slot.
+/// Including them keeps the aggregate cap meaningful for streaming routes,
+/// whose frames never enter the assembly budgets.
 #[must_use]
-pub(crate) fn evaluate_memory_pressure(
+pub(crate) fn evaluate_memory_pressure_with_retained(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
     fragment_bytes: usize,
+    retained_bytes: usize,
 ) -> MemoryPressureAction {
-    if has_hard_cap_been_breached(state, budgets, fragment_bytes) {
+    if has_hard_cap_been_breached(state, budgets, fragment_bytes, retained_bytes) {
         return MemoryPressureAction::Abort;
     }
-    if should_pause_inbound_reads(state, budgets, fragment_bytes) {
+    if should_pause_inbound_reads(state, budgets, fragment_bytes, retained_bytes) {
         return MemoryPressureAction::Pause(SOFT_LIMIT_PAUSE_DURATION);
     }
     MemoryPressureAction::Continue
 }
 
-/// Act on the result of [`evaluate_memory_pressure`].
+/// Act on the result of [`evaluate_memory_pressure_with_retained`].
 ///
 /// - `Abort`: logs a warning and returns `Err(InvalidData)`.
 /// - `Pause(d)`: logs at debug level, sleeps for `d`, then purges expired assemblies via the
@@ -98,13 +102,12 @@ pub(super) fn has_hard_cap_been_breached(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
     fragment_bytes: usize,
+    retained_bytes: usize,
 ) -> bool {
     let Some(memory_budgets) = budgets else {
         return false;
     };
-    let buffered_bytes = state
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
-        .saturating_add(fragment_bytes);
+    let buffered_bytes = retained_total(state, fragment_bytes, retained_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     buffered_bytes > aggregate_limit
 }
@@ -115,20 +118,36 @@ pub(super) fn should_pause_inbound_reads(
     state: Option<&MessageAssemblyState>,
     budgets: Option<MemoryBudgets>,
     fragment_bytes: usize,
+    retained_bytes: usize,
 ) -> bool {
     let Some(memory_budgets) = budgets else {
         return false;
     };
 
-    let buffered_bytes = state
-        .map_or(0, MessageAssemblyState::total_buffered_bytes)
-        .saturating_add(fragment_bytes);
+    let buffered_bytes = retained_total(state, fragment_bytes, retained_bytes);
     let aggregate_limit = active_aggregate_limit_bytes(memory_budgets);
     is_at_or_above_soft_limit(buffered_bytes, aggregate_limit)
 }
 
-/// Select the stricter connection-wide or in-flight assembly cap.
-fn active_aggregate_limit_bytes(budgets: MemoryBudgets) -> usize {
+/// Sum every byte the connection currently retains.
+fn retained_total(
+    state: Option<&MessageAssemblyState>,
+    fragment_bytes: usize,
+    retained_bytes: usize,
+) -> usize {
+    state
+        .map_or(0, MessageAssemblyState::total_buffered_bytes)
+        .saturating_add(fragment_bytes)
+        .saturating_add(retained_bytes)
+}
+
+/// Select the stricter connection-wide or in-flight cap.
+///
+/// This is the limit the streaming dispatch slot uses when admitting a body
+/// chunk, so queued body bytes and parked messages share one aggregate budget
+/// with assembly partials and retained fragments.
+#[must_use]
+pub(crate) fn active_aggregate_limit_bytes(budgets: MemoryBudgets) -> usize {
     budgets
         .bytes_per_connection()
         .as_usize()

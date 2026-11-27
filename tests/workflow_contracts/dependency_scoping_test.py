@@ -66,14 +66,24 @@ def test_metrics_feature_does_not_enable_exporter(manifest: dict[str, typ.Any]) 
     )
 
 
-def test_request_stream_reader_enables_tokio_util_io_directly(manifest: dict[str, typ.Any]) -> None:
+def test_request_stream_reader_enables_tokio_util_io_directly(
+    manifest: dict[str, typ.Any],
+) -> None:
     """Request streaming must not rely on exporter feature unification."""
     assert "io" in manifest["dependencies"]["tokio-util"]["features"], (
         "tokio-util must enable io directly for request streaming"
     )
-    assert "use tokio_util::io::StreamReader;" in (
-        ROOT / "src" / "request" / "mod.rs"
-    ).read_text(), "src/request/mod.rs must retain its StreamReader import"
+    sources = {
+        path: path.read_text() for path in (ROOT / "src" / "request").rglob("*.rs")
+    }
+    used_directly = any(
+        "use tokio_util::io::StreamReader;" in text for text in sources.values()
+    )
+    checked = ", ".join(sorted(str(path.relative_to(ROOT)) for path in sources))
+    assert used_directly, (
+        "a module under src/request must retain the StreamReader import; "
+        f"checked {checked}"
+    )
 
 
 def test_itoa_remains_available_to_resp_example(manifest: dict[str, typ.Any]) -> None:

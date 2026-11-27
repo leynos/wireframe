@@ -277,16 +277,18 @@ abstraction, and standardized per-connection memory budgets.
   stream of `Result<Bytes, std::io::Error>`.
 - [x] 8.1.3. Add an `AsyncRead` adaptor for `RequestBodyStream` so protocol
   crates can reuse existing parsers.
-- [ ] 8.1.4. Integrate streaming request extraction with the handler dispatch
-  path. Superseded by
-  [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md): extractor
-  dispatch was never wired in and the extractor API was removed. The server
-  creates no request body stream; a caller that wants one pairs a producer and
-  consumer over `body_channel` itself, as
-  [ADR 002](adrs/adr-0002-streaming-requests-and-shared-message-assembly.md)
-  describes.
+- [x] 8.1.4. Integrate streaming request extraction with the handler dispatch
+  path. Opt-in `WireframeApp::streaming_route` delivers `RequestParts` and a
+  `RequestBodyStream` while frames arrive, for the one message that owns the
+  connection's dispatch slot. A message that completes while another body owns
+  that slot is parked and delivered afterwards as a pre-filled body. See
+  [ADR 018](adrs/adr-0018-streaming-request-body-dispatch.md) and the coverage
+  in `tests/features/streaming_dispatch.feature`. The extractor-based form was
+  removed before it was wired in; see
+  [ADR 017](adrs/adr-0017-remove-route-extractors-and-app-data.md).
 - [x] 8.1.5. Write tests for buffered-to-streaming fallback and back-pressure
-  propagation.
+  propagation, including the connection-level dispatch slot exercised by
+  `tests/streaming_request_server/`.
 
 ### 8.2. MessageAssembler abstraction
 

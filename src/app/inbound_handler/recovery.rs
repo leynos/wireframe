@@ -64,6 +64,11 @@ pub(super) struct RecoveryState<'a, T> {
     pub(super) pipeline: &'a mut FramePipeline<T>,
     /// Assembly state whose expired assemblies the pause drops.
     pub(super) message_assembly: &'a mut Option<MessageAssemblyState>,
+    /// Streaming bodies the pause evicted, for the loop to fail.
+    ///
+    /// A pause cannot answer a handler, so the ids are collected for the
+    /// loop's own expiry path rather than dropped with the assemblies.
+    pub(super) evicted_streams: &'a mut Vec<crate::message_assembler::StreamingAssemblyId>,
     /// Connection shutdown signal; cancelling it ends the pause early.
     pub(super) shutdown: &'a CancellationToken,
 }
@@ -156,13 +161,14 @@ impl<'a> RecoveryCoordinator<'a> {
         let RecoveryState {
             pipeline,
             message_assembly,
+            evicted_streams,
             shutdown,
         } = state;
         match action {
             RecoveryAction::Drop => None,
             RecoveryAction::Quarantine(duration) => {
                 await_quarantine(duration, shutdown).await;
-                purge_expired(pipeline, message_assembly);
+                evicted_streams.extend(purge_expired(pipeline, message_assembly));
                 None
             }
             // Return the decoder's own error so the caller's teardown path sees
