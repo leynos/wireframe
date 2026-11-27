@@ -4,7 +4,9 @@
 //! appear as context prefixes. Tests enable per-command timing so an event is
 //! emitted within each span, making the span name visible in captured output.
 
-use futures::StreamExt;
+use std::panic::AssertUnwindSafe;
+
+use futures::{FutureExt as _, StreamExt};
 use rstest::rstest;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing_test::traced_test;
@@ -52,6 +54,33 @@ where
 
     server_result?;
     Ok(())
+}
+
+/// A panicking body must leave no echo server task behind.
+///
+/// The body leaks the client, so its socket stays open and the serve loop
+/// cannot end on EOF: only the guard's abort can stop it. If the helper
+/// returned while the task were still alive, the live-task count would not
+/// return to the baseline taken before the call.
+#[tokio::test]
+async fn with_echo_client_reaps_the_server_when_the_body_panics() {
+    let runtime = tokio::runtime::Handle::current();
+    let baseline = runtime.metrics().num_alive_tasks();
+
+    let harness = with_echo_client(TracingConfig::default(), |client, _addr| async move {
+        // Deliberately leak the client so the serve loop cannot finish.
+        std::mem::forget(client);
+        panic!("body panicked");
+    });
+
+    let outcome = AssertUnwindSafe(harness).catch_unwind().await;
+
+    assert!(outcome.is_err(), "the body panic must be resumed");
+    assert_eq!(
+        runtime.metrics().num_alive_tasks(),
+        baseline,
+        "the echo server must be reaped before the helper returns"
+    );
 }
 
 /// Return a closure that asserts at least one log line contains

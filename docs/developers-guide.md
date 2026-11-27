@@ -3062,8 +3062,10 @@ fallback for a cleanup future that is itself cancelled: cancellation cannot
 await, so the task stops but its outcome is discarded. It is not a substitute
 for the runners, because it observes nothing.
 
-The rule: **await the server handle on the success path; reserve `abort` for
-the failure and panic paths, and always await the aborted handle.**
+The rule, by server lifetime: **join naturally a server whose loop is bounded by
+its client; abort and await a long-lived server once the body succeeds, because
+a natural join there has no disconnect to end it; and on the failure and panic
+paths always abort and await, whatever the server.**
 
 The contract covers `with_echo_client` in `src/client/tests/tracing.rs`,
 `run_hook_test_with_server` in `src/client/tests/request_hooks_support.rs`, the

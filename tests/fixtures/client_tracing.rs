@@ -269,3 +269,31 @@ impl ClientTracingWorld {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for scenario teardown.
+
+    use tokio::sync::oneshot::{self, error::TryRecvError};
+
+    use super::*;
+
+    /// Teardown must await the abort, so the task is gone before the runtime.
+    #[test]
+    fn drop_reaps_the_server_before_the_runtime_is_dropped() {
+        let mut world = client_tracing_world();
+        let (sender, mut receiver) = oneshot::channel::<()>();
+        let runtime = world.handle().expect("runtime");
+        world.server = Some(ServerTaskGuard::new(runtime.spawn(async move {
+            let _keep_alive = sender;
+            std::future::pending::<()>().await;
+        })));
+
+        drop(world);
+
+        assert!(
+            matches!(receiver.try_recv(), Err(TryRecvError::Closed)),
+            "teardown must await the abort, which drops the server task"
+        );
+    }
+}

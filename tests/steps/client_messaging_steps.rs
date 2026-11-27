@@ -109,3 +109,25 @@ fn then_unique_correlation_ids(client_messaging_world: &mut ClientMessagingWorld
 fn then_response_matches(client_messaging_world: &mut ClientMessagingWorld) -> TestResult {
     client_messaging_world.verify_response_matches_expected()
 }
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for step error propagation.
+
+    use super::*;
+    use crate::fixtures::client_messaging::{client_messaging_world, install_panicking_server};
+
+    /// Replacing a server must report the old one's panic as a step failure.
+    #[test]
+    fn given_mismatch_server_propagates_a_panicking_server() {
+        let mut world = client_messaging_world().expect("build world");
+        install_panicking_server(&mut world);
+
+        let outcome = given_mismatch_server(&mut world);
+
+        assert!(
+            outcome.is_err(),
+            "the step must propagate the server panic instead of replacing it"
+        );
+    }
+}

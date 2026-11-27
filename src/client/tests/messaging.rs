@@ -9,44 +9,19 @@ use std::{
 };
 
 use rstest::rstest;
-use tokio::net::TcpStream;
 use wireframe_testing::ServerMode;
 
-use super::helpers::{FrameServerHandle, TestResult, spawn_frame_server, spawn_listener};
+use super::helpers::{FrameServerHandle, TestResult, connect_guarded, spawn_frame_server};
 use crate::{
     WireframeError,
     app::{Envelope, Packet},
     client::{ClientError, WireframeClient},
     correlation::CorrelatableFrame,
-    rewind_stream::RewindStream,
-    serializer::BincodeSerializer,
     test_helpers::ServerTaskGuard,
 };
 
 /// Error type used by the guarded bodies in these tests.
 type BodyError = Box<dyn std::error::Error + Send + Sync>;
-
-/// Client returned by [`connect_with_guarded_accept`].
-type AcceptClient = WireframeClient<BincodeSerializer, RewindStream<TcpStream>>;
-
-/// Bind a single-accept listener and connect to it with the accept task owned.
-///
-/// The accept task is guarded before the connection is attempted, so a failed
-/// connect aborts and awaits it rather than leaving it detached. On success the
-/// accepted stream is returned too, so the caller decides when the peer sees
-/// the connection close.
-async fn connect_with_guarded_accept() -> TestResult<(AcceptClient, TcpStream)> {
-    let (addr, accept) = spawn_listener().await?;
-
-    let (client, accepted) = ServerTaskGuard::new(accept)
-        .run_and_join(async move {
-            let client = WireframeClient::builder().connect(addr).await?;
-            Ok::<_, BodyError>(client)
-        })
-        .await?;
-
-    Ok((client, accepted?))
-}
 
 /// Spawn a TCP listener and return an echo server that preserves correlation IDs.
 async fn spawn_envelope_echo_server() -> TestResult<(std::net::SocketAddr, FrameServerHandle)> {
@@ -85,7 +60,7 @@ fn count_error(count: &Arc<AtomicUsize>) -> std::future::Ready<()> {
 
 #[tokio::test]
 async fn next_correlation_id_generates_sequential_unique_ids() {
-    let (client, _server_stream) = connect_with_guarded_accept()
+    let (client, _server_stream) = connect_guarded(|builder| builder)
         .await
         .expect("connect under a guarded accept");
 
@@ -355,7 +330,7 @@ async fn round_trip_with_various_payload_sizes(#[case] payload: Vec<u8>) {
 
 #[tokio::test]
 async fn receive_envelope_maps_closed_connection_to_transport_wireframe_error() {
-    let (mut client, server_stream) = connect_with_guarded_accept()
+    let (mut client, server_stream) = connect_guarded(|builder| builder)
         .await
         .expect("connect under a guarded accept");
 

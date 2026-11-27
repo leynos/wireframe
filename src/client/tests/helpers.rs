@@ -194,7 +194,26 @@ where
     C: Send + 'static,
 {
     let (addr, accept) = spawn_listener().await?;
+    connect_guarded_on(accept, addr, configure_builder).await
+}
 
+/// Connect to `addr` while owning `accept`, which may serve another socket.
+///
+/// Splitting the handle from the address lets a test pair a pending accept
+/// task with an address it cannot reach, so the connection-failure path is
+/// exercised deterministically rather than guessed at.
+async fn connect_guarded_on<F, C>(
+    accept: AcceptHandle,
+    addr: SocketAddr,
+    configure_builder: F,
+) -> TestResult<(
+    WireframeClient<BincodeSerializer, crate::rewind_stream::RewindStream<TcpStream>, C>,
+    TcpStream,
+)>
+where
+    F: FnOnce(WireframeClientBuilder) -> WireframeClientBuilder<BincodeSerializer, (), C>,
+    C: Send + 'static,
+{
     let (client, accepted) = ServerTaskGuard::new(accept)
         .run_and_join(async move {
             let client = configure_builder(WireframeClient::builder())
@@ -307,14 +326,19 @@ pub struct FailingSerializer;
 
 impl MessageCompatibilitySerializer for FailingSerializer {}
 
+impl FailingSerializer {
+    /// Build the forced failure both trait methods report.
+    fn fail<T>(message: &'static str) -> Result<T, Box<dyn std::error::Error + Send + Sync>> {
+        Err(Box::new(std::io::Error::other(message)))
+    }
+}
+
 impl Serializer for FailingSerializer {
     fn serialize<M>(&self, _value: &M) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>>
     where
         M: crate::message::EncodeWith<Self>,
     {
-        Err(Box::new(std::io::Error::other(
-            "forced serialization failure",
-        )))
+        Self::fail("forced serialization failure")
     }
 
     fn deserialize<M>(
@@ -324,9 +348,7 @@ impl Serializer for FailingSerializer {
     where
         M: crate::message::DecodeWith<Self>,
     {
-        Err(Box::new(std::io::Error::other(
-            "forced deserialization failure",
-        )))
+        Self::fail("forced deserialization failure")
     }
 }
 
@@ -343,3 +365,38 @@ macro_rules! socket_option_test {
 }
 
 pub(crate) use socket_option_test;
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for the guarded connection helper.
+
+    use tokio::sync::oneshot::{self, error::TryRecvError};
+
+    use super::*;
+
+    /// A refused connection must still reap the accept task.
+    ///
+    /// The accept task serves a different socket and never completes, so only
+    /// the guard's abort can end it. The channel closes when the task's future
+    /// is dropped, which proves the handle was awaited rather than detached.
+    #[tokio::test]
+    async fn connect_guarded_reaps_the_accept_task_when_the_connection_fails() {
+        let (accept_listener, _accept_addr) = bind_loopback().await.expect("bind accept listener");
+        let (sender, mut receiver) = oneshot::channel::<()>();
+        let accept: AcceptHandle = tokio::spawn(async move {
+            let _keep_alive = sender;
+            accept_listener.accept().await.map(|(stream, _)| stream)
+        });
+
+        let (refused_listener, refused_addr) = bind_loopback().await.expect("bind refused address");
+        drop(refused_listener);
+
+        let outcome = connect_guarded_on(accept, refused_addr, |builder| builder).await;
+
+        assert!(outcome.is_err(), "a refused connection must be reported");
+        assert!(
+            matches!(receiver.try_recv(), Err(TryRecvError::Closed)),
+            "the accept task must be reaped when the connection fails"
+        );
+    }
+}
