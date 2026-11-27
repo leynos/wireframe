@@ -2067,6 +2067,33 @@ scripts behind them.
 gives the reasons, and [the release guide](releasing-crates.md) gives the
 procedure.
 
+### Release tools
+
+The workflows call four of Wireframe's own tools in `scripts/release`:
+
+- `workspace_candidate.py` is the library behind the command-line tool. It
+  describes the packaged archives as a candidate, stores that record, and
+  checks archives against it.
+- `release_workspace_cli.py` is the command-line tool the jobs run. It has one
+  subcommand per step of the release (Table 1).
+- `consumer-smoke.sh` builds a throwaway crate against the published version,
+  as a user would, in the `verify-crates-io` job.
+- `github-release.sh` creates the GitHub release from the retained archives,
+  in the `github-release` job.
+
+| Subcommand | Job                                   | Step                                              |
+| ---------- | ------------------------------------- | ------------------------------------------------- |
+| `record`   | `package`, in `release-package.yml`   | Describe the packaged archives and retain them    |
+| `survey`   | `package`, in `release-package.yml`   | Decide whether to publish, from crates.io's state |
+| `check`    | `publish-crates-io`, in `release.yml` | Require a rebuilt candidate to match the record   |
+| `verify`   | `verify-crates-io`, in `release.yml`  | Compare the published archives with the record    |
+
+*Table 1: `release_workspace_cli.py` subcommands and the jobs that run them.*
+
+The other modules come from Netsuke;
+[the scripts' README](../scripts/release/README.md) records their provenance
+and the commit they were taken from.
+
 Dependabot does not watch `tools/lading`, so move its pin by hand.
 
 ## Workflow pins and Dependabot
