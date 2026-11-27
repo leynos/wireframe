@@ -3,6 +3,8 @@
 import hashlib
 import typing as typ
 
+import pytest
+
 from release_crates_io_adapter import (
     ABSENT_STATUSES,
     download_url,
@@ -72,3 +74,11 @@ def test_gzip_archive_is_hashed_by_the_adapter(tmp_path: pathlib.Path) -> None:
     assert observation.sha256 == hashlib.sha256(ARCHIVE_BYTES).hexdigest(), (
         "the adapter must hash the exact saved archive bytes"
     )
+
+
+def test_unreadable_success_body_raises_rather_than_observing(
+    tmp_path: pathlib.Path,
+) -> None:
+    """A 200 whose saved body cannot be read is an error, not an observation."""
+    with pytest.raises(FileNotFoundError):
+        observe_download_file(200, tmp_path / "never-saved.crate")

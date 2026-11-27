@@ -1,7 +1,8 @@
 """Translate crates.io download responses at their API boundary.
 
 This adapter owns the public download URL, required request headers, download
-status mapping, absence-body signature, and file hashing. The verifier receives only
+status mapping, absence-body signature, and file hashing. It is the I/O
+boundary: it reads the saved archive from disk. The verifier receives only
 :class:`verify_crates_io_bytes.DownloadObservation`; it never reads a path or
 interprets transport values.
 
@@ -72,6 +73,13 @@ def observe_download_file(status: int, archive: pathlib.Path) -> DownloadObserva
     DownloadObservation
         The observed presence, absence, or uncertainty and its digest when
         bytes were present.
+
+    Raises
+    ------
+    OSError
+        If a 200 response's saved archive cannot be opened, read or hashed.
+        The error propagates, so an unreadable body is never mistaken for an
+        absent or present archive.
 
     Examples
     --------
