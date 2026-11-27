@@ -2,7 +2,7 @@
 .PHONY: lint-python-docs
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
-.PHONY: test-msrv
+.PHONY: test-msrv package-crates publish-check
 # Kept off the build/test line above so that unrelated edits to that long line
 # cannot collide with the lint targets during a stack restack.
 .PHONY: lint-doc lint-clippy lint-whitaker
@@ -83,6 +83,15 @@ WHITAKER_FLAGS ?= --all -- --workspace --all-targets --all-features
 NIXIE_VERSION ?= 1.1.0
 UV ?= uv
 UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
+# lading is pinned once, in `tools/lading`, whose lock hashes it and everything
+# it imports. `--locked` refuses a lock that no longer matches the project.
+LADING ?= $(UV_ENV) $(UV) run --python 3.14 --project tools/lading --locked lading
+# The crates published to crates.io, in `lading.toml` order.
+PUBLISHED_CRATES ?= wireframe wireframe_testing
+# A non-empty blank value displaces the `rustflags` in `.cargo/config.toml`, which
+# name a linker that a release runner does not install. Archive bytes do not
+# depend on it.
+RELEASE_RUSTFLAGS ?= $(empty) $(empty)
 
 # The CV-005 CodeScene contracts live in shared-actions and run from a full
 # commit, so a fix is a pin bump. `.github/cv005.toml` holds this repository's
@@ -163,6 +172,16 @@ test-feature-gate: ## Verify feature-gated APIs are actually absent when disable
 # Installs and uses the declared minimum toolchain, not the pinned nightly.
 test-msrv: ## Check the workspace and a fresh consumer on the minimum Rust version
 	./scripts/check-msrv.sh
+
+# Cargo resolves the sibling crate from the packages built here rather than from
+# crates.io, so this works whether or not the workspace version is published.
+package-crates: ## Package and verify every published crate from a clean checkout
+	RUSTFLAGS="$(RELEASE_RUSTFLAGS)" $(CARGO) package --locked $(addprefix -p ,$(PUBLISHED_CRATES))
+
+# Resolves the sibling crate from crates.io, as a release does, so it needs a
+# workspace version that is not published yet. See docs/releasing-crates.md.
+publish-check: ## Rehearse the release with lading, without uploading anything
+	RUSTFLAGS="$(RELEASE_RUSTFLAGS)" $(LADING) publish --workspace-root .
 
 test-pool-no-metrics: ## Check the pool builds without metrics
 	RUSTFLAGS="$(DEV_WARNING_FLAGS)" $(CARGO) $(DEV_FAST) check --lib --no-default-features --features pool,serializer-bincode $(BUILD_JOBS)

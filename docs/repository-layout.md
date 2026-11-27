@@ -26,5 +26,7 @@ and shared test support. Its main areas are:
   configuration. The
   [development builds](developers-guide.md#development-builds) section
   documents Make targets and toolchain requirements.
+- `lading.toml` and `tools/lading/` configure and pin the release tool. The
+  [release guide](releasing-crates.md) documents the procedure.
 - `docs/` contains design documents, decisions, guides, and reference material.
 - `.github/` contains CI workflows and repository automation.

@@ -1,0 +1,13 @@
+# The release tooling's one pin. `make publish-check` and the release workflow
+# both run lading from this project with `--locked`, so every transitive
+# dependency is hash-checked too. That matters most in the publishing job, where
+# these packages run beside a short-lived crates.io token.
+[project]
+name = "wireframe-release-tools"
+version = "0.0.0"
+description = "Locked release tooling for the Wireframe workspace."
+requires-python = ">=3.14"
+dependencies = ["lading==0.4.0b1"]
+
+[tool.uv]
+package = false

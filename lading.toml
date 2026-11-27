@@ -1,0 +1,21 @@
+# Configuration for `lading`, which packages and publishes the workspace.
+# See docs/releasing-crates.md for the procedure.
+
+[publish]
+# `wireframe_testing` depends on `wireframe`, so it can be resolved only once
+# `wireframe` is on crates.io at the version being released.
+# `tests/workflow_contracts/lading_config_test.py` holds this list to the
+# workspace's publishable crates and their dependency order.
+order = ["wireframe", "wireframe_testing"]
+strip_patches = "per-crate"
+
+[bump]
+# Internal crates are never published and keep their own placeholder versions.
+exclude = ["wireframe-loom", "wireframe-verification"]
+
+# The pre-flight is for a workstation, where nothing has run the suite first.
+# The release workflow skips it on the step, because the required checks have
+# already tested the commit. The skip is deliberately not set here: a file
+# cannot tell the two apart.
+[preflight]
+unit_tests_only = true

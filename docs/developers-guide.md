@@ -1511,6 +1511,15 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
+- `make package-crates` packages `wireframe` and `wireframe_testing` with
+  `cargo package --locked` and builds each package on its own, as crates.io
+  would. It is meaningful on any commit and uploads nothing.
+- `make publish-check` rehearses the release with lading's dry run. It needs a
+  workspace version that crates.io does not yet have, because Cargo otherwise
+  resolves `wireframe` to the published release, and it never uploads: the
+  target does not pass `--live`. The
+  [release guide](releasing-crates.md#the-two-packaging-checks) explains what
+  each check proves.
 
 Install the pinned toolchain with `make install-whitaker` before the first
 `make lint`. The target installs `cargo-dylint`, `dylint-link`, the Whitaker
@@ -1549,6 +1558,25 @@ The shared policy is the inheritance mechanism for every workspace package. How
 it relates to the `leynos/netsuke` baseline, and which limits Wireframe
 deliberately tightens, is described under
 [Cargo workspace semantics](#cargo-workspace-semantics).
+
+### Release tooling
+
+The release targets need [uv](https://docs.astral.sh/uv/), which supplies
+Python 3.14 for lading. `tools/lading/pyproject.toml` pins lading to exactly
+`0.4.0b1`, and `tools/lading/uv.lock` hashes it and everything it imports, so
+`make publish-check` runs the same bytes on every machine. The Makefile runs
+lading with `--locked`, which refuses a lock that no longer matches the pin.
+
+Both targets set `RUSTFLAGS` to `RELEASE_RUSTFLAGS`, a blank but non-empty
+value by default. It displaces the `rustflags` in `.cargo/config.toml`, which
+name a linker that a release runner does not install; the archive bytes do not
+depend on it. Override it only to pass flags a release build genuinely needs.
+
+lading was chosen because it publishes a workspace's crates in a declared order
+and skips a crate that is already published; `rstest-bdd` releases its
+workspace with it. So far it only rehearses a release, so the choice is
+recorded here rather than in an architectural decision record. It becomes an
+architectural decision once a workflow uploads with it.
 
 ### CodeScene coverage baseline
 
@@ -1690,6 +1718,22 @@ A further test pins the `with:` block itself: `extra-args: "--all-features"`
 `src/codec/examples.rs`, and `src/**/tests.rs`). It also asserts that
 `extra-crate-dirs` names `wireframe_testing`, so the companion crate stays
 under mutation now that its doctests compile (#578).
+
+`tests/workflow_contracts/lading_config_test.py` holds the release
+configuration in the same way, so drift fails a pull request rather than a
+release. It validates that:
+
+- `lading.toml` publishes exactly the workspace's publishable crates, each
+  after its workspace dependencies, and its bump excludes exactly the crates
+  that are never published;
+- the published crates share one version, and `wireframe_testing` depends on
+  that version of `wireframe`;
+- `make package-crates` packages the crates in the publish order with
+  `--locked`, and `make publish-check` runs the locked tool without `--live`;
+- both targets set a blank, non-empty `RUSTFLAGS`;
+- the lading pin is exact and every locked package is hashed; and
+- patches are stripped per crate, the pre-flight runs the unit tests only, and
+  no key in `[preflight]` configures a skip for every run.
 
 ### Where CodeScene may appear
 
