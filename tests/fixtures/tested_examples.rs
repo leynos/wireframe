@@ -27,6 +27,19 @@ pub type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 /// Marker removed to make a shipped guide fail the loader gate.
 pub const REMOVED_MARKER: &str = "<!-- tested-example: users-guide-001 -->\n";
 
+/// Marker and opening fence the list-container scenario moves into a list item.
+pub const LIST_EXAMPLE: &str = concat!(
+    "<!-- tested-example: users-guide-001 -->\n",
+    "```rust,ignore\n",
+);
+
+/// The same example as a four-space list continuation.
+const LIST_CONTAINED_EXAMPLE: &str = concat!(
+    "1. An example:\n\n",
+    "    <!-- tested-example: users-guide-001 -->\n",
+    "    ```rust,ignore\n",
+);
+
 /// The shipped document whose marker the malformed scenario removes.
 pub const SHIPPED_DOCUMENT: &str = "docs/users-guide.md";
 
@@ -96,6 +109,22 @@ impl TestedExamplesWorld {
             .find(|(path, _)| path == SHIPPED_DOCUMENT)
             .ok_or_else(|| std::io::Error::other("the shipped guide is not in the inventory"))?;
         *source = source.replacen(REMOVED_MARKER, "", 1);
+        self.documents = Some(documents);
+        self.validation = None;
+        Ok(())
+    }
+
+    /// Read the shipped documents, then move one example into a list item.
+    pub fn prepare_shipped_documents_in_list_item(&mut self) -> TestResult<()> {
+        let mut documents = read_shipped_documents()?;
+        let (_, source) = documents
+            .iter_mut()
+            .find(|(path, _)| path == SHIPPED_DOCUMENT)
+            .ok_or_else(|| std::io::Error::other("the shipped guide is not in the inventory"))?;
+        if !source.contains(LIST_EXAMPLE) {
+            return Err(std::io::Error::other("the shipped list example anchor is missing").into());
+        }
+        *source = source.replacen(LIST_EXAMPLE, LIST_CONTAINED_EXAMPLE, 1);
         self.documents = Some(documents);
         self.validation = None;
         Ok(())

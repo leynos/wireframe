@@ -16,3 +16,8 @@ Feature: Published documentation examples
     Given a shipped guide has lost one example marker
     When the shared loader validates the shipped documentation
     Then validation fails and names the document and the missing marker
+
+  Scenario: A list-contained example fails the loader gate
+    Given a shipped guide contains an example inside a list item
+    When the shared loader validates the shipped documentation
+    Then validation fails and names the document and the list-container remedy

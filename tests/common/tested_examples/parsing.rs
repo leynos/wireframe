@@ -7,7 +7,16 @@
 //! the parent free to walk the document and keeps both files within the
 //! repository's module size limit.
 
-use super::PublishedDocument;
+use std::collections::HashSet;
+
+use super::{
+    OpenExample,
+    ParsedDocument,
+    PublishedDocument,
+    finish_example,
+    parse_open_example,
+    validate_marker_line,
+};
 
 /// One line of published Markdown, as the parser sees it.
 ///
@@ -62,6 +71,42 @@ pub(super) fn opening_fence(line: SourceLine<'_>) -> Option<Fence> {
         .take_while(|character| *character == marker)
         .count();
     (length >= 3).then_some(Fence { marker, length })
+}
+
+/// Close `active` when the line at `index` carries its closing fence.
+///
+/// Keeping this branch out of the walk avoids nested conditionals.
+pub(super) fn advance_open_example(
+    document: &PublishedDocument<'_>,
+    active: OpenExample,
+    index: usize,
+    parsed: &mut ParsedDocument,
+) -> Result<Option<OpenExample>, String> {
+    let is_closed = document
+        .line(index)
+        .is_some_and(|line| is_closing_fence(SourceLine::new(line), active.fence));
+    if !is_closed {
+        return Ok(Some(active));
+    }
+    parsed
+        .examples
+        .push(finish_example(document, &active, index)?);
+    Ok(None)
+}
+
+/// Reject a hidden example and record the one a top-level line opens.
+///
+/// Grouping the checks leaves the walk with one fallible call per line.
+pub(super) fn scan_top_level_line(
+    document: &PublishedDocument<'_>,
+    index: usize,
+    known: &HashSet<String>,
+    parsed: &mut ParsedDocument,
+) -> Result<Option<OpenExample>, String> {
+    reject_block_quote_example(document, index)?;
+    reject_list_container_example(document, index)?;
+    validate_marker_line(document, index)?;
+    parse_open_example(document, index, known, parsed)
 }
 
 /// Return whether `line` closes `fence`.
@@ -165,8 +210,7 @@ pub(super) fn reject_block_quote_example(
     else {
         return Ok(());
     };
-    let is_marker = content.trim_start().starts_with("<!-- tested-example");
-    if !is_marker && opening_fence(SourceLine::new(content)).is_none() {
+    if !is_marker_like(content) && opening_fence(SourceLine::new(content)).is_none() {
         return Ok(());
     }
     Err(format!(
@@ -177,6 +221,152 @@ pub(super) fn reject_block_quote_example(
         document.path(),
         index + 1
     ))
+}
+
+/// What remains of a line once its container prefixes are removed.
+///
+/// The loader walks top-level blocks only, so a fence reached through a list
+/// marker or an indentation run would otherwise be skipped without comment.
+#[derive(Debug, Clone, Copy)]
+struct ContainerPrefix<'a> {
+    /// Text after every quote marker, list marker and indentation run.
+    content: &'a str,
+    /// Whether a list marker or indentation run could hide an example.
+    hides_example: bool,
+}
+
+/// Reject an example hidden behind a list marker or an indentation run.
+///
+/// A four-space indent is a list continuation only while an item is open, and
+/// the walk deliberately does not track that state, so the rule fails closed:
+/// any prefix that could be a container rejects example syntax unless the
+/// indentation is small enough for a top-level fence. An indented code block
+/// whose first content looks like a fence or marker is therefore rejected too;
+/// the diagnostic names the line and tells the author how to recover.
+pub(super) fn reject_list_container_example(
+    document: &PublishedDocument<'_>,
+    index: usize,
+) -> Result<(), String> {
+    let Some(line) = document.line(index) else {
+        return Ok(());
+    };
+    let prefix = strip_container_prefix(line);
+    if !prefix.hides_example {
+        return Ok(());
+    }
+    if !is_marker_like(prefix.content) && opening_fence(SourceLine::new(prefix.content)).is_none() {
+        return Ok(());
+    }
+    Err(container_diagnostic(document.path(), index + 1))
+}
+
+/// Build the diagnostic for an example hidden inside a list container.
+fn container_diagnostic(path: &str, line_number: usize) -> String {
+    format!(
+        concat!(
+            "{}:{}: tested examples inside a list item or indented block are not ",
+            "scanned; move the fence out of the list and indent it by at most ",
+            "three spaces"
+        ),
+        path, line_number
+    )
+}
+
+/// Return whether `text` begins with a tested-example marker comment.
+pub(super) fn is_marker_like(text: &str) -> bool {
+    text.trim_start().starts_with("<!-- tested-example")
+}
+
+/// Strip interleaved quote markers, list markers and indentation from `line`.
+///
+/// Containers nest in any order before a block, so each pass measures the
+/// whitespace run, then removes one quote or list marker and repeats. The
+/// optional space after a quote marker is not measured as content indentation.
+fn strip_container_prefix(line: &str) -> ContainerPrefix<'_> {
+    let mut remainder = line;
+    let mut hides_example = false;
+    loop {
+        let (unindented, is_indented) = strip_indentation(remainder);
+        hides_example |= is_indented;
+        remainder = unindented;
+        if let Some(unquoted) = quote_content(remainder) {
+            remainder = unquoted;
+            continue;
+        }
+        if let Some(unlisted) = list_item_content(remainder) {
+            hides_example = true;
+            remainder = unlisted;
+            continue;
+        }
+        return ContainerPrefix {
+            content: remainder,
+            hides_example,
+        };
+    }
+}
+
+/// Remove a leading whitespace run and report whether it can start code.
+///
+/// A tab or four spaces put the remaining content in an indented code block,
+/// out of reach of the top-level walk, even when no list item is open.
+fn strip_indentation(text: &str) -> (&str, bool) {
+    let mut consumed = 0;
+    let mut spaces = 0;
+    let mut has_tab = false;
+    for character in text.chars() {
+        match character {
+            ' ' => spaces += 1,
+            '\t' => has_tab = true,
+            _ => break,
+        }
+        consumed += character.len_utf8();
+    }
+    (
+        text.get(consumed..).unwrap_or_default(),
+        has_tab || spaces >= 4,
+    )
+}
+
+/// Remove one block-quote marker and its single optional following space.
+///
+/// Further spaces stay in the returned content so the caller measures them as
+/// quoted indentation rather than as part of the marker.
+fn quote_content(text: &str) -> Option<&str> {
+    let remainder = text.strip_prefix('>')?;
+    Some(remainder.strip_prefix(' ').unwrap_or(remainder))
+}
+
+/// Remove one list-item marker, leaving its required whitespace in place.
+fn list_item_content(text: &str) -> Option<&str> { text.get(list_marker_length(text)?..) }
+
+/// Return the byte length of a leading list-item marker.
+///
+/// CommonMark accepts `-`, `+` or `*`, or one to nine digits followed by `.`
+/// or `)`, and requires a space, tab or end of line after the marker. That
+/// terminator is what keeps `-->`, `---` and `***` from looking like list
+/// markers.
+fn list_marker_length(text: &str) -> Option<usize> {
+    match text.chars().next()? {
+        '-' | '+' | '*' => is_item_terminator(text.get(1..)?.chars().next()).then_some(1),
+        '0'..='9' => {
+            let digits = text.chars().take_while(char::is_ascii_digit).count();
+            if digits > 9 {
+                return None;
+            }
+            let delimiter = text.get(digits..)?.chars().next()?;
+            if !matches!(delimiter, '.' | ')') {
+                return None;
+            }
+            let follows = text.get(digits + 1..)?.chars().next();
+            is_item_terminator(follows).then_some(digits + 1)
+        }
+        _ => None,
+    }
+}
+
+/// Return whether `character` can terminate a list-item marker.
+fn is_item_terminator(character: Option<char>) -> bool {
+    matches!(character, None | Some(' ' | '\t'))
 }
 
 /// Return the identifier from a `<!-- tested-example: id -->` comment.

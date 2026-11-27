@@ -61,3 +61,23 @@ fn shipped_document_missing_a_marker_fails_the_loader_gate(
         .validation_failed_with_all(&["docs/users-guide.md:", "missing its marker"])
         .expect("a guide without one marker should fail the loader gate");
 }
+
+#[scenario(
+    path = "tests/features/tested_examples.feature",
+    name = "A list-contained example fails the loader gate"
+)]
+fn list_contained_example_fails_the_loader_gate(tested_examples_world: TestedExamplesWorld) {
+    let mut world = tested_examples_world;
+    world
+        .prepare_shipped_documents_in_list_item()
+        .expect("the shipped documentation should be readable from disk");
+    world
+        .validate_prepared_documents()
+        .expect("validating the prepared documents should not itself fail");
+    world
+        .validation_failed_with_all(&[
+            "docs/users-guide.md:",
+            "inside a list item or indented block are not scanned",
+        ])
+        .expect("an example inside a list item should fail the loader gate");
+}

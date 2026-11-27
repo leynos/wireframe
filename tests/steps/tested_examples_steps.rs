@@ -32,6 +32,13 @@ fn given_a_shipped_guide_has_lost_one_example_marker(
     tested_examples_world.prepare_shipped_documents_missing_marker()
 }
 
+#[given("a shipped guide contains an example inside a list item")]
+fn given_a_shipped_guide_contains_an_example_inside_a_list_item(
+    tested_examples_world: &mut TestedExamplesWorld,
+) -> TestResult<()> {
+    tested_examples_world.prepare_shipped_documents_in_list_item()
+}
+
 #[when("the shared loader validates the shipped documentation")]
 fn when_the_shared_loader_validates_the_shipped_documentation(
     tested_examples_world: &mut TestedExamplesWorld,
@@ -50,4 +57,15 @@ fn then_validation_fails_and_names_the_document_and_the_missing_marker(
 ) -> TestResult<()> {
     tested_examples_world
         .validation_failed_with_all(&["docs/users-guide.md:", "missing its marker"])
+}
+
+#[then("validation fails and names the document and the list-container remedy")]
+fn then_validation_fails_and_names_the_document_and_the_list_container_remedy(
+    tested_examples_world: &TestedExamplesWorld,
+) -> TestResult<()> {
+    tested_examples_world.validation_failed_with_all(&[
+        "docs/users-guide.md:",
+        "inside a list item or indented block are not scanned",
+        "move the fence out of the list and indent it by at most three spaces",
+    ])
 }

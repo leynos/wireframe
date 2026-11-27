@@ -14,6 +14,9 @@ use super::{
     rustdoc_document_paths,
 };
 
+#[path = "container_tests.rs"]
+mod container;
+
 const SAMPLE: &str = "Prose.\n\n<!-- tested-example: guide-001 -->\n```rust\nfn main() {}\n```\n";
 
 /// Parse `source` as `guide.md` with no identifiers claimed by earlier documents.

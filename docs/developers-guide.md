@@ -2652,9 +2652,20 @@ module, and a test keeps the inventory in step with the Rustdoc module list in
 `rust,no_run` fence compiles, and a `rust,ignore` fence is rendered but not
 compiled. Mermaid examples are checked by `make nixie`. The loader fails on an
 unmarked or unterminated fence, an invalid or duplicate identifier, a missing
-language identifier, or a fence or marker inside a block quote. The scan covers
-only top-level blocks, so a quoted example is rejected rather than skipped;
+language identifier, or a fence or marker inside a block quote or behind a
+list-item or indentation prefix. The scan reads lines rather than parsing
+CommonMark containers, so a quoted example is rejected rather than skipped;
 move it out of the quote.
+
+A marker or fence with at most three leading spaces and no list marker on the
+same line is scanned, including inside a list item. Outside an open example,
+the loader rejects a fence-looking or marker-looking line preceded by a
+list-item marker, a tab or four or more spaces, and reports the document path,
+the line and a remedy. The rule fails closed because a four-space indent is a
+list continuation only while an item is open, and the walk does not track that
+state. It therefore also rejects an indented code block whose first content
+looks like a fence or a marker; write such an example as a marked fenced block
+instead.
 
 The gates are proved on the shipped documents, not only on a fixture. The
 workflow contract `the_rustdoc_gate_runs_shipped_documents` in

@@ -17,12 +17,14 @@ mod tests;
 use parsing::{
     Fence,
     SourceLine,
+    advance_open_example,
     fence_info,
     fence_source,
-    is_closing_fence,
+    is_marker_like,
     opening_fence,
     parse_marker,
-    reject_block_quote_example,
+    reject_list_container_example,
+    scan_top_level_line,
     valid_identifier,
 };
 
@@ -146,6 +148,8 @@ impl<'a> PublishedDocument<'a> {
     fn line(&self, index: usize) -> Option<&'a str> { self.lines.get(index).copied() }
 
     fn lines(&self) -> &[&'a str] { &self.lines }
+
+    fn line_count(&self) -> usize { self.lines.len() }
 }
 
 /// A document's examples together with the identifiers it claimed.
@@ -228,20 +232,13 @@ pub fn parse_document(
     let mut parsed = ParsedDocument::default();
     let mut open: Option<OpenExample> = None;
 
-    for (index, line) in document.lines().iter().copied().enumerate() {
-        if let Some(active) = open.as_ref() {
-            if is_closing_fence(SourceLine::new(line), active.fence) {
-                parsed
-                    .examples
-                    .push(finish_example(document, active, index)?);
-                open = None;
-            }
+    for index in 0..document.line_count() {
+        if let Some(active) = open.take() {
+            open = advance_open_example(document, active, index, &mut parsed)?;
             continue;
         }
 
-        reject_block_quote_example(document, index)?;
-        validate_marker_line(document, index)?;
-        open = parse_open_example(document, index, known, &mut parsed)?;
+        open = scan_top_level_line(document, index, known, &mut parsed)?;
     }
 
     if let Some(active) = open {
@@ -265,7 +262,7 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
     let Some(line) = document.line(index) else {
         return Ok(());
     };
-    if !line.trim_start().starts_with("<!-- tested-example") {
+    if !is_marker_like(line) {
         return Ok(());
     }
     let path = document.path();
@@ -276,6 +273,8 @@ fn validate_marker_line(document: &PublishedDocument<'_>, index: usize) -> Resul
         .line(index + 1)
         .ok_or_else(|| format!("{path}:{line_number}: tested-example marker has no fence"))?;
     if opening_fence(SourceLine::new(next_line)).is_none() {
+        // Report a hidden fence on its own line with the container remedy.
+        reject_list_container_example(document, index + 1)?;
         return Err(format!(
             "{path}:{line_number}: tested-example marker must immediately precede a fence"
         ));
