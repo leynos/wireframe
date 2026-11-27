@@ -236,3 +236,18 @@ mod declared_total_tests;
 
 #[path = "declared_total_property_tests.rs"]
 mod declared_total_property_tests;
+
+// =============================================================================
+// Metadata-inclusive size limit tests (issue #825) - see metadata_size_tests.rs
+// =============================================================================
+
+#[path = "metadata_size_tests.rs"]
+mod metadata_size_tests;
+
+// =============================================================================
+// Metadata-inclusive size limit properties (issue #825) - see
+// metadata_size_property_tests.rs
+// =============================================================================
+
+#[path = "metadata_size_property_tests.rs"]
+mod metadata_size_property_tests;

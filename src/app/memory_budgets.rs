@@ -90,6 +90,10 @@ impl MemoryBudgets {
     }
 
     /// Maximum bytes buffered for a single logical message.
+    ///
+    /// Counts the first frame's metadata plus the assembled body, so a
+    /// message cannot exceed the cap by carrying metadata alongside a body
+    /// that reaches it.
     #[must_use]
     pub const fn bytes_per_message(&self) -> BudgetBytes { self.message_budget }
 

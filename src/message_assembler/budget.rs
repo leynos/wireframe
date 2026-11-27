@@ -89,15 +89,19 @@ pub(super) const fn check_aggregate_budgets(
     Ok(())
 }
 
-/// Check if accumulated size plus new body would exceed the per-message
-/// size limit.
+/// Check if `accumulated` plus `body_len` would exceed the per-message size
+/// limit.
 ///
+/// Callers pass everything the assembly retains as `accumulated` — metadata
+/// plus buffered body — so the cap bounds memory, not merely body bytes.
 /// Returns the new total size on success.
 ///
 /// # Errors
 ///
-/// Returns [`MessageAssemblyError::MessageTooLarge`] when the new total
-/// would exceed `max_message_size`.
+/// Returns [`MessageAssemblyError::MessageTooLarge`] when the new total would
+/// exceed `max_message_size`. A sum that `usize` cannot represent is reported
+/// with `attempted: usize::MAX`, which is also rejected when the limit is
+/// `usize::MAX`: no representable message could satisfy the cap.
 pub(super) const fn check_size_limit(
     max_message_size: NonZeroUsize,
     key: MessageKey,

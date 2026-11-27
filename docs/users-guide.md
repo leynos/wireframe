@@ -1435,6 +1435,14 @@ is the minimum of the fragmentation `max_message_size` and the configured
 `bytes_per_message`. Single-frame messages that complete immediately are never
 counted against aggregate budgets, since they do not buffer.
 
+The per-message cap counts everything one logical message retains: the metadata
+carried by its first frame plus the body bytes accumulated across its frames. A
+first frame that declares a `total_body_len` larger than the body it carries is
+measured with that declared total in place of the actual body, so a declaration
+can only tighten the limit, never relax it. A first frame whose metadata and
+body together exceed the cap is rejected with `MessageTooLarge` before any
+frame is buffered, and the same guard applies to each continuation.
+
 If `memory_budgets(...)` is not configured explicitly, Wireframe derives the
 same three fields from `buffer_capacity`, so the protection model remains
 active even on the default path.
@@ -1658,10 +1666,14 @@ A rejected continuation or a completion mismatch also removes its partial
 assembly, so a mismatched message never remains buffered and is never
 dispatched. A rejected first frame is refused before any assembly exists, so
 there is nothing to remove. Protocols that leave `total_body_len` as `None` opt
-out of the equality requirement and keep the previous behaviour.
+out of the equality requirement only: the per-message size cap still applies,
+measured on the bytes the message actually retains.
 
 The declaration is also used for the size-limit check, so an exact total is the
-cheapest way to fail early on an oversized message. The decision is recorded in
+cheapest way to fail early on an oversized message. Because the size cap is
+applied before the declared-total overrun check on every continuation, a frame
+that violates both is reported as `MessageTooLarge` rather than
+`DeclaredTotalExceeded`. The decision is recorded in
 [ADR 015](adrs/adr-0015-declared-total-body-length-is-authoritative.md).
 
 ### Streaming request body consumption

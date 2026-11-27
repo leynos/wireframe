@@ -27,6 +27,16 @@ fn message_assembly_inbound_ordering_violation(
 
 #[scenario(
     path = "tests/features/message_assembly_inbound.feature",
+    name = "Metadata is counted against the per-message limit"
+)]
+fn message_assembly_inbound_metadata_limit(
+    message_assembly_inbound_world: Result<MessageAssemblyInboundWorld, TestError>,
+) -> Result<(), TestError> {
+    Ok(())
+}
+
+#[scenario(
+    path = "tests/features/message_assembly_inbound.feature",
     name = "Timeout purges partial assembly before continuation arrives"
 )]
 fn message_assembly_inbound_timeout(

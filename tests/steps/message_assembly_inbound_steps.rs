@@ -1,6 +1,7 @@
 //! Step definitions for inbound message assembly integration scenarios.
 
 use rstest_bdd_macros::{given, then, when};
+use wireframe::{message_assembler::MessageKey, test_helpers::FirstFrameSpec};
 
 use crate::fixtures::message_assembly_inbound::{MessageAssemblyInboundWorld, TestResult};
 
@@ -12,6 +13,14 @@ fn given_inbound_app(
     message_assembly_inbound_world.start_app(timeout_ms)
 }
 
+#[given("an inbound app with a 10-byte message limit and timeout {timeout_ms:u64} milliseconds")]
+fn given_inbound_app_with_message_limit(
+    message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
+    timeout_ms: u64,
+) -> TestResult {
+    message_assembly_inbound_world.start_app_with_metadata_cap(timeout_ms)
+}
+
 #[when("a first frame for key {key:u64} with body {body:string} arrives")]
 fn when_first_frame_arrives(
     message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
@@ -19,6 +28,23 @@ fn when_first_frame_arrives(
     body: String,
 ) -> TestResult {
     message_assembly_inbound_world.send_first_frame(key, &body)
+}
+
+#[rustfmt::skip]
+#[when("a first frame for key {key:u64} with metadata {metadata:string} and body {body:string} arrives")]
+fn when_first_frame_with_metadata_arrives(
+    message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
+    key: u64,
+    metadata: String,
+    body: String,
+) -> TestResult {
+    message_assembly_inbound_world.send_first_frame_with(FirstFrameSpec {
+        key: MessageKey::from(key),
+        metadata: metadata.as_bytes(),
+        body: body.as_bytes(),
+        is_last: false,
+        total: None,
+    })
 }
 
 #[when("the inbound server processes the first frame")]
@@ -77,6 +103,14 @@ fn then_handler_receives_count(
     count: usize,
 ) -> TestResult {
     message_assembly_inbound_world.assert_received_count(count)
+}
+
+#[then("the handler receives exactly the payload {payload:string}")]
+fn then_handler_receives_exactly(
+    message_assembly_inbound_world: &mut MessageAssemblyInboundWorld,
+    payload: String,
+) -> TestResult {
+    message_assembly_inbound_world.assert_received_payloads(&[payload.as_str()])
 }
 
 #[then("no send error is recorded")]

@@ -70,6 +70,22 @@ fn message_assembly_too_large(message_assembly_world: MessageAssemblyWorld) {
 
 #[scenario(
     path = "tests/features/message_assembly.feature",
+    name = "Metadata counts towards the per-message size limit"
+)]
+fn message_assembly_metadata_counts(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
+    name = "Metadata and body may exactly fill the per-message limit"
+)]
+fn message_assembly_metadata_exact_fit(message_assembly_world: MessageAssemblyWorld) {
+    drop(message_assembly_world);
+}
+
+#[scenario(
+    path = "tests/features/message_assembly.feature",
     name = "Under-declared single-frame total is rejected"
 )]
 fn message_assembly_under_declared_single_frame(message_assembly_world: MessageAssemblyWorld) {

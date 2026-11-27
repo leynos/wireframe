@@ -22,6 +22,15 @@ Feature: Inbound message assembly integration
     And the handler receives 1 payload
     And no send error is recorded
 
+  Scenario: Metadata is counted against the per-message limit
+    Given an inbound app with a 10-byte message limit and timeout 200 milliseconds
+    When a first frame for key 1 with metadata "bad" and body "1234" arrives
+    And a continuation frame for key 1 sequence 1 with body "5678" arrives
+    And a first frame for key 1 with metadata "tag" and body "1234567" arrives
+    And a final continuation frame for key 1 sequence 1 with body "" arrives
+    Then the handler receives exactly the payload "tag1234567"
+    And no send error is recorded
+
   Scenario: Timeout purges partial assembly before continuation arrives
     Given an inbound app with message assembly timeout 10 milliseconds
     When a first frame for key 7 with body "ab" arrives

@@ -1425,14 +1425,36 @@ translates the resulting `MessageAssemblyError` into
 `io::ErrorKind::InvalidData` through `DeserFailureTracker`; the domain never
 sees `io::Error`.
 
-Overflow is part of the contract, not an incidental guard. The accumulator uses
+#### Per-message admission accounting
+
+`max_message_size` bounds what one logical message retains, not merely its body
+bytes, so both admission paths measure the same quantity:
+
+- `PartialAssembly::admit_continuation` passes `self.buffered_bytes()` —
+  first-frame metadata plus buffered body — to `check_size_limit`. The declared
+  total keeps using `self.body_len()`, because a protocol declaration counts
+  body bytes only.
+- `MessageAssemblyState::accept_first_frame_at` passes the metadata length and
+  `max(actual body length, declared total)`, so a declaration equal to or
+  smaller than the body cannot weaken the measured size.
+
+The stage order on a continuation is size limit, aggregate budgets, then
+declared total. A frame that breaks both the size limit and its declaration is
+therefore reported as `MessageTooLarge`; `declared_total_tests.rs` and
+`metadata_size_tests.rs` pin which error wins, and
+`metadata_size_property_tests.rs` compares the whole state machine against an
+independent model of that order.
+
+Overflow is part of the contract, not an incidental guard. Both accumulators use
 `usize::checked_add`, and an unrepresentable sum is reported as
-`DeclaredTotalExceeded` with `attempted: usize::MAX` rather than wrapping to a
-small value that would appear to fit. `declared_total_property_tests.rs` pins
-that boundary over values near `usize::MAX`, and
-`tests/ui/message_assembly_error_exhaustive_match.rs` pins the compile-time
-break caused by the three new variants, matching the existing `ClientError`
-fixture.
+`DeclaredTotalExceeded` or `MessageTooLarge` with `attempted: usize::MAX`
+rather than wrapping to a small value that would appear to fit. Because an
+unrepresentable sum is rejected outright, a first frame is refused even when
+the configured limit is `usize::MAX`. `declared_total_property_tests.rs` pins
+that boundary for the declaration, `metadata_size_property_tests.rs` for the
+size limit, and `tests/ui/message_assembly_error_exhaustive_match.rs` pins the
+compile-time break caused by the three new variants, matching the existing
+`ClientError` fixture.
 
 ### `fill_buf_with_prefix`
 
