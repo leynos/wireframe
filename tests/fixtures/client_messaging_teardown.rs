@@ -3,9 +3,8 @@
 //! Split from `client_messaging` to keep that module within the line limit. A
 //! child module still reaches the world's private fields.
 
-use tokio::sync::oneshot::error::TryRecvError;
-
 use super::*;
+use crate::fixtures::teardown_probe::{assert_teardown_awaits, spawn_slow_cancel_task};
 
 /// Replace the world's server with a task that panics once it starts.
 ///
@@ -23,22 +22,6 @@ pub(crate) fn install_panicking_server(world: &mut ClientMessagingWorld) {
         .expect("the fixture server task must start");
 }
 
-/// Replace the world's server with a task that never finishes.
-///
-/// The returned receiver closes when that task is dropped, which is how the
-/// teardown test observes that the abort was awaited.
-pub(crate) fn install_probe_server(
-    world: &mut ClientMessagingWorld,
-) -> tokio::sync::oneshot::Receiver<()> {
-    let (sender, receiver) = tokio::sync::oneshot::channel();
-    let runtime = world.handle();
-    world.server = Some(ServerTaskGuard::new(runtime.spawn(async move {
-        let _keep_alive = sender;
-        std::future::pending::<()>().await;
-    })));
-    receiver
-}
-
 /// A panicking server must be reported, not mistaken for a clean abort.
 #[test]
 fn abort_server_reports_a_panicking_server() {
@@ -54,16 +37,18 @@ fn abort_server_reports_a_panicking_server() {
     );
 }
 
-/// Teardown must await the abort, so the task is gone before the runtime.
+/// Teardown must await the abort, not merely request one.
+///
+/// The probe task runs on a runtime that outlives the world, so only an
+/// awaited abort can make teardown block for the cancellation delay.
 #[test]
-fn drop_reaps_the_server_before_the_runtime_is_dropped() {
+fn drop_awaits_the_server_abort() {
+    let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
     let mut world = client_messaging_world().expect("build world");
-    let mut receiver = install_probe_server(&mut world);
+    world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+        probe_runtime.handle(),
+    )));
 
-    drop(world);
-
-    assert!(
-        matches!(receiver.try_recv(), Err(TryRecvError::Closed)),
-        "teardown must await the abort, which drops the server task"
-    );
+    assert_teardown_awaits(|| drop(world));
+    drop(probe_runtime);
 }

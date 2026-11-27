@@ -46,6 +46,8 @@ pub mod server_streaming;
 pub mod slow_io_backpressure;
 pub mod stream_end;
 pub mod streaming_request;
+#[cfg(test)]
+mod teardown_probe;
 pub mod test_observability;
 pub mod tested_examples;
 pub mod testkit_export;

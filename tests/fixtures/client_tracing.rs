@@ -274,26 +274,22 @@ impl ClientTracingWorld {
 mod tests {
     //! Regression tests for scenario teardown.
 
-    use tokio::sync::oneshot::{self, error::TryRecvError};
-
     use super::*;
+    use crate::fixtures::teardown_probe::{assert_teardown_awaits, spawn_slow_cancel_task};
 
-    /// Teardown must await the abort, so the task is gone before the runtime.
+    /// Teardown must await the abort, not merely request one.
+    ///
+    /// The probe task runs on a runtime that outlives the world, so only an
+    /// awaited abort can make teardown block for the cancellation delay.
     #[test]
-    fn drop_reaps_the_server_before_the_runtime_is_dropped() {
+    fn drop_awaits_the_server_abort() {
+        let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
         let mut world = client_tracing_world();
-        let (sender, mut receiver) = oneshot::channel::<()>();
-        let runtime = world.handle().expect("runtime");
-        world.server = Some(ServerTaskGuard::new(runtime.spawn(async move {
-            let _keep_alive = sender;
-            std::future::pending::<()>().await;
-        })));
+        world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+            probe_runtime.handle(),
+        )));
 
-        drop(world);
-
-        assert!(
-            matches!(receiver.try_recv(), Err(TryRecvError::Closed)),
-            "teardown must await the abort, which drops the server task"
-        );
+        assert_teardown_awaits(|| drop(world));
+        drop(probe_runtime);
     }
 }
