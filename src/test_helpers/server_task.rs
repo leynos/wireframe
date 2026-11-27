@@ -134,19 +134,7 @@ impl<T> ServerTaskGuard<T> {
         Fut: Future<Output = Result<R, E>>,
         E: From<JoinError>,
     {
-        match AssertUnwindSafe(body).catch_unwind().await {
-            Ok(Ok(value)) => {
-                let server = self.join().await.map_err(E::from)?;
-                Ok((value, server))
-            }
-            Ok(Err(error)) => {
-                let _cleanup = self.abort_and_join().await;
-                Err(error)
-            }
-            // `stop_and_resume` diverges; the `Err` arm only satisfies the
-            // return type.
-            Err(payload) => Err(stop_and_resume(self, payload).await),
-        }
+        self.run_guarded(body, Self::join).await
     }
 
     /// Run `body`, then abort the server and return both outcomes.
@@ -170,9 +158,25 @@ impl<T> ServerTaskGuard<T> {
         Fut: Future<Output = Result<R, E>>,
         E: From<JoinError>,
     {
+        self.run_guarded(body, Self::abort_and_join).await
+    }
+
+    /// Drive `body` under the guard, reaping the server with `reap` on success.
+    ///
+    /// The two public runners differ only in how they treat a successful body,
+    /// so that choice is the parameter and everything else is shared. `reap`
+    /// owns the guard only on the success path; a returned error or a resumed
+    /// panic stops and awaits the server first, so no path leaves it running.
+    async fn run_guarded<R, E, Fut, S, F, G>(self, body: Fut, reap: F) -> Result<(R, S), E>
+    where
+        Fut: Future<Output = Result<R, E>>,
+        E: From<JoinError>,
+        F: FnOnce(Self) -> G,
+        G: Future<Output = Result<S, JoinError>>,
+    {
         match AssertUnwindSafe(body).catch_unwind().await {
             Ok(Ok(value)) => {
-                let server = self.abort_and_join().await.map_err(E::from)?;
+                let server = reap(self).await.map_err(E::from)?;
                 Ok((value, server))
             }
             Ok(Err(error)) => {
