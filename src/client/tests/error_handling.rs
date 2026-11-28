@@ -26,6 +26,7 @@ use crate::{
     client::{ClientError, ClientProtocolError, WireframeClient, WireframeClientBuilder},
     rewind_stream::RewindStream,
     serializer::Serializer,
+    test_helpers::ServerTaskGuard,
 };
 
 /// Connects a client and returns both the client and server stream for custom server behaviour.
@@ -41,11 +42,19 @@ where
     C: Send + 'static,
 {
     let (addr, accept) = spawn_listener().await?;
-    let client = configure_builder(WireframeClient::builder())
-        .connect(addr)
+
+    // Own the accept task before connecting, so a failed connection aborts and
+    // awaits it rather than leaving it detached.
+    let (client, accepted) = ServerTaskGuard::new(accept)
+        .run_and_join(async move {
+            let client = configure_builder(WireframeClient::builder())
+                .connect(addr)
+                .await?;
+            Ok::<_, Box<dyn std::error::Error + Send + Sync>>(client)
+        })
         .await?;
-    let server_stream = accept.await??;
-    Ok((client, server_stream))
+
+    Ok((client, accepted?))
 }
 
 #[tokio::test]

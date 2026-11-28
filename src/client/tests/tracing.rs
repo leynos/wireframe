@@ -4,7 +4,9 @@
 //! appear as context prefixes. Tests enable per-command timing so an event is
 //! emitted within each span, making the span name visible in captured output.
 
-use futures::StreamExt;
+use std::panic::AssertUnwindSafe;
+
+use futures::{FutureExt as _, StreamExt};
 use rstest::rstest;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use tracing_test::traced_test;
@@ -16,6 +18,7 @@ use crate::{
     client::{ClientError, TracingConfig, WireframeClient},
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
+    test_helpers::ServerTaskGuard,
 };
 
 /// Concrete client type returned by `builder().connect()` in tests.
@@ -26,21 +29,58 @@ type TestClient = WireframeClient<BincodeSerializer, RewindStream<tokio::net::Tc
 ///
 /// The closure takes ownership of the client so that operations such as
 /// `close()` (which consumes `self`) work without lifetime gymnastics.
+///
+/// Client construction lives inside the guarded body, so a failed connection
+/// or a panicking closure still aborts and reaps the server. On success the
+/// server is joined before the body's values are used, and both the join
+/// failure and the server's own I/O error reach the caller.
 async fn with_echo_client<F, Fut>(config: TracingConfig, f: F) -> TestResult
 where
     F: FnOnce(TestClient, std::net::SocketAddr) -> Fut,
     Fut: std::future::Future<Output = ()>,
 {
     let (addr, server) = spawn_frame_server(ServerMode::Echo).await?;
-    let client = WireframeClient::builder()
-        .tracing_config(config)
-        .connect(addr)
+
+    let ((), server_result) = ServerTaskGuard::new(server)
+        .run_and_join(async move {
+            let client = WireframeClient::builder()
+                .tracing_config(config)
+                .connect(addr)
+                .await?;
+            f(client, addr).await;
+            Ok::<(), Box<dyn std::error::Error + Send + Sync>>(())
+        })
         .await?;
-    f(client, addr).await;
-    // `f` owns the client, so it is dropped by now and the serve loop has ended;
-    // joining surfaces the server's own failure instead of discarding it.
-    server.await??;
+
+    server_result?;
     Ok(())
+}
+
+/// A panicking body must leave no echo server task behind.
+///
+/// The body leaks the client, so its socket stays open and the serve loop
+/// cannot end on EOF: only the guard's abort can stop it. If the helper
+/// returned while the task were still alive, the live-task count would not
+/// return to the baseline taken before the call.
+#[tokio::test]
+async fn with_echo_client_reaps_the_server_when_the_body_panics() {
+    let runtime = tokio::runtime::Handle::current();
+    let baseline = runtime.metrics().num_alive_tasks();
+
+    let harness = with_echo_client(TracingConfig::default(), |client, _addr| async move {
+        // Deliberately leak the client so the serve loop cannot finish.
+        std::mem::forget(client);
+        panic!("body panicked");
+    });
+
+    let outcome = AssertUnwindSafe(harness).catch_unwind().await;
+
+    assert!(outcome.is_err(), "the body panic must be resumed");
+    assert_eq!(
+        runtime.metrics().num_alive_tasks(),
+        baseline,
+        "the echo server must be reaped before the helper returns"
+    );
 }
 
 /// Return a closure that asserts at least one log line contains

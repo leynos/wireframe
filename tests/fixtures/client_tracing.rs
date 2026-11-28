@@ -16,13 +16,14 @@ use std::{
 use bytes::Bytes;
 use futures::{SinkExt, StreamExt};
 use rstest::fixture;
-use tokio::{net::TcpListener, task::JoinHandle};
+use tokio::net::TcpListener;
 use tokio_util::codec::{Framed, LengthDelimitedCodec};
 use wireframe::{
     app::Envelope,
     client::{TracingConfig, WireframeClient},
     rewind_stream::RewindStream,
     serializer::BincodeSerializer,
+    test_helpers::ServerTaskGuard,
 };
 /// Re-export `TestResult` from `wireframe_testing` for use in steps.
 pub use wireframe_testing::TestResult;
@@ -64,7 +65,7 @@ pub struct ClientTracingWorld {
     runtime: Option<tokio::runtime::Runtime>,
     runtime_error: Option<String>,
     addr: Option<SocketAddr>,
-    server: Option<JoinHandle<()>>,
+    server: Option<ServerTaskGuard<()>>,
     client: Option<TestClient>,
     tracing_config: TracingConfig,
     captured: Arc<Mutex<Vec<u8>>>,
@@ -72,10 +73,24 @@ pub struct ClientTracingWorld {
 }
 
 impl Drop for ClientTracingWorld {
+    /// Stop the echo server and await its termination.
+    ///
+    /// `Drop` cannot report a panicking server, so the abort-and-join outcome
+    /// is discarded; the await still guarantees the task is reaped before the
+    /// runtime it belongs to goes away. Without a runtime there is nothing to
+    /// drive the await on, and the guard's abort-on-drop fallback stops the
+    /// task instead.
     fn drop(&mut self) {
-        if let (Some(runtime), Some(handle)) = (self.runtime.as_ref(), self.server.take()) {
-            runtime.block_on(async move { handle.abort() });
-        }
+        let Some(server) = self.server.take() else {
+            return;
+        };
+        // Without a runtime there is nothing to drive the await on, so
+        // returning here drops the guard and its abort-on-drop fallback stops
+        // the task.
+        let Some(runtime) = self.runtime.as_ref() else {
+            return;
+        };
+        let _cleanup = runtime.block_on(server.abort_and_join());
     }
 }
 
@@ -118,9 +133,15 @@ pub fn client_tracing_world() -> ClientTracingWorld {
 impl ClientTracingWorld {
     /// Start a standard echo server.
     ///
+    /// Any server this world already owns is stopped and awaited first, so a
+    /// second start never abandons a running task. That server's panic is
+    /// reported instead of being discarded.
+    ///
     /// # Errors
-    /// Returns an error if binding fails.
+    /// Returns an error if the previous server panicked, or if binding fails.
     pub async fn start_echo_server(&mut self) -> TestResult {
+        self.reap_existing_server().await?;
+
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
 
@@ -141,7 +162,19 @@ impl ClientTracingWorld {
         });
 
         self.addr = Some(addr);
-        self.server = Some(handle);
+        self.server = Some(ServerTaskGuard::new(handle));
+        Ok(())
+    }
+
+    /// Stop and await the server this world currently owns, if any.
+    ///
+    /// # Errors
+    /// Returns an error if that server panicked.
+    async fn reap_existing_server(&mut self) -> TestResult {
+        let Some(previous) = self.server.take() else {
+            return Ok(());
+        };
+        previous.abort_and_join().await?;
         Ok(())
     }
 
@@ -252,5 +285,103 @@ impl ClientTracingWorld {
         } else {
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    //! Regression tests for scenario teardown.
+
+    use super::*;
+    use crate::fixtures::teardown_probe::{
+        assert_teardown_awaits,
+        assert_waited_for_cancellation,
+        spawn_panicking_task,
+        spawn_slow_cancel_task,
+    };
+
+    /// Teardown must await the abort, not merely request one.
+    ///
+    /// The probe task runs on a runtime that outlives the world, so only an
+    /// awaited abort can make teardown block for the cancellation delay.
+    #[test]
+    fn drop_awaits_the_server_abort() {
+        let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
+        let mut world = client_tracing_world();
+        world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+            probe_runtime.handle(),
+        )));
+
+        assert_teardown_awaits(|| drop(world));
+        drop(probe_runtime);
+    }
+
+    /// Starting the echo server twice must leave only the second one running.
+    ///
+    /// Unlike the probe test, this drives the real server: the first listener
+    /// must be closed and its task gone by the time the second start returns.
+    #[test]
+    fn starting_twice_replaces_the_first_server() {
+        let mut world = client_tracing_world();
+        let runtime = world.handle().expect("runtime");
+        let baseline = runtime.metrics().num_alive_tasks();
+
+        runtime
+            .block_on(world.start_echo_server())
+            .expect("first start");
+        let first_addr = world.addr.expect("first server address");
+        runtime
+            .block_on(world.start_echo_server())
+            .expect("second start");
+
+        let first_still_listening = runtime
+            .block_on(tokio::net::TcpStream::connect(first_addr))
+            .is_ok();
+        assert!(
+            !first_still_listening,
+            "the first server must be reaped before the second starts"
+        );
+        assert_eq!(
+            runtime.metrics().num_alive_tasks(),
+            baseline + 1,
+            "only the second server may remain alive"
+        );
+    }
+
+    /// Starting a second server must reap the first, not abandon it.
+    #[test]
+    fn start_echo_server_reaps_the_previous_server() {
+        let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
+        let mut world = client_tracing_world();
+        world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+            probe_runtime.handle(),
+        )));
+
+        let runtime = world.handle().expect("runtime");
+        let started = std::time::Instant::now();
+        let outcome = runtime.block_on(world.start_echo_server());
+        let elapsed = started.elapsed();
+
+        assert!(
+            outcome.is_ok(),
+            "starting a second server must succeed: {outcome:?}"
+        );
+        assert_waited_for_cancellation(elapsed);
+        drop(probe_runtime);
+    }
+
+    /// A panicking previous server must be reported, not replaced silently.
+    #[test]
+    fn start_echo_server_reports_a_panicking_previous_server() {
+        let mut world = client_tracing_world();
+        let runtime = world.handle().expect("runtime");
+        world.server = Some(ServerTaskGuard::new(spawn_panicking_task(&runtime)));
+
+        let outcome = runtime.block_on(world.start_echo_server());
+
+        assert!(
+            outcome.is_err(),
+            "a panicking previous server must surface as a step error"
+        );
     }
 }
