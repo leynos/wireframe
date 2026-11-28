@@ -4,22 +4,20 @@
 //! child module still reaches the world's private fields.
 
 use super::*;
-use crate::fixtures::teardown_probe::{assert_teardown_awaits, spawn_slow_cancel_task};
+use crate::fixtures::teardown_probe::{
+    assert_teardown_awaits,
+    assert_waited_for_cancellation,
+    spawn_panicking_task,
+    spawn_slow_cancel_task,
+};
 
 /// Replace the world's server with a task that panics once it starts.
 ///
 /// Teardown tests use this to show that a panicking server is reported rather
 /// than discarded.
 pub(crate) fn install_panicking_server(world: &mut ClientMessagingWorld) {
-    let (started, has_started) = tokio::sync::oneshot::channel();
     let runtime = world.runtime.handle().clone();
-    world.server = Some(ServerTaskGuard::new(runtime.spawn(async move {
-        let _signalled = started.send(());
-        panic!("fixture server panicked");
-    })));
-    runtime
-        .block_on(has_started)
-        .expect("the fixture server task must start");
+    world.server = Some(ServerTaskGuard::new(spawn_panicking_task(&runtime)));
 }
 
 /// A panicking server must be reported, not mistaken for a clean abort.
@@ -51,4 +49,41 @@ fn drop_awaits_the_server_abort() {
 
     assert_teardown_awaits(|| drop(world));
     drop(probe_runtime);
+}
+
+/// Starting a second server must reap the first, not abandon it.
+#[test]
+fn start_echo_server_reaps_the_previous_server() {
+    let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
+    let mut world = client_messaging_world().expect("build world");
+    world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+        probe_runtime.handle(),
+    )));
+
+    let runtime = world.handle();
+    let started = std::time::Instant::now();
+    let outcome = runtime.block_on(world.start_echo_server());
+    let elapsed = started.elapsed();
+
+    assert!(
+        outcome.is_ok(),
+        "starting a second server must succeed: {outcome:?}"
+    );
+    assert_waited_for_cancellation(elapsed);
+    drop(probe_runtime);
+}
+
+/// A panicking previous server must be reported, not replaced silently.
+#[test]
+fn start_echo_server_reports_a_panicking_previous_server() {
+    let mut world = client_messaging_world().expect("build world");
+    install_panicking_server(&mut world);
+
+    let runtime = world.handle();
+    let outcome = runtime.block_on(world.start_echo_server());
+
+    assert!(
+        outcome.is_err(),
+        "a panicking previous server must surface as a step error"
+    );
 }

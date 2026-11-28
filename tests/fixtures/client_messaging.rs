@@ -82,21 +82,45 @@ impl ClientMessagingWorld {
 
     /// Start an envelope echo server.
     ///
+    /// Any server this world already owns is stopped and awaited first, so a
+    /// second start never abandons a running task. That server's panic is
+    /// reported instead of being discarded.
+    ///
     /// # Errors
-    /// Returns an error if binding or spawning the server fails.
+    /// Returns an error if the previous server panicked, or if binding or
+    /// spawning the new one fails.
     pub async fn start_echo_server(&mut self) -> TestResult {
         self.start_server_with_mode(ServerMode::Echo).await
     }
 
     /// Start a server that returns mismatched correlation IDs.
     ///
+    /// Any server this world already owns is stopped and awaited first, so a
+    /// second start never abandons a running task. That server's panic is
+    /// reported instead of being discarded.
+    ///
     /// # Errors
-    /// Returns an error if binding or spawning the server fails.
+    /// Returns an error if the previous server panicked, or if binding or
+    /// spawning the new one fails.
     pub async fn start_mismatch_server(&mut self) -> TestResult {
         self.start_server_with_mode(ServerMode::Mismatch).await
     }
 
+    /// Stop and await the server this world currently owns, if any.
+    ///
+    /// # Errors
+    /// Returns an error if that server panicked.
+    async fn reap_existing_server(&mut self) -> TestResult {
+        let Some(previous) = self.server.take() else {
+            return Ok(());
+        };
+        previous.abort_and_join().await?;
+        Ok(())
+    }
+
     async fn start_server_with_mode(&mut self, mode: ServerMode) -> TestResult {
+        self.reap_existing_server().await?;
+
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
 

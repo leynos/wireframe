@@ -1,7 +1,23 @@
-error[E0432]: unresolved import `wireframe_testing::client_pair`
+error[E0432]: unresolved import `wireframe::test_helpers::ServerTaskGuard`
  --> tests/ui/loom_non_loom_exports.rs:4:5
   |
-4 | use wireframe_testing::client_pair as _;
+4 | use wireframe::test_helpers::ServerTaskGuard as _;
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^---------------^^^^^
+  |                              |
+  |                              no `ServerTaskGuard` in `test_helpers`
+  |
+note: found an item that was configured out
+ --> $WORKSPACE/src/test_helpers/mod.rs
+  |
+  | #[cfg(not(loom))]
+  |          ------ the item is gated here
+  | pub use server_task::ServerTaskGuard;
+  |                      ^^^^^^^^^^^^^^^
+
+error[E0432]: unresolved import `wireframe_testing::client_pair`
+ --> tests/ui/loom_non_loom_exports.rs:5:5
+  |
+5 | use wireframe_testing::client_pair as _;
   |     ^^^^^^^^^^^^^^^^^^^-----------^^^^^
   |                        |
   |                        no `client_pair` in the root
@@ -15,9 +31,9 @@ note: found an item that was configured out
   |         ^^^^^^^^^^^
 
 error[E0432]: unresolved import `wireframe_testing::runtime_ownership_benchmarks`
- --> tests/ui/loom_non_loom_exports.rs:5:5
+ --> tests/ui/loom_non_loom_exports.rs:6:5
   |
-5 | use wireframe_testing::runtime_ownership_benchmarks as _;
+6 | use wireframe_testing::runtime_ownership_benchmarks as _;
   |     ^^^^^^^^^^^^^^^^^^^----------------------------^^^^^
   |                        |
   |                        no `runtime_ownership_benchmarks` in the root
@@ -31,9 +47,9 @@ note: found an item that was configured out
   |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0432]: unresolved import `wireframe_testing::wait_for_listener_release`
- --> tests/ui/loom_non_loom_exports.rs:6:5
+ --> tests/ui/loom_non_loom_exports.rs:7:5
   |
-6 | use wireframe_testing::wait_for_listener_release as _;
+7 | use wireframe_testing::wait_for_listener_release as _;
   |     ^^^^^^^^^^^^^^^^^^^-------------------------^^^^^
   |                        |
   |                        no `wait_for_listener_release` in the root
@@ -47,17 +63,17 @@ note: found an item that was configured out
   |                              ^^^^^^^^^^^^^^^^^^^^^^^^^
 
 error[E0432]: unresolved imports `wireframe_testing::WireframePair`, `wireframe_testing::spawn_wireframe_pair`, `wireframe_testing::spawn_wireframe_pair_default`
-  --> tests/ui/loom_non_loom_exports.rs:8:5
+  --> tests/ui/loom_non_loom_exports.rs:9:5
    |
- 8 |     WireframePair as _,
+ 9 |     WireframePair as _,
    |     -------------^^^^^
    |     |
    |     no `WireframePair` in the root
- 9 |     spawn_wireframe_pair as _,
+10 |     spawn_wireframe_pair as _,
    |     --------------------^^^^^
    |     |
    |     no `spawn_wireframe_pair` in the root
-10 |     spawn_wireframe_pair_default as _,
+11 |     spawn_wireframe_pair_default as _,
    |     ----------------------------^^^^^
    |     |
    |     no `spawn_wireframe_pair_default` in the root

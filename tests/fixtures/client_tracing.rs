@@ -133,9 +133,15 @@ pub fn client_tracing_world() -> ClientTracingWorld {
 impl ClientTracingWorld {
     /// Start a standard echo server.
     ///
+    /// Any server this world already owns is stopped and awaited first, so a
+    /// second start never abandons a running task. That server's panic is
+    /// reported instead of being discarded.
+    ///
     /// # Errors
-    /// Returns an error if binding fails.
+    /// Returns an error if the previous server panicked, or if binding fails.
     pub async fn start_echo_server(&mut self) -> TestResult {
+        self.reap_existing_server().await?;
+
         let listener = TcpListener::bind("127.0.0.1:0").await?;
         let addr = listener.local_addr()?;
 
@@ -157,6 +163,18 @@ impl ClientTracingWorld {
 
         self.addr = Some(addr);
         self.server = Some(ServerTaskGuard::new(handle));
+        Ok(())
+    }
+
+    /// Stop and await the server this world currently owns, if any.
+    ///
+    /// # Errors
+    /// Returns an error if that server panicked.
+    async fn reap_existing_server(&mut self) -> TestResult {
+        let Some(previous) = self.server.take() else {
+            return Ok(());
+        };
+        previous.abort_and_join().await?;
         Ok(())
     }
 
@@ -275,7 +293,12 @@ mod tests {
     //! Regression tests for scenario teardown.
 
     use super::*;
-    use crate::fixtures::teardown_probe::{assert_teardown_awaits, spawn_slow_cancel_task};
+    use crate::fixtures::teardown_probe::{
+        assert_teardown_awaits,
+        assert_waited_for_cancellation,
+        spawn_panicking_task,
+        spawn_slow_cancel_task,
+    };
 
     /// Teardown must await the abort, not merely request one.
     ///
@@ -291,5 +314,42 @@ mod tests {
 
         assert_teardown_awaits(|| drop(world));
         drop(probe_runtime);
+    }
+
+    /// Starting a second server must reap the first, not abandon it.
+    #[test]
+    fn start_echo_server_reaps_the_previous_server() {
+        let probe_runtime = tokio::runtime::Runtime::new().expect("probe runtime");
+        let mut world = client_tracing_world();
+        world.server = Some(ServerTaskGuard::new(spawn_slow_cancel_task(
+            probe_runtime.handle(),
+        )));
+
+        let runtime = world.handle().expect("runtime");
+        let started = std::time::Instant::now();
+        let outcome = runtime.block_on(world.start_echo_server());
+        let elapsed = started.elapsed();
+
+        assert!(
+            outcome.is_ok(),
+            "starting a second server must succeed: {outcome:?}"
+        );
+        assert_waited_for_cancellation(elapsed);
+        drop(probe_runtime);
+    }
+
+    /// A panicking previous server must be reported, not replaced silently.
+    #[test]
+    fn start_echo_server_reports_a_panicking_previous_server() {
+        let mut world = client_tracing_world();
+        let runtime = world.handle().expect("runtime");
+        world.server = Some(ServerTaskGuard::new(spawn_panicking_task(&runtime)));
+
+        let outcome = runtime.block_on(world.start_echo_server());
+
+        assert!(
+            outcome.is_err(),
+            "a panicking previous server must surface as a step error"
+        );
     }
 }

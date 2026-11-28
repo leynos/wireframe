@@ -1,0 +1,16 @@
+error: unused `ServerTaskGuard` that must be used
+  --> tests/ui/server_task_guard_is_must_use.rs:12:5
+   |
+12 |     ServerTaskGuard::new(server);
+   |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+   |
+   = note: a dropped guard aborts the server without observing its outcome
+note: the lint level is defined here
+  --> tests/ui/server_task_guard_is_must_use.rs:6:9
+   |
+ 6 | #![deny(unused_must_use)]
+   |         ^^^^^^^^^^^^^^^
+help: if you wish to disregard this recommendation, use `let _unused = ...` to ignore the resulting value without dropping it immediately
+   |
+12 |     let _unused = ServerTaskGuard::new(server);
+   |     +++++++++++++

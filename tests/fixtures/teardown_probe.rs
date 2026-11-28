@@ -38,6 +38,22 @@ pub(crate) fn spawn_slow_cancel_task(runtime: &tokio::runtime::Handle) -> JoinHa
     handle
 }
 
+/// Spawn a task on `runtime` that panics once it has started.
+///
+/// The start is awaited, so a later abort cannot pre-empt the panic and turn
+/// it into a clean cancellation.
+pub(crate) fn spawn_panicking_task(runtime: &tokio::runtime::Handle) -> JoinHandle<()> {
+    let (started, has_started) = tokio::sync::oneshot::channel();
+    let handle = runtime.spawn(async move {
+        let _signalled = started.send(());
+        panic!("fixture server panicked");
+    });
+    has_started
+        .blocking_recv()
+        .expect("the fixture server task must start before it is reaped");
+    handle
+}
+
 /// Assert that a teardown blocked for the probe task's cancellation.
 ///
 /// A teardown that only requests the abort returns without waiting, so its
