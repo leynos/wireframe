@@ -20,6 +20,11 @@ All notable changes to this project will be documented in this file.
   factory, middleware-transform, scheduler-spawn, and allocation evidence.
   ([#649](https://github.com/leynos/wireframe/issues/649))
 
+- Publish the workspace from a version tag, through crates.io Trusted
+  Publishing and lading, and verify the published bytes against a recorded
+  candidate. See
+  [ADR 019](docs/adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md).
+
 - Import the registry-observation and byte-verification scripts from
   `leynos/netsuke`, with their tests, under `scripts/release`.
 

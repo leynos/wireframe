@@ -3,6 +3,7 @@
 .PHONY: bench-codec bench-runtime-ownership bench build dev-build dev-test release lint fmt check-fmt markdownlint nixie typecheck
 .PHONY: spelling
 .PHONY: test-msrv package-crates publish-check test-release-scripts
+.PHONY: install-lading publish-crates
 # Kept off the build/test line above so that unrelated edits to that long line
 # cannot collide with the lint targets during a stack restack.
 .PHONY: lint-doc lint-clippy lint-whitaker
@@ -86,6 +87,7 @@ UV_ENV = UV_CACHE_DIR=.uv-cache UV_TOOL_DIR=.uv-tools
 # lading is pinned once, in `tools/lading`, whose lock hashes it and everything
 # it imports. `--locked` refuses a lock that no longer matches the project.
 LADING ?= $(UV_ENV) $(UV) run --python 3.14 --project tools/lading --locked lading
+LADING_INSTALLED ?= $(UV_ENV) $(UV) run --python 3.14 --project tools/lading --no-sync lading
 # The crates published to crates.io, in `lading.toml` order.
 PUBLISHED_CRATES ?= wireframe wireframe_testing
 # A non-empty blank value displaces the `rustflags` in `.cargo/config.toml`, which
@@ -177,6 +179,15 @@ test-msrv: ## Check the workspace and a fresh consumer on the minimum Rust versi
 # crates.io, so this works whether or not the workspace version is published.
 package-crates: ## Package and verify every published crate from a clean checkout
 	RUSTFLAGS="$(RELEASE_RUSTFLAGS)" $(CARGO) package --locked $(addprefix -p ,$(PUBLISHED_CRATES))
+
+install-lading: ## Install the locked release tool without running it
+	$(UV_ENV) $(UV) sync --python 3.14 --project tools/lading --locked
+
+# For `release.yml`, which has already tested the commit and obtained a
+# short-lived token. `--no-sync` keeps the step from downloading anything while
+# the token is in its environment.
+publish-crates: ## Publish the workspace to crates.io (release workflow only)
+	RUSTFLAGS="$(RELEASE_RUSTFLAGS)" $(LADING_INSTALLED) publish --workspace-root . --live --forbid-dirty --skip-preflight
 
 # Python 3.14 matches the release workflow. Doctests run too, so each module's
 # examples stay true.

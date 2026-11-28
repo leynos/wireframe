@@ -1,8 +1,8 @@
 # Releasing the Wireframe crates
 
-This guide describes how a release of the Wireframe workspace is prepared and
-checked. One version covers the workspace, and two crates are published to
-[crates.io](https://crates.io/), in this order:
+This guide describes how a release of the Wireframe workspace is prepared,
+checked, and published. One version covers the workspace, and two crates are
+published to [crates.io](https://crates.io/), in this order:
 
 1. `wireframe`
 2. `wireframe_testing`, which depends on `wireframe`
@@ -37,6 +37,65 @@ run uses the same bytes. To move the pin, edit `pyproject.toml`, run
 4. Review and commit these changes. Cargo refuses to package a tree with
    uncommitted changes, and the packages record the commit they came from.
 5. Run `make package-crates` and `make publish-check`.
+6. Merge the change to `main`.
+
+## Publishing
+
+Push an annotated tag for the release merge commit. Its name is `v` followed by
+the version, and the commit must be on `main`. Tag that commit by its SHA, not
+`origin/main`: if anything has merged since, `origin/main` names a later
+commit, and the workflow would publish its unreviewed content under the release
+version. Read the SHA from the merged pull request, and confirm that it is on
+`main` before tagging it:
+
+```bash
+git fetch origin main
+release_sha=$(gh pr view <release-pr> --json mergeCommit --jq .mergeCommit.oid)
+git merge-base --is-ancestor "$release_sha" origin/main &&
+  git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" "$release_sha" &&
+  git push origin v0.4.0-alpha1
+```
+
+`git merge-base --is-ancestor` exits non-zero when the commit is not on `main`,
+and the `&&` chain then stops before the tag exists, so nothing is pushed.
+
+The `Release` workflow then runs these jobs:
+
+1. `package` packages both crates, records their digests, checks that crates.io
+   permits the version, and rehearses the publication.
+2. `require-main` checks that the tagged commit is on `main`. Every later job
+   needs it.
+3. `publish-crates-io` waits for the `crates-io` environment's approval,
+   reproduces the recorded archives, and publishes them with lading.
+4. `verify-crates-io` compares what crates.io serves with the record, and
+   builds a consumer from crates.io.
+5. `github-release` creates the GitHub release, and attaches both archives and
+   their checksums. A version with a hyphen is marked as a pre-release.
+
+Nothing can undo an upload. A version published in error can only be yanked.
+
+### When a run fails
+
+Run the failed jobs again. Publication skips a crate whose published bytes
+already match the record, so a release interrupted between the two crates
+resumes with the second. A version that crates.io holds with *different* bytes,
+or that has been yanked, stops the run, and needs a new version.
+
+### Setting up a repository
+
+Publication needs settings that only an owner can make. Create them before the
+first tag, because GitHub creates a missing environment without any protection:
+
+1. In the repository settings, create an environment named `crates-io`. Require
+   a reviewer, and allow deployments only from tags that match `v*`.
+2. On crates.io, open **Settings**, then **Trusted Publishing**, for `wireframe`
+   and again for `wireframe_testing`. Add a GitHub publisher with the owner
+   `leynos`, the repository `wireframe`, the workflow `release.yml`, and the
+   environment `crates-io`.
+3. Revoke any long-lived crates.io token that earlier releases used.
+
+[ADR 019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
+records why the process has this shape.
 
 ## The two packaging checks
 
@@ -64,10 +123,8 @@ packages and checks `wireframe` alone, so only `make package-crates` shows that
 unit tests. Pass `LADING_SKIP_PREFLIGHT=1` when the suite has already run on
 the same commit.
 
-No continuous integration job runs either target yet. That coverage is deferred
-to the release workflows that pull request #981 adds: `release-dry-run.yml`
-calls `release-package.yml` for every pull request. It runs
-`make package-crates` on a fresh checkout and fails unless both archives are
-recorded for that commit. It runs `make publish-check` only when the workspace
-version is unpublished, so the rehearsal is skipped until the version bump.
-Until then, run both targets by hand before a release.
+Continuous integration runs both targets. `release-dry-run.yml` calls
+`release-package.yml` for every pull request. It runs `make package-crates` on
+a fresh checkout and fails unless both archives are recorded for that commit.
+It runs `make publish-check` only when the workspace version is unpublished, so
+the rehearsal is skipped until the version bump.
