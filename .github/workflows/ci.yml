@@ -69,7 +69,7 @@ jobs:
         with:
           persist-credentials: false
       - name: Setup Rust
-        uses: leynos/shared-actions/.github/actions/setup-rust@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/setup-rust@cbc5d33fe54bbde50f5eee818d5a8113866a8730
       - name: Install development backend and linker
         # Both runner choices are Ubuntu. Confirm the manifest's Cranelift
         # component and install the Linux linker before debug Make targets.
@@ -100,7 +100,7 @@ jobs:
       - name: Install mdtablefix
         # `make check-fmt` runs `mdtablefix --check --git`; 0.6.0 is the
         # first release with `--check` and `--git`.
-        uses: leynos/shared-actions/.github/actions/install-mdtablefix@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/install-mdtablefix@cbc5d33fe54bbde50f5eee818d5a8113866a8730
         with:
           version: "0.6.1"
 
@@ -113,13 +113,13 @@ jobs:
         # and the cache, and it takes the lint suite from the rolling release;
         # it refuses a suite pin, so none is passed. The Makefile's
         # `install-whitaker` target is the contributor's route, not CI's.
-        uses: leynos/shared-actions/.github/actions/install-whitaker@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/install-whitaker@cbc5d33fe54bbde50f5eee818d5a8113866a8730
       - name: Set up uv for the YAML lint tools
         uses: astral-sh/setup-uv@c5680ec91f7b9b91406fab4ded5d45245abf7b67
         with:
           enable-cache: false
       - name: Install the YAML lint tools
-        uses: leynos/shared-actions/.github/actions/install-yaml-lint@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/install-yaml-lint@cbc5d33fe54bbde50f5eee818d5a8113866a8730
       - name: Lint
         run: make lint
       - name: Setup uv
@@ -132,7 +132,7 @@ jobs:
       # Merman comes from its release archive, verified against a pinned
       # checksum, rather than being compiled from crates.io on every run.
       - name: Install Nixie and Merman CLI
-        uses: leynos/shared-actions/.github/actions/install-nixie@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/install-nixie@cbc5d33fe54bbde50f5eee818d5a8113866a8730
         with:
           nixie-version: '1.1.0'
           merman-version: '0.7.0'
@@ -180,7 +180,7 @@ jobs:
       # coverage-main.yml uploads, and it needs nothing from here.
       - name: Test and Measure Coverage
         if: github.event_name == 'pull_request'
-        uses: leynos/shared-actions/.github/actions/generate-coverage@ab6505246c6b043b742a225e428e00448c0a37af
+        uses: leynos/shared-actions/.github/actions/generate-coverage@cbc5d33fe54bbde50f5eee818d5a8113866a8730
         with:
           output-path: lcov.info
           format: lcov
