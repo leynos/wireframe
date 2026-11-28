@@ -2090,9 +2090,11 @@ The workflows call four of Wireframe's own tools in `scripts/release`:
 
 *Table 1: `release_workspace_cli.py` subcommands and the jobs that run them.*
 
-The other modules come from Netsuke;
-[the scripts' README](../scripts/release/README.md) records their provenance
-and the commit they were taken from.
+The other modules come from Netsuke. They are described under
+[Release verification scripts](#release-verification-scripts), [ADR 020](adrs/adr-0020-import-netsukes-release-verification-modules.md)
+records why they were imported and what was left out, and
+[the scripts' README](../scripts/release/README.md) records the commit they
+were taken from.
 
 Dependabot does not watch `tools/lading`, so move its pin by hand.
 

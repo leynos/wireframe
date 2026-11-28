@@ -117,4 +117,5 @@ _Table 2: What the release process adapts from each project._
 
 - [Releasing the Wireframe crates](../releasing-crates.md)
 - [Release scripts](../../scripts/release/README.md)
+- [ADR 020: import Netsuke's release-verification modules](adr-0020-import-netsukes-release-verification-modules.md)
 - [crates.io Trusted Publishing](https://crates.io/docs/trusted-publishing)
