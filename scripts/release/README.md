@@ -17,4 +17,9 @@ publishes, so the upload command and its metadata builder are left out, and no
 module takes a registry credential. The checksum-sidecar code is left out too,
 because it describes binary assets, which this library does not ship.
 
+[ADR 020](../../docs/adrs/adr-0020-import-netsukes-release-verification-modules.md)
+records the decision to import these modules, the exclusions, and the Python
+3.14 requirement. The developers' guide describes
+[each module's boundary](../../docs/developers-guide.md#release-verification-scripts).
+
 Run the tests with `make test-release-scripts`. The modules need Python 3.14.

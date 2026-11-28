@@ -1587,6 +1587,68 @@ workspace with it. So far it only rehearses a release, so the choice is
 recorded here rather than in an architectural decision record. It becomes an
 architectural decision once a workflow uploads with it.
 
+### Release verification scripts
+
+`scripts/release` holds the modules that observe crates.io and check what a
+release published. They come from `leynos/netsuke`;
+[ADR 020](adrs/adr-0020-import-netsukes-release-verification-modules.md)
+records why they were imported, what was left out, and why they need Python
+3.14, and [the scripts' README](../scripts/release/README.md) records the
+source commit. No module takes a registry credential: lading uploads, and the
+scripts only read.
+
+Each module owns one boundary, and only the transport modules touch the network:
+
+- `crates_io_registry_http` builds requests and refuses any URL that is not
+  HTTPS on `crates.io` or `static.crates.io`, or that carries userinfo, an
+  explicit port, or a fragment. Its opener rechecks every redirect target
+  against the same allowlist, so a redirect cannot leave the registry.
+- `crates_io_transport_http` reads responses and polls for an archive within a
+  `DownloadPollPolicy`: a fixed number of attempts, a delay between them, and a
+  per-request timeout. It retries absence (403 or 404), server errors, and
+  transport failures, but stops at once on a rejected redirect, because the
+  allowlist will reject it again.
+- `crates_io_transport_cli` is the command-line front end. `probe` records one
+  registry response, single-shot, and `download` polls for an archive for up to
+  12 attempts, 10 seconds apart, with a 30-second timeout on each. `probe` exits
+  `EXIT_TRANSPORT_ERROR` when the registry gave no HTTP status, and
+  `EXIT_RECORD_ERROR` when the response arrived but could not be written, so a
+  local fault is never reported as an unreachable registry. When `download`
+  receives no response at all, it records status `0` and an empty body, which
+  the verifier refuses.
+- `release_registry_response` turns a recorded registry response into a typed
+  observation, and `release_crates_io_adapter` does the same for a recorded
+  download. Status codes and JSON shapes stop here; an empty body or the XML
+  refusal body under status 200 means the archive is absent.
+- `release_reconcile_crates` decides, from an observation alone, what the
+  registry holds for the intended version and what a release may do about it.
+- `verify_crates_io_bytes` decides whether a downloaded archive is the one the
+  release meant to publish.
+- `release_digest` and `release_digest_files` hash files and compare digests in
+  constant time.
+
+`classify_registry_state` reads the observation against the intended version
+and digest, and `plan_crates_action` maps the result to an action (Table 1). A
+yank outranks a matching digest, and the version counts as identical only when
+every record for it carries the intended digest.
+
+| State           | Meaning                                         | Action    |
+| --------------- | ----------------------------------------------- | --------- |
+| `ABSENT`        | The registry has no such version                | `publish` |
+| `IDENTICAL`     | Every record for the version has the same bytes | `skip`    |
+| `CONFLICT`      | The version exists with different bytes         | `fail`    |
+| `YANKED`        | The version exists and was yanked               | `fail`    |
+| `INDETERMINATE` | The response settles nothing                    | `fail`    |
+
+*Table 1: Registry states and the actions `plan_crates_action` returns.*
+
+The byte-verification gate is `verify_observation`. It returns the observed
+digest only when the archive was present and its digest equals the trusted one.
+Otherwise it raises: `ArchiveAbsentError` for an absent archive,
+`ArchiveMismatchError` for different bytes, and `UnverifiableObservationError`
+when the download established neither. A release that cannot prove what
+crates.io serves therefore fails rather than passes.
+
 ### CodeScene coverage baseline
 
 The `Coverage (main)` workflow in `.github/workflows/coverage-main.yml` runs on
