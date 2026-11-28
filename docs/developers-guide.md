@@ -1485,7 +1485,7 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
     `whitaker --all -- --workspace --all-targets --all-features` under
     `RUSTFLAGS="-D warnings"`;
   - `lint-python-docs` runs `interrogate` at a 100% threshold over
-    `tests/workflow_contracts`, the repository's only Python.
+    `tests/workflow_contracts` and `scripts/release`, the repository's Python.
 
   `make lint` is a thin aggregate target, so each leaf can be run alone.
   `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
@@ -1498,8 +1498,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   test targets, and the separate `test-doc` target covers its doctests.
 
   `lint-python-docs` holds a docstring on every module, class and function in
-  the workflow contract tests; Ruff-style docstring wording is not enforced
-  there. It needs `uv` on `PATH`, which resolves the pinned
+  the workflow contract tests and the release scripts; Ruff-style docstring
+  wording is not enforced there. It runs on Python 3.14, whose syntax the
+  release scripts use, and needs `uv` on `PATH`, which resolves the pinned
   `interrogate>=1.7,<2` into an ephemeral environment, so no Python packages
   need installing first. The required `build-test` job runs `make lint`, so a
   missing docstring fails the pull-request lane even though the crate's own
@@ -1514,6 +1515,14 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
+- `make test-release-scripts` runs the release scripts' tests and doctests:
+  pytest with `--doctest-modules` over `scripts/release`, on Python 3.14 through
+  `uv run --no-project --python 3.14` with `pytest>=8` and `hypothesis>=6`, so
+  nothing needs installing first. The required `build-test` job runs it in the
+  blocking `Release script tests` step. `scripts/release/README.md` records
+  where the scripts came from, the `leynos/netsuke` commit they were imported
+  at, and which of Netsuke's components were left out and why: lading uploads
+  here, so no module uploads or takes a registry credential.
 - `make package-crates` packages `wireframe` and `wireframe_testing` with
   `cargo package --locked` and builds each package on its own, as crates.io
   would. It is meaningful on any commit and uploads nothing.

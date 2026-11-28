@@ -20,6 +20,9 @@ All notable changes to this project will be documented in this file.
   factory, middleware-transform, scheduler-spawn, and allocation evidence.
   ([#649](https://github.com/leynos/wireframe/issues/649))
 
+- Import the registry-observation and byte-verification scripts from
+  `leynos/netsuke`, with their tests, under `scripts/release`.
+
 - Package and rehearse workspace releases with lading v0.4.0-beta1, through
   `make package-crates` and `make publish-check`. See
   [Releasing the Wireframe crates](docs/releasing-crates.md).
