@@ -1485,7 +1485,7 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
     `whitaker --all -- --workspace --all-targets --all-features` under
     `RUSTFLAGS="-D warnings"`;
   - `lint-python-docs` runs `interrogate` at a 100% threshold over
-    `tests/workflow_contracts`, the repository's only Python.
+    `tests/workflow_contracts` and `scripts/release`, the repository's Python.
 
   `make lint` is a thin aggregate target, so each leaf can be run alone.
   `.NOTPARALLEL: lint` keeps the stages sequential even under `make -j lint`,
@@ -1498,8 +1498,9 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
   test targets, and the separate `test-doc` target covers its doctests.
 
   `lint-python-docs` holds a docstring on every module, class and function in
-  the workflow contract tests; Ruff-style docstring wording is not enforced
-  there. It needs `uv` on `PATH`, which resolves the pinned
+  the workflow contract tests and the release scripts; Ruff-style docstring
+  wording is not enforced there. It runs on Python 3.14, whose syntax the
+  release scripts use, and needs `uv` on `PATH`, which resolves the pinned
   `interrogate>=1.7,<2` into an ephemeral environment, so no Python packages
   need installing first. The required `build-test` job runs `make lint`, so a
   missing docstring fails the pull-request lane even though the crate's own
@@ -1514,6 +1515,14 @@ Use the Makefile targets as the contributor entrypoint for routine validation:
 - `make test-pool-no-metrics` checks the `pool,serializer-bincode` feature set
   with default features disabled and warnings denied. The required `build-test`
   CI job runs it in the `Pool without metrics compile check` step.
+- `make test-release-scripts` runs the release scripts' tests and doctests:
+  pytest with `--doctest-modules` over `scripts/release`, on Python 3.14 through
+  `uv run --no-project --python 3.14` with `pytest>=8` and `hypothesis>=6`, so
+  nothing needs installing first. The required `build-test` job runs it in the
+  blocking `Release script tests` step. `scripts/release/README.md` records
+  where the scripts came from, the `leynos/netsuke` commit they were imported
+  at, and which of Netsuke's components were left out and why: lading uploads
+  here, so no module uploads or takes a registry credential.
 - `make package-crates` packages `wireframe` and `wireframe_testing` with
   `cargo package --locked` and builds each package on its own, as crates.io
   would. It is meaningful on any commit and uploads nothing.
@@ -1580,6 +1589,68 @@ and skips a crate that is already published; `rstest-bdd` releases its
 workspace with it. So far it only rehearses a release, so the choice is
 recorded here rather than in an architectural decision record. It becomes an
 architectural decision once a workflow uploads with it.
+
+### Release verification scripts
+
+`scripts/release` holds the modules that observe crates.io and check what a
+release published. They come from `leynos/netsuke`;
+[ADR 020](adrs/adr-0020-import-netsukes-release-verification-modules.md)
+records why they were imported, what was left out, and why they need Python
+3.14, and [the scripts' README](../scripts/release/README.md) records the
+source commit. No module takes a registry credential: lading uploads, and the
+scripts only read.
+
+Each module owns one boundary, and only the transport modules touch the network:
+
+- `crates_io_registry_http` builds requests and refuses any URL that is not
+  HTTPS on `crates.io` or `static.crates.io`, or that carries userinfo, an
+  explicit port, or a fragment. Its opener rechecks every redirect target
+  against the same allowlist, so a redirect cannot leave the registry.
+- `crates_io_transport_http` reads responses and polls for an archive within a
+  `DownloadPollPolicy`: a fixed number of attempts, a delay between them, and a
+  per-request timeout. It retries absence (403 or 404), server errors, and
+  transport failures, but stops at once on a rejected redirect, because the
+  allowlist will reject it again.
+- `crates_io_transport_cli` is the command-line front end. `probe` records one
+  registry response, single-shot, and `download` polls for an archive for up to
+  12 attempts, 10 seconds apart, with a 30-second timeout on each. `probe` exits
+  `EXIT_TRANSPORT_ERROR` when the registry gave no HTTP status, and
+  `EXIT_RECORD_ERROR` when the response arrived but could not be written, so a
+  local fault is never reported as an unreachable registry. When `download`
+  receives no response at all, it records status `0` and an empty body, which
+  the verifier refuses.
+- `release_registry_response` turns a recorded registry response into a typed
+  observation, and `release_crates_io_adapter` does the same for a recorded
+  download. Status codes and JSON shapes stop here; an empty body or the XML
+  refusal body under status 200 means the archive is absent.
+- `release_reconcile_crates` decides, from an observation alone, what the
+  registry holds for the intended version and what a release may do about it.
+- `verify_crates_io_bytes` decides whether a downloaded archive is the one the
+  release meant to publish.
+- `release_digest` and `release_digest_files` hash files and compare digests in
+  constant time.
+
+`classify_registry_state` reads the observation against the intended version
+and digest, and `plan_crates_action` maps the result to an action (Table 1). A
+yank outranks a matching digest, and the version counts as identical only when
+every record for it carries the intended digest.
+
+| State           | Meaning                                         | Action    |
+| --------------- | ----------------------------------------------- | --------- |
+| `ABSENT`        | The registry has no such version                | `publish` |
+| `IDENTICAL`     | Every record for the version has the same bytes | `skip`    |
+| `CONFLICT`      | The version exists with different bytes         | `fail`    |
+| `YANKED`        | The version exists and was yanked               | `fail`    |
+| `INDETERMINATE` | The response settles nothing                    | `fail`    |
+
+*Table 1: Registry states and the actions `plan_crates_action` returns.*
+
+The byte-verification gate is `verify_observation`. It returns the observed
+digest only when the archive was present and its digest equals the trusted one.
+Otherwise it raises: `ArchiveAbsentError` for an absent archive,
+`ArchiveMismatchError` for different bytes, and `UnverifiableObservationError`
+when the download established neither. A release that cannot prove what
+crates.io serves therefore fails rather than passes.
 
 ### CodeScene coverage baseline
 
