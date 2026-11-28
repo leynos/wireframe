@@ -6,6 +6,7 @@ import time
 import typing as typ
 import urllib.error
 
+import crates_io_transport_cli
 import pytest
 from crates_io_transport_support import FakeOpener, FakeResponse, missing_response
 from release_reconcile_crates import RegistryState
@@ -243,3 +244,55 @@ def test_a_tag_for_another_version_records_nothing(release: Release) -> None:
     """A mistyped tag stops before any candidate exists."""
     assert release.record("v9.9.9") == EXIT_REFUSED
     assert not release.candidate.exists()
+
+
+def _stub_download(
+    monkeypatch: pytest.MonkeyPatch, release: Release, *, status: str, result: int
+) -> None:
+    """Replace the download with one that leaves the recorded bytes behind."""
+
+    def download(request: crates_io_transport_cli.DownloadRequest) -> int:
+        """Write the candidate's own archive and ``status``, then return ``result``."""
+        retained = release.packages / request.archive_path.name
+        request.archive_path.write_bytes(retained.read_bytes())
+        request.status_path.write_text(status, encoding="ascii")
+        return result
+
+    monkeypatch.setattr(crates_io_transport_cli, "download", download)
+
+
+def test_a_failed_download_refuses_verification_by_its_result(
+    release: Release,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A failing download is refused even when it left matching bytes behind."""
+    release.record(TAG)
+    _stub_download(
+        monkeypatch,
+        release,
+        status="200\n",
+        result=crates_io_transport_cli.EXIT_TRANSPORT_ERROR,
+    )
+
+    assert release.verify() == EXIT_REFUSED, "a failed download must not verify"
+    assert "the download failed with exit code" in capsys.readouterr().err, (
+        "name the failed download, not a digest mismatch"
+    )
+
+
+def test_a_download_without_a_numeric_status_is_refused(
+    release: Release,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A status file that is not a number is a refusal, not a traceback."""
+    release.record(TAG)
+    _stub_download(
+        monkeypatch, release, status="garbage\n", result=crates_io_transport_cli.EXIT_OK
+    )
+
+    assert release.verify() == EXIT_REFUSED, "an unreadable status must not verify"
+    assert "recorded no HTTP status" in capsys.readouterr().err, (
+        "name the unreadable status"
+    )

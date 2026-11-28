@@ -172,26 +172,12 @@ def verify_published(candidate: Candidate, registry: Registry) -> None:
     Raises
     ------
     verify_crates_io_bytes.VerificationError
-        If an archive is absent, unavailable, or different.
+        If a download fails or records no status, or an archive is absent,
+        unavailable, or different.
     """
     with tempfile.TemporaryDirectory() as scratch:
         for crate in candidate.crates:
-            archive = pathlib.Path(scratch) / crate.filename
-            status_path = pathlib.Path(scratch) / f"{crate.filename}.status"
-            crates_io_transport_cli.download(
-                crates_io_transport_cli.DownloadRequest(
-                    crate=crate.name,
-                    version=crate.version,
-                    archive_path=archive,
-                    status_path=status_path,
-                    opener=registry.opener,
-                    sleeper=registry.sleeper,
-                    monotonic_clock_ns=registry.monotonic_clock_ns,
-                )
-            )
-            observation = release_crates_io_adapter.observe_download_file(
-                int(status_path.read_text(encoding="ascii")), archive
-            )
+            observation = _observe_download(crate, registry, pathlib.Path(scratch))
             verify_crates_io_bytes.verify_observation(
                 observation=observation,
                 crate=crate.name,
@@ -199,6 +185,40 @@ def verify_published(candidate: Candidate, registry: Registry) -> None:
                 expected_sha256=crate.sha256,
             )
             print(f"{crate.filename}: published bytes match {crate.sha256}")
+
+
+def _observe_download(
+    crate: CrateArchive, registry: Registry, scratch: pathlib.Path
+) -> verify_crates_io_bytes.DownloadObservation:
+    """Download one archive into ``scratch`` and observe what arrived.
+
+    Raises
+    ------
+    verify_crates_io_bytes.VerificationError
+        If the download command fails, or leaves a status that is not a number.
+    """
+    archive = scratch / crate.filename
+    status_path = scratch / f"{crate.filename}.status"
+    result = crates_io_transport_cli.download(
+        crates_io_transport_cli.DownloadRequest(
+            crate=crate.name,
+            version=crate.version,
+            archive_path=archive,
+            status_path=status_path,
+            opener=registry.opener,
+            sleeper=registry.sleeper,
+            monotonic_clock_ns=registry.monotonic_clock_ns,
+        )
+    )
+    if result != crates_io_transport_cli.EXIT_OK:
+        message = f"{crate.filename}: the download failed with exit code {result}"
+        raise verify_crates_io_bytes.VerificationError(message)
+    try:
+        status = int(status_path.read_text(encoding="ascii"))
+    except ValueError as error:
+        message = f"{crate.filename}: the download recorded no HTTP status"
+        raise verify_crates_io_bytes.VerificationError(message) from error
+    return release_crates_io_adapter.observe_download_file(status, archive)
 
 
 def build_parser() -> argparse.ArgumentParser:
