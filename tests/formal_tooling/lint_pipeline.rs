@@ -59,14 +59,21 @@ pub(super) fn assert_lint_aggregate(makefile: &MakefileContent<'_>) -> TestResul
     let lint_prerequisites = makefile
         .target_prerequisites("lint")
         .ok_or_else(|| "expected `lint` target in Makefile".to_owned())?;
+    // Other prerequisites, such as the YAML lint targets, may sit beside the
+    // leaves; only the leaves' own order is part of the contract.
+    let leaves = [
+        "lint-doc",
+        "lint-clippy",
+        "lint-whitaker",
+        "lint-python-docs",
+    ];
+    let ordered: Vec<&str> = lint_prerequisites
+        .iter()
+        .map(String::as_str)
+        .filter(|name| leaves.contains(name))
+        .collect();
     ensure(
-        lint_prerequisites
-            == [
-                "lint-doc",
-                "lint-clippy",
-                "lint-whitaker",
-                "lint-python-docs",
-            ],
+        ordered == leaves,
         "`lint` should aggregate the Rust lint leaves in order, then the Python docstring check",
     )?;
     for leaf in [
