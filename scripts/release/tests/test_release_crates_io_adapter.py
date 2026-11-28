@@ -82,3 +82,31 @@ def test_unreadable_success_body_raises_rather_than_observing(
     """A 200 whose saved body cannot be read is an error, not an observation."""
     with pytest.raises(FileNotFoundError):
         observe_download_file(200, tmp_path / "never-saved.crate")
+
+
+def test_empty_success_body_is_absent(tmp_path: pathlib.Path) -> None:
+    """Treat an empty 200 body as absence, with no digest to compare."""
+    archive = tmp_path / "empty.crate"
+    _ = archive.write_bytes(b"")
+
+    observation = observe_download_file(200, archive)
+
+    assert observation.availability is DownloadAvailability.ABSENT, (
+        "an empty 200 body is absence, not an archive"
+    )
+    assert observation.sha256 is None, "an absent observation must carry no digest"
+
+
+def test_single_byte_non_xml_body_is_present(tmp_path: pathlib.Path) -> None:
+    """Treat any non-empty body without the XML prefix as archive bytes."""
+    archive = tmp_path / "tiny.crate"
+    _ = archive.write_bytes(b"x")
+
+    observation = observe_download_file(200, archive)
+
+    assert observation.availability is DownloadAvailability.PRESENT, (
+        "a non-empty body without the XML refusal prefix is an archive"
+    )
+    assert observation.sha256 == hashlib.sha256(b"x").hexdigest(), (
+        "the adapter must hash the single saved byte"
+    )
