@@ -311,9 +311,12 @@ author; pins placement by `(workflow, job id)` coordinate and compares that set
 against the tree's jobs in both directions; pins each ceiling by value and
 requires one on every job that can select any `ubicloud-` label; asserts the
 three reusable callers declare no runner; and compares
-`.github/actionlint.yaml` against the labels in use in both directions. That
-last comparison is what retires `namespace-profile-default` from the registry
-rather than leaving it behind to authorize a runner family nobody uses.
+`.github/actionlint.yaml` against the labels in use in both directions: a label
+no entry covers fails, and so does an entry that covers no label in use. An
+entry is an exact label or ends in `*`, as the estate's `ubicloud-*` does, and
+a wildcard stays in use while any label matches it. That last comparison is
+what retires `namespace-profile-default` from the registry rather than leaving
+it behind to authorize a runner family nobody uses.
 
 It also checks that the reviewed tables are total against each other, which is
 what stops a lane escaping review by being left out of one of them. Every other
@@ -3227,3 +3230,25 @@ return under another spelling.
 
 [serializer-output-plan]:
 execplans/issue-538-plan-zero-copy-serializer-output-migration.md
+
+## YAML lint
+
+`make lint` runs `make yamllint` and `make actionlint` as prerequisites.
+`make yamllint` runs `yamllint --strict` over every tracked `.yml` and `.yaml`
+file, reading `.yamllint.yml`, which extends the estate base
+`.yamllint-estate.yml` (a verbatim copy of the estate canon; do not edit it).
+The base ignores Helm chart templates (`**/charts/**/templates/`), so a tracked
+file there is passed to yamllint but not checked, and a local `ignore` in
+`.yamllint.yml` replaces that entry rather than adding to it. Run it from the
+repository root, because yamllint resolves `extends` against the current
+directory. `make actionlint` checks the GitHub Actions workflows, accepting the
+runner labels in `.github/actionlint.yaml`, and runs ShellCheck over their Bash
+and `sh` `run:` scripts when it is on `PATH` (it skips PowerShell steps).
+
+Install the tools locally at the versions CI uses:
+`uv tool install yamllint==1.38.0`, and the `actionlint` 1.7.12 and
+`shellcheck` 0.11.0 release binaries (a package manager's builds can differ and
+change what the lint reports). CI installs the same pinned versions with the
+`install-yaml-lint` action of `leynos/shared-actions` before it runs
+`make lint`. The `YAMLLINT` and `ACTIONLINT` variables name the commands when
+they are not on `PATH`.

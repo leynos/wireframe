@@ -232,7 +232,7 @@ target/%/lib$(CRATE).rlib: ## Build library in debug or release
 # `.NOTPARALLEL` and not from the order they are named.
 .NOTPARALLEL: lint
 
-lint: lint-doc lint-clippy lint-whitaker lint-python-docs ## Run rustdoc, Clippy, Whitaker and the Python docstring check
+lint: lint-doc lint-clippy lint-whitaker lint-python-docs yamllint actionlint ## Run rustdoc, Clippy, Whitaker and the Python docstring check
 
 # The workflow contract tests are the repository's only Python; interrogate holds
 # docstring presence for them. Ruff-style docstring wording is not enforced here.
@@ -316,3 +316,18 @@ formal: formal-pr ## Default formal suite (alias for the PR gate)
 help: ## Show available targets
 	@grep -E '^[a-zA-Z_-]+:.*?##' $(MAKEFILE_LIST) | \
 	awk 'BEGIN {FS=":"; printf "Available targets:\n"} {printf "  %-20s %s\n", $$1, $$2}'
+
+YAMLLINT ?= yamllint
+ACTIONLINT ?= actionlint
+
+.PHONY: yamllint actionlint
+
+# yamllint reads `.yamllint.yml`, which extends `.yamllint-estate.yml`, and
+# resolves that path against the current directory, so run it from the root.
+yamllint: SHELL := bash
+yamllint: .SHELLFLAGS := -eo pipefail -c
+yamllint: ## Lint every tracked YAML file strictly
+	git ls-files -z '*.yml' '*.yaml' | xargs -0 -r $(YAMLLINT) --strict --
+
+actionlint: ## Lint the GitHub Actions workflows (and their shell scripts when ShellCheck is on PATH)
+	$(ACTIONLINT)

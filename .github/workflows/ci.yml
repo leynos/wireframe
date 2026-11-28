@@ -114,6 +114,12 @@ jobs:
         # it refuses a suite pin, so none is passed. The Makefile's
         # `install-whitaker` target is the contributor's route, not CI's.
         uses: leynos/shared-actions/.github/actions/install-whitaker@ab6505246c6b043b742a225e428e00448c0a37af
+      - name: Set up uv for the YAML lint tools
+        uses: astral-sh/setup-uv@c5680ec91f7b9b91406fab4ded5d45245abf7b67
+        with:
+          enable-cache: false
+      - name: Install the YAML lint tools
+        uses: leynos/shared-actions/.github/actions/install-yaml-lint@ab6505246c6b043b742a225e428e00448c0a37af
       - name: Lint
         run: make lint
       - name: Setup uv

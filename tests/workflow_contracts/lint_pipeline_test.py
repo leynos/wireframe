@@ -164,8 +164,11 @@ def _assert_lint_rule(source: str) -> None:
     lint_rules = [line for line in source.splitlines() if line.startswith("lint:")]
     assert len(lint_rules) == 1, "the Makefile must declare `lint` once"
     prerequisites = lint_rules[0].split("##")[0].split(":", 1)[1].split()
-    assert prerequisites == [*LINT_LEAVES, PYTHON_DOCS_LEAF], (
-        "`lint` must aggregate the Rust leaves in order, then the Python docstring check"
+    leaves = [*LINT_LEAVES, PYTHON_DOCS_LEAF]
+    ordered = [name for name in prerequisites if name in leaves]
+    assert ordered == leaves, (
+        "`lint` must aggregate the Rust leaves in order, then the Python docstring "
+        "check; other prerequisites such as the YAML lint targets may sit beside them"
     )
 
 
