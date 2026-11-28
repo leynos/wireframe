@@ -5,7 +5,7 @@ This ExecPlan (execution plan) is a living document. The sections `Constraints`,
 `Outcomes & retrospective`, `Conformance basis`, and `Verification plan` must
 be kept up to date as work proceeds.
 
-Status: DRAFT (awaiting design review and user approval)
+Status: DRAFT (design review applied; awaiting user approval)
 
 Branch: `10-2-2-record-benchmark-acceptance-thresholds`
 
@@ -15,325 +15,449 @@ Roadmap item: `10.2.2` in `docs/roadmap.md`, mirrored by item `1.2.2` in
 ## Purpose / big picture
 
 Wireframe is migrating its outbound byte path from `Vec<u8>` to shared
-`bytes::Bytes` buffers (Epic #284). Today every outbound message passes through
-`Serializer::serialize`, which must return a freshly allocated, payload-sized
-`Vec<u8>`. `src/app/outbound_encoding.rs::encode_message_frame` converts that
-vector to `Bytes` and hands it to `FrameCodec::wrap_payload`. The vector is the
-*serializer materialization*. Roadmap item `11.1.2` will change the serializer
-contract so that output can be shared rather than materialized.
+`bytes::Bytes` buffers (Epic #284). Today `Serializer::serialize` must return a
+freshly allocated, payload-sized `Vec<u8>`. `src/app/outbound_encoding.rs`
+function `encode_message_frame` converts that vector to `Bytes` without a copy
+and hands it to `FrameCodec::wrap_payload`. The vector is the *serializer
+materialization*. Roadmap item `11.1.2` will change the serializer contract so
+that output can be shared rather than materialized.
 
 Roadmap item `10.2.2` must fix, before that migration starts, the measurable
-lines a candidate migration has to cross to be accepted. A *threshold* here is
-a written rule, tied to a named measurement, that a later comparison either
-meets or must explain. The thresholds `T1` to `T7` are already proposed in
-`docs/zero-copy-benchmark-baselines.md`, but three problems stop a performance
-reviewer from agreeing to them as written:
+lines a candidate migration has to cross. A *threshold* is a written rule, tied
+to a named measurement, that a later comparison either meets or must explain.
+Thresholds `T1` to `T7` are proposed in
+`docs/zero-copy-benchmark-baselines.md`. A performance reviewer cannot agree to
+them as written, for three reasons.
 
-1. They do not say *which* materialization must disappear. The accepted
-   ADR 010 addendum (2026-11-20) says item `11.1.2` "removes one allocation and
-   one copy on the outbound default path". The only migration design, the issue
-   #538 plan, deliberately does not promise that: Bincode still has to encode a
-   typed message into a payload-sized buffer, only now a `BytesMut` instead of a
-   `Vec<u8>`. As written, threshold `T6` (outbound total at most one payload
-   copy) would fail the default Bincode path even after a correct migration.
-   Read loosely instead, it would let a migration that changes nothing pass.
-2. The "pointer-identity and allocation gate that states the removal
-   requirement" (threshold `T4`) has no test that can observe it. No test
-   compares the address of a payload the message already owns with the address
-   of the frame's payload after serialization. The existing pointer tests in
-   `src/codec/tests/mod.rs` cover `wrap_payload` alone.
-3. Several statements are inaccurate. `T1` calls "+10 % latency" equivalent to
-   "10 % lower throughput", but +10 % latency is about 9.09 % lower throughput.
-   `T7` says no stage is unmeasured, yet `WireframeApp::send_response_framed`
-   serializes without passing any copy counter. `T2`'s absolute floors come
-   from a capture at host load 18–22, while the companion capture C5 ran at
-   32–57. Nothing links each threshold to the tests that enforce it, so the
-   text and the gates can drift apart.
+1. They do not say which materialization must disappear. The accepted ADR 010
+   addendum (2026-11-20) says `11.1.2` "removes one allocation and one copy on
+   the outbound default path". The draft `11.1.2` design (the issue #538 plan)
+   does not deliver that: Bincode must still encode a typed message into a
+   payload-sized buffer, a `BytesMut` instead of a `Vec<u8>`. Read strictly,
+   `T6` (outbound total at most one payload copy) fails a correct migration.
+   Read loosely, it passes one that changes nothing.
+2. Nothing can observe the removal, for two reasons:
+   - No test compares the address of a payload the message already owns with
+     the address of the frame's payload after serialization.
+   - The serializer-seam counter records the length of every serializer
+     output, whether or not anything was copied. A correct migration would
+     therefore still report a copy.
+3. Several statements are wrong or unworkable:
+   - `T1` calls +10 % latency equivalent to −10 % throughput. It is about
+     −9.09 %.
+   - `T7` says no stage is unmeasured, yet three copies go uncounted.
+   - `T2`'s absolute floors ignore host load, which moved large-payload
+     throughput by 15–18 % between two captures of identical code.
+   - Four of the six "inversion register" entries would not change when
+     `11.1.2` lands, so the register misleads whoever implements it.
 
-After this work a reviewer can read one document that states each threshold and
-its enforcing test, and the build fails if a named test disappears. A
-shared-payload *witness* is a small test serializer whose message already holds
-its encoded bytes as `Bytes`. Today the witness fails pointer identity and
-records a payload-sized copy. Once `11.1.2` lands it must preserve the pointer
-and record zero bytes, or the inversion register will not let `11.1.2` close.
-The thresholds become *accepted* only when a named performance reviewer records
-agreement in the repository; that closes `10.2.2`.
+After this plan, the thresholds are stated precisely and tied to tests by a
+gate:
 
-Observable outcome, in one example. Today, with
-`--features test-support,benchmark-counters`, a 65,536-byte payload held in a
-`Bytes` and sent through `encode_message_frame` reports
-`CopiedBytes { serialized: 65536, handoff: 0, framed: 0, deserialized: 0 }`.
-The frame payload's `as_ptr()` differs from the message's. After this plan, a
-named test asserts exactly that pre-migration state, and the baselines document
-states the post-migration requirement: `serialized: 0` and an equal pointer.
+- A new ADR records what "removing the serializer materialization" means.
+- A test-only *shared-payload witness* (a serializer whose message already
+  holds its encoded bytes as `Bytes`) shows the copy today.
+- A single switch constant in that witness must flip, and its assertions must
+  pass, before `docs/roadmap.md` can tick `11.1.2`.
+- A *threshold register* (a marker-delimited list in the baselines document)
+  names the test or procedure behind every threshold, and the build fails when
+  a named test disappears.
+- The timing comparison protocol is rebuilt so that it can produce a verdict on
+  this shared, heavily loaded host. A same-revision trial run (a baseline
+  compared against itself, called an A–A probe) provides evidence that it can.
 
-Behaviour preserved: no public signature in the `wireframe` crate changes, no
-wire format changes, and no benchmark harness changes, so captures C4 and C5
-remain valid. One measurement changes deliberately: `send_response_framed` will
-start reporting its serializer seam through the `benchmark-counters` recorders,
-which compile to nothing without that feature.
+The thresholds become *accepted* when a named performance reviewer accepts the
+new ADR and the review record. That closes `10.2.2`.
+
+Observable outcome, in one example. With the `pipeline-benchmarks` feature,
+take a 65,536-byte payload held in a `Bytes` and send it through
+`encode_message_frame`. Today the frame's payload has a different address from
+the message's buffer, and the counters report `serialized: 65536`. A named test
+asserts this. The same test, with the witness switch set to `Shared`, fails
+today and must pass once `11.1.2` lands.
+
+Behaviour preserved: this plan changes no production source file, no public
+signature, no wire format, and no benchmark harness, so captures C4 and C5 stay
+valid.
 
 ## Constraints
 
-- Implementation begins only after the user approves this plan. The final
-  acceptance milestone (`EP-M5`) also needs explicit agreement from a named
-  performance reviewer. No agent, including the design-review panel, may supply
-  that agreement.
-- Do not change any public signature in the `wireframe` crate: `Serializer`,
-  `EncodeWith`, `FrameCodec`, `WireframeApp`, client APIs, or
-  `benchmark_counters` recorder signatures. Adding recorder *calls* inside
-  `send_response_framed` is permitted. The serializer contract change belongs to
-  `11.1.2`.
-- Do not modify the benchmark harnesses: `benches/*.rs`, and the measurement
-  functions in `wireframe_testing/src/codec_benchmarks/pipeline_outbound.rs`,
-  `pipeline_middleware.rs`, `pipeline_hooks.rs`, and
-  `codec_benchmark_support.rs`. The baselines document's rule is that a changed
-  harness invalidates its capture, and this plan must not force a re-capture.
-- `wireframe_testing` may gain one feature-gated public module (the witness,
-  see `Interfaces and dependencies`). `wireframe_testing` is an unreleased
-  test-support crate, so no compatibility layer is needed or permitted.
+- Implementation begins only after the user approves this plan. The acceptance
+  milestone (`EP-M4`) also requires a named performance reviewer to accept ADR
+  0018. No agent, including the design-review panel, may supply that acceptance.
+- No production source changes. Files under `src/` are out of scope, and so is
+  `wireframe_testing/src/`, because `wireframe_testing` 0.3.0 is a published
+  crate (`lading.toml` orders it for release). The witness is test-private.
+- Do not modify the benchmark harnesses: `benches/*.rs` and
+  `wireframe_testing/src/codec_benchmarks/**`. A changed harness invalidates
+  its capture.
 - Authorized dependency changes: `googletest = "0.14.3"` and
   `pretty_assertions = "1.4.1"` as `[dev-dependencies]` of `wireframe_testing`,
-  matching the root manifest's versions. No other dependency, and no `insta`.
+  matching the root manifest. No other dependency. No `insta` (`D7`).
 - Every code file stays at or below 400 lines (`AGENTS.md`). At the base
-  revision `wireframe_testing/tests/copied_bytes.rs` has 332 lines and
-  `wireframe_testing/src/codec_benchmarks/pipeline_outbound.rs` has 372, so new
+  revision, `wireframe_testing/tests/copied_bytes.rs` has 332 lines, so new
   tests go in new modules.
-- No `unsafe`, no lint suppression without a tightly scoped
-  `#[expect(.., reason = "…")]`, no `float_arithmetic` (denied in
-  `Cargo.toml`), no `std::env` access (denied in `clippy.toml`), and no
-  `.expect()` outside test code.
-- Accepted ADR sections are immutable. Corrections go in dated addenda that
-  name each superseded sentence.
-- Completed ExecPlans, including `docs/execplans/10-2-1-capture-baselines.md`
-  and the draft `issue-538-plan-zero-copy-serializer-output-migration.md`, are
-  historical or owned by other items. Do not edit them. Record any consequences
-  for the #538 plan in this plan and in the baselines document.
-- `docs/roadmap.md` uses inline links only. `mapsplice` rejects footnotes.
-- Documentation uses en-GB-oxendict spelling (`-ize`, `-yse`, `-our`), wraps
-  prose at 80 columns, and passes `make fmt`, `make markdownlint`, and
-  `make nixie`.
+- Lint posture holds. No `unsafe`. Suppressions only as tightly scoped
+  `#[expect(.., reason = "...")]`. `float_arithmetic`, `integer_division`, and
+  `indexing_slicing` are denied in `Cargo.toml`. `std::env` is denied in
+  `clippy.toml`. No `.expect()` outside test code. Whitaker's cognitive
+  complexity ceiling (`dylint.toml`) applies to test helpers too.
+- Accepted ADR sections are immutable. A targeted correction to an accepted ADR
+  uses an `Amended by ADR-nnnn (YYYY-MM-DD)` banner in its Status section and an
+  `## Amendments` section (`docs/documentation-style-guide.md`, lines 555–557).
+- Do not edit completed or other items' ExecPlans
+  (`docs/execplans/10-2-1-capture-baselines.md`,
+  `docs/execplans/issue-538-plan-zero-copy-serializer-output-migration.md`).
+  Obligations for `11.1.2` go into `docs/roadmap.md`, item `11.1.2.1`, and into
+  ADR 0018.
+- `docs/roadmap.md` is `mapsplice`-shaped: inline links only, no footnotes.
+- Documentation uses en-GB-oxendict spelling, wraps prose at 80 columns, and
+  passes `make fmt`, `make markdownlint`, and `make nixie`.
 
 ## Tolerances (exception triggers)
 
 The comparison base is `origin/main` at `fa8ef421`. This ExecPlan file is
-excluded from every count below, including when it changes in the same commit.
-Count with:
+excluded from every count, including when it changes in the same commit. Count
+with:
 
 ```sh
 git diff --numstat fa8ef421...HEAD -- . ':(exclude)docs/execplans/**'
 ```
 
-Classification is by whole file, by purpose. Code is `*.rs` and `*.feature`
-files, since feature files are executable specifications. Configuration is
-`Cargo.toml` and `Cargo.lock` files. Documentation is every other `*.md` outside
-`docs/execplans/`. Each limit measures net lines (additions minus deletions)
-in its own category, and spare capacity in one category never offsets another.
+Classification is by whole file, by purpose:
 
-- Files: stop and escalate if more than 22 non-ExecPlan files change.
-- Code: stop and escalate above 900 net lines.
-- Configuration: stop and escalate above 12 net lines. `Cargo.lock` changes
-  that only record already-resolved dev-dependency edges count here as well.
-- Documentation: stop and escalate above 500 net lines.
-- Interface: stop and escalate if any public `wireframe` signature must change,
-  or if `wireframe_testing` needs public items beyond the witness module.
-- Dependencies: stop and escalate if any dependency other than the two
-  authorized dev-dependencies is needed.
-- Architecture: stop and escalate if threshold wording would need to change
-  ADR 008, 009, or 010's *decisions*, as opposed to correcting a measurement
-  claim in a dated addendum, or if the reviewer rejects decision `D1`.
+- Code: `*.rs` files, and any `*.proptest-regressions` file.
+- Configuration: `Cargo.toml` and `Cargo.lock`.
+- Documentation: every other `*.md` file outside `docs/execplans/`.
+
+Each limit measures net lines (additions minus deletions) in its own category.
+Spare capacity in one category never offsets another.
+
+- Files: stop and escalate if more than 24 non-ExecPlan files change.
+- Code: stop and escalate above 800 net lines. Checkpoint: if `EP-M1` alone
+  uses more than 320 (40 %), stop and re-estimate before `EP-M2`.
+- Configuration: stop and escalate above 12 net lines.
+- Documentation: stop and escalate above 650 net lines.
+- Interface: stop and escalate if any file under `src/` or
+  `wireframe_testing/src/` must change.
+- Dependencies: stop and escalate if anything beyond the two authorized
+  dev-dependencies is needed.
+- Architecture: stop and escalate if ADR 0018 would need to change ADR 008, 009,
+  or 010's decisions rather than correct a measurement claim, or if the user or
+  reviewer rejects `D1`.
 - Iterations: stop and escalate if a gate still fails after three fix attempts
   on the same cause.
-- Time: stop and escalate if any milestone takes more than one working day of
-  active effort, excluding compile-queue waits.
-- Ambiguity: stop and present options if the reviewer's feedback admits two
+- Time: stop and escalate if a milestone takes more than one working day of
+  active effort, excluding compile-queue waits and the A–A probe's run time.
+- Ambiguity: stop and present options if reviewer feedback admits two
   materially different threshold readings.
 
-Budget evidence is recorded in `Context and orientation`. In short, the sibling
-plan `10-2-1-capture-baselines.md` set 900 code lines and 16 files and finished
-at 2,725 code lines across 37 files, its overrun still awaiting an owner
-decision. That plan built new harnesses and split modules to satisfy the
-400-line cap. This plan forbids harness changes and reuses the existing
-allocation-window support. Its estimate is about 650 net code lines; the 900
-limit leaves roughly 40 % contingency for module splits and review rounds. The
-documentation estimate is about 330 net lines, mostly the threshold rewrite.
-The 500 limit reflects `10-1-2`'s increase from 500 to 750 for an ADR rewrite,
-which this plan avoids by using addenda.
+The budgets rest on a survey, recorded in `Context and orientation`. In summary:
+
+- Estimates: about 580 net code lines, 3 configuration lines, and 500
+  documentation lines, across 21 files.
+- Main historical risk: the sibling plan `10-2-1-capture-baselines.md` overran
+  its code budget about threefold, because it built new harness binaries and
+  split modules late.
+- This plan's mitigations: it forbids harness changes, adds no production
+  code, and splits the new tests into modules up front.
 
 ## Risks
 
-- Risk: the reviewer rejects decision `D1` and instead requires the Bincode
-  default path to drop to one payload copy per message. That requires
-  serializing directly into the transport write buffer, which changes the
-  accepted ADR 010 frame boundary and the #538 design. Severity: high.
-  Likelihood: medium. Mitigation: present `D1` and its rejected alternative
-  first in the review packet (`EP-M5`), before any threshold wording is
-  polished. If rejected, set the plan to `BLOCKED` and escalate; do not
-  improvise a transport redesign.
-- Risk: no performance reviewer is assigned. The release plan says the role is
-  unassigned (`docs/zero-copy-release-plan.md`, "Owners"). Severity: medium.
-  Likelihood: high. Mitigation: `EP-M1` to `EP-M4` deliver value without the
-  reviewer. `EP-M5` blocks explicitly and asks the user to name the reviewer;
-  the user may act as reviewer.
-- Risk: the shared-payload witness passes vacuously. Pointer comparisons on
-  empty buffers, or a witness that never reaches `encode_message_frame`, prove
-  nothing. Severity: high. Likelihood: low. Mitigation: use non-empty payloads
-  only, plus a control that wraps the same `Bytes` directly and must preserve
-  the pointer, so a broken comparison cannot pass both checks.
-- Risk: process-global counters and the counting allocator make new tests flaky
-  under libtest threads. Severity: medium. Likelihood: medium. Mitigation:
-  follow the existing pattern. Counter tests are `#[serial]` in the
-  `copied_bytes` binary, and allocator checks join the `harness = false`
-  `pipeline_allocation_invariants` binary.
-- Risk: the Bincode allocation-count guard proposed in `EP-M3` cannot be
-  stated as an exact count, because the window may see incidental allocations.
-  Severity: low. Likelihood: medium. Mitigation: measure the count at the red
-  stage before writing the assertion, record the observation here, and fall
-  back to a payload-class-independence assertion if the count is not stable.
-- Risk: the threshold register parser becomes a second ad hoc Markdown parser.
-  Severity: low. Likelihood: medium. Mitigation: generalize the existing
-  inversion-register parser into one shared module rather than writing a second
-  one.
-- Risk: other agents' compile work makes gates slow. Severity: low.
-  Likelihood: high. Mitigation: allow long timeouts; never bypass compile
-  admission.
+- Risk: the user or reviewer rejects `D1` and requires the Bincode default path
+  to drop to one payload copy per message.
+  - Severity: high. Likelihood: medium.
+  - Why it matters: that requires serializing into the transport write buffer,
+    which crosses the accepted ADR 010 frame boundary.
+  - Mitigation: `D1` and its rejected alternative lead the approval decision
+    packet. On rejection, set `BLOCKED` and escalate; do not improvise a
+    transport redesign.
+- Risk: no performance reviewer is assigned. The release plan lists the role as
+  unassigned (`docs/zero-copy-release-plan.md`, "Owners").
+  - Severity: medium. Likelihood: high.
+  - Mitigation: ask at plan approval for the user to take the role or name
+    someone. `EP-M1` to `EP-M3` merge as pull request A without the reviewer.
+    Acceptance is a separate small pull request B (`D9`), so nothing sits in
+    `BLOCKED`.
+- Risk: the A–A probe shows host drift so large that no timing verdict is ever
+  possible, even with interleaving.
+  - Severity: medium. Likelihood: medium.
+  - Mitigation: that result is itself evidence for the reviewer. `D5` then
+    makes `T1` an "explain" rule rather than a failing rule, and the
+    deterministic gates (`T3` to `T6`) carry the acceptance. The probe result
+    and this fallback are recorded in the review packet.
+- Risk: the witness passes vacuously, for example because its address
+  comparison is broken or it bypasses `encode_message_frame`.
+  - Severity: high. Likelihood: low.
+  - Mitigation: one address helper shared with a control check, content
+    equality, three mandatory seeded mutants, and a `Shared` switch flip that
+    must fail today (see `Verification plan`).
+- Risk: process-global counters and the counting allocator make tests flaky.
+  - Severity: medium. Likelihood: medium.
+  - Mitigation: counter tests run `#[serial]` in the `copied_bytes` binary, and
+    allocator checks join the single-threaded `harness = false`
+    `pipeline_allocation_invariants` binary. No counter assertion goes into the
+    parallel BDD binary (`D10`).
+- Risk: Bincode's allocation-operation count differs between payload classes
+  today, so the class-independence guard cannot be stated.
+  - Severity: low. Likelihood: low.
+  - Mitigation: measure it in `EP-M2` before writing the assertion. If it
+    differs, record why and escalate rather than weaken the guard.
+- Risk: other agents' compile and benchmark work slows gates and perturbs the
+  A–A probe.
+  - Severity: low. Likelihood: high.
+  - Mitigation: long timeouts. Never bypass compile admission. Record
+    `/proc/loadavg` and `/proc/pressure/cpu` alongside the probe.
 
 ## Progress
 
-- [x] (2026-11-28 13:10Z) Reconnaissance with a Wyvern team: outbound
-  serializer path, zero-copy documents and ADRs, test and proof tooling.
-- [x] (2026-11-28 13:40Z) External facts checked with Firecrawl: Criterion
-  0.8.2 defaults and Bincode 2.0.1's `encode_to_vec` pre-sizing.
-- [x] (2026-11-28 14:30Z) Initial draft written.
-- [ ] Design review by the community-of-experts panel, with revisions applied.
-- [ ] Plan approved by the user.
-- [ ] `EP-M1` shared-payload removal witness.
-- [ ] `EP-M2` raw length-delimited send path counted.
-- [ ] `EP-M3` registers: shared parser, corrected inversion register,
-  threshold register, Bincode allocation guard.
-- [ ] `EP-M4` threshold text, ADR 010 addendum, and dependent documents
-  revised (status still "proposed").
-- [ ] `EP-M5` performance review recorded; thresholds accepted; roadmaps
-  ticked.
+- [x] (2026-11-28 13:10Z) Reconnaissance with a team of Wyvern agents
+  (fast, read-only subagents). They surveyed the outbound serializer path, the
+  zero-copy documents and ADRs, and the test and proof tooling.
+- [x] (2026-11-28 13:40Z) External facts checked with Firecrawl (a web scraping
+  tool): Criterion 0.8.2 defaults and `CRITERION_HOME`, and Bincode 2.0.1's
+  `encode_to_vec` pre-sizing.
+- [x] (2026-11-28 14:30Z) Initial draft committed (`584df91b`).
+- [x] (2026-11-28 16:10Z) Design review by a four-member panel: performance
+  methodology, contracts and structure, verification rigour, and alternatives
+  and process. Verdict: revise. Revisions applied in this version; see the
+  revision note.
+- [ ] Plan approved by the user, together with `D1` and the reviewer's
+  identity (one decision packet).
+- [ ] `EP-M1` test-private shared-payload witness with its switch.
+- [ ] `EP-M2` registers, switch–roadmap coupling, and Bincode guard.
+- [ ] `EP-M3` ADR 0018 (proposed), threshold rewrite, A–A probe, and dependent
+  documents (pull request A).
+- [ ] `EP-M4` acceptance: ADR 0018 accepted, review record, and roadmap ticks
+  (pull request B).
 
 ## Surprises & discoveries
 
-- Observation: the accepted ADR 010 addendum and the #538 design disagree
-  about what `11.1.2` removes. Evidence: ADR 010 lines 281–310 at `fa8ef421` say
-  `11.1.2` "removes one allocation and one copy on the outbound default path".
-  The #538 plan's "Purpose" says zero-copy "does not promise allocation-free
-  serialization", and its writer design encodes into a `BytesMut`. Impact:
-  resolved by decision `D1` and an ADR 010 addendum in `EP-M4`.
-- Observation: Bincode 2.0.1's `encode_to_vec` sizes its vector exactly, using
-  a `SizeWriter` pass before encoding. The #538 plan's `BytesMut` writer
-  specifies no such pre-sizing. Evidence:
-  `bincode-2.0.1/src/features/ impl_alloc.rs`, function `encode_to_vec`, read
-  through Firecrawl on 2026-11-28. Impact: a naive `BytesMut` writer would grow
-  by reallocation for 64 KiB payloads and could raise the default path's
-  allocation count, which `T3` forbids. `EP-M3` adds a guard and `EP-M4` states
-  the requirement for `11.1.2`.
-- Observation: `WireframeApp::send_response_framed`
-  (`src/app/outbound_response.rs`, lines 109–133) serializes and converts with
-  `Bytes::from` without any copy counter, so `T7`'s claim that no stage is
-  unmeasured is false. Impact: `EP-M2`.
-- Observation: `T1` treats +10 % latency and −10 % throughput as equivalent.
-  They are not. Impact: `EP-M4` restates `T1` on time only.
-- Observation: `docs/zero-copy-benchmark-plan.md` line 396 points to a
-  "blocker" recorded in the baselines document, which contains no such entry.
-  The dedicated roadmap (lines 38–39 and 101–102) and the benchmark plan (lines
-  379–381) still use the "between serialization and `wrap_payload`" wording
-  that the ADR 010 addendum superseded. Impact: `EP-M4`.
-- Observation: the inversion register lists two Bincode-path tests,
-  `default_serializer_and_handoff_copy_the_payload_once` and
-  `production_outbound_allocates_one_payload`, as flipping when `11.1.2` lands.
-  Under the #538 design and decision `D1` they do not flip; they become
-  non-regression guards. Impact: `EP-M3`.
-- Observation: the sibling plan `10-2-1-capture-baselines.md` records code,
-  file, and documentation overruns with owner decisions "pending", yet
-  `docs/roadmap.md` ticks `10.2.1`. Impact: none on this plan's scope. It is
-  recorded as budgeting evidence and is not this plan's to resolve.
+- Observation: ADR 010's addendum and the #538 design disagree about what
+  `11.1.2` removes.
+  - Evidence: ADR 010 lines 299–301 at `fa8ef421`, against the #538 plan's
+    "Purpose" ("does not promise allocation-free serialization") and its
+    `BytesMut` writer design.
+  - Impact: `D1` and ADR 0018.
+- Observation: the serializer-seam counter cannot show a removal.
+  - Evidence: `encode_message_frame` calls `record_serialized(bytes.len())`
+    for every serializer output (`src/app/outbound_encoding.rs`, lines 32–36),
+    and so does the client (`src/client/send_pipeline.rs`, line 44). After
+    `11.1.2` a correctly shared output would still record `P`.
+  - Impact: `D3` makes moving the counter an `11.1.2` obligation.
+- Observation: the inversion register over-promises.
+  - Evidence: of its six entries, four will not change at `11.1.2` under `D1`.
+    - `outbound_path_copies_the_payload_twice_per_message` and
+      `harness_serializer_copies_the_payload_once_at_each_seam` use the frozen
+      harness's `PayloadMessage`, which holds a `Vec<u8>` and copies it
+      (`wireframe_testing/src/codec_benchmarks/pipeline_outbound.rs`, lines
+      45–62).
+    - `default_serializer_and_handoff_copy_the_payload_once` and
+      `production_outbound_allocates_one_payload` are Bincode, whose encode is
+      inherent.
+    - `seams_charge_one_payload_per_message_at_any_size` flips only its
+      inbound half, at `11.1.1`.
+  - Further evidence: the register gate checks only that named functions exist
+    in an explicit `include_str!` list (`inversion_register.rs`, lines
+    107–145). Nothing forces a flip.
+  - Impact: `EP-M2`.
+- Observation: no Criterion workload can show the removal. The timed outbound
+  harness serializes a `Vec`-holding message, so under `D1` its copy remains.
+  - Impact: the removal is evidenced only by the deterministic witness
+    (`T4`, `T6`). The timing thresholds can only forbid regressions.
+- Observation: three outbound copies go uncounted.
+  - Evidence:
+    - `WireframeApp::send_response_framed` records nothing at its serializer
+      seam (`src/app/outbound_response.rs`, lines 109–133).
+    - Its caller-supplied `Framed<_, tokio_util::codec::LengthDelimitedCodec>`
+      copies into the write buffer outside wireframe.
+    - The client sink (`src/client/runtime.rs`, line 66) does the same.
+  - Impact: `T7` names them. Moving the counter (`D3`) covers the serializer
+    seam from `11.1.2` onwards.
+- Observation: `T1`'s equivalence is wrong.
+  - Evidence: a time increase of `est` basis points lowers throughput by
+    `10000·est / (10000 + est)` basis points. So +10 % time is −9.09 %
+    throughput, and −10 % throughput needs +11.1 % time.
+  - Impact: `T1` is restated on time only.
+- Observation: measured host drift dwarfs `T1`'s 1 % noise term.
+  - Evidence: C3 to C4 moved large-payload throughput by 15–18 % with no
+    source change. Two C5 passes taken minutes apart reversed order by 2.8 %
+    and 11.7 %. Criterion's confidence interval covers within-run noise only.
+  - Impact: `D5`, and the A–A probe.
+- Observation: the benchmark labels embed allocation counts, as in
+  `..._allocs_18`, so a `T3` change renames the benchmark and breaks `T1`'s
+  comparison.
+  - Evidence: `benches/pipeline_performance_alloc.rs`, lines 57–61.
+  - Impact: `D5` freezes identifiers with that suffix stripped.
+- Observation: Bincode 2.0.1 `encode_to_vec` sizes its vector exactly.
+  - Evidence: it runs a `SizeWriter` pass, then `Vec::with_capacity(size)`
+    (`bincode-2.0.1/src/features/impl_alloc.rs`, read 2026-11-28). An unsized
+    `BytesMut` writer would reallocate as it grows. The allocator window
+    charges only the growth bytes, so `P ≤ bytes < 2P` can still pass; only the
+    operation count reveals it.
+  - Impact: the class-independence guard in `EP-M2`.
+- Observation: documents are stale or inconsistent.
+  - `docs/zero-copy-benchmark-plan.md` cites a "blocker" in the baselines
+    document that does not exist.
+  - The benchmark plan and the dedicated roadmap still use the
+    "between serialization and `wrap_payload`" wording that ADR 010's addendum
+    superseded.
+  - `wireframe_testing` is published (version 0.3.0), which the first draft
+    wrongly called unreleased.
+  - Impact: `EP-M3` and `D2`.
+- Observation: `10-2-1-capture-baselines.md` records overruns awaiting owner
+  decisions while `docs/roadmap.md` ticks `10.2.1`.
+  - Impact: budgeting evidence only. It is not this plan's to resolve.
 
 ## Decision log
 
-- D1. Decision: define the materialization that must be removed as the
-  *contract-forced* copy. That is the payload-sized buffer a serializer must
-  allocate and fill only because `Serializer::serialize` has to return an owned
-  `Vec<u8>`, even when the message already holds its encoded bytes in a
-  shareable buffer. After `11.1.2`, a serializer whose message holds a `Bytes`
-  must hand it to `wrap_payload` with the same data pointer, record zero bytes
-  at the serializer seam, and allocate no payload-sized buffer. An *encoding*
-  serializer such as Bincode still writes `P` bytes once. That encode is
-  inherent, not a materialization. It is bounded by a no-regression guard
-  instead: exactly one payload buffer, no growth reallocations, and no
-  additional copied bytes. Rationale: this is the only reading that the
-  approved design direction (#538, ADR 008) can satisfy, and it matches the
-  roadmap item's own definition ("the payload-sized `Vec<u8>` that
-  `Serializer::serialize` returns"). The rejected alternative is to require one
-  payload copy per message on the Bincode default path. That needs
-  serialization into the transport write buffer, either by fusing serializer
-  and encoder or by vectored writes that bypass `Framed`. Both cross the
-  accepted ADR 010 frame boundary, and both are outside `11.1.2`'s scope. A
-  future item could pursue it, and it would need its own ADR. This decision
-  corrects an accepted ADR's measurement claim, so it needs explicit acceptance
-  by the user at plan approval and by the performance reviewer in `EP-M5`.
-  Date/Author: 2026-11-28, planning agent; pending acceptance.
-- D2. Decision: build the witness as a separate, feature-gated module in
-  `wireframe_testing`, not by changing the benchmark harness's `PayloadMessage`
-  to hold `Bytes`. Rationale: changing the harness would invalidate captures C4
-  and C5 under the baselines document's own rule. A separate module is reusable
-  by the `copied_bytes` binary, the `pipeline_allocation_invariants` binary,
-  and the root BDD suite, none of which can share `tests/` modules.
-  Date/Author: 2026-11-28, planning agent.
-- D3. Decision: count `send_response_framed`'s serializer seam with the
-  existing recorders (`record_serialized` and `bytes_from_vec`). Do not count
-  `tokio-util`'s internal length-prefix copy. Name that copy as a justified
-  exception instead. Rationale: the thresholds are about the serializer seam,
-  and that seam is observable. The `tokio-util` copy happens inside a
-  third-party encoder that wireframe does not own, and recording it from
-  outside would claim a copy before `send` succeeds. Date/Author: 2026-11-28,
-  planning agent.
-- D4. Decision: add a *threshold register*, a marker-delimited list in the
-  baselines document that names each threshold and its enforcing tests. Check
-  it with a test that shares one parser with the inversion register. Thresholds
-  enforced by procedure rather than by a test (`T1`, `T2`, and `T3`'s
-  benchmark-label counts) are marked `procedure` and must name the procedure's
-  document section. Rationale: it turns "the thresholds name their enforcing
-  tests" from prose into a gate, so accepted text and tests cannot drift.
-  Date/Author: 2026-11-28, planning agent.
-- D5. Decision: restate `T1` on Criterion's time-change estimate only, and
-  derive throughput. Make `T2`'s absolute floors conditional on a declared load
-  band and entry point; outside the band they report "not comparable" rather
-  than pass or fail. Require `13.2.1` to bracket the candidate run between two
-  baseline runs on the same host in one session (an A–B–A run). Freeze
-  benchmark identifiers. Rationale: this corrects the equivalence error, stops
-  host load from turning `T2` into a noise generator, and makes the pre/post
-  comparison reproducible on a shared host. The verdict numbers (10 % and 1 %)
-  are unchanged; the 1 % noise figure matches Criterion 0.8.2's default
-  `noise_threshold`. Date/Author: 2026-11-28, planning agent; for reviewer
-  agreement.
-- D6. Decision: do not implement a threshold comparator or verdict evaluator in
-  this item. Record its abstract model and lemma statements here, and assign
-  the implementation and its Verus proof to `13.2.1`. Rationale: `13.2.1` is
-  the first item with two captures to compare. A comparator written now would
-  be dead code checked only against invented data. Date/Author: 2026-11-28,
-  planning agent.
-- D7. Decision: do not use `insta`. Rationale: the change has no multivariant
-  rendered output. Its outputs are counts, pointer equalities, and register
-  parse results, and named assertions state those more precisely than
-  snapshots. Date/Author: 2026-11-28, planning agent.
-- D8. Decision: correct the ADR 010 overclaim with a dated addendum. Do not
-  open a new ADR. Rationale: the boundary decision is unchanged; only a
-  measurement statement is wrong, and dated addenda are the repository's
-  convention for that. The threshold policy itself lives in the baselines
-  document, the design document named by the roadmap item. Date/Author:
-  2026-11-28, planning agent.
-- D9. Decision: record reviewer agreement as a "Threshold review record"
-  section in the baselines document. It names the reviewer's GitHub login, the
-  date, the document revision reviewed, and a disposition per threshold
-  (accepted, accepted with amendment, or rejected). Back it with a pull-request
-  review or comment by that login that links the record. Rationale: the 10.1.x
-  approval items used ADR status flips; thresholds have no ADR, so the record
-  must be explicit and attributable. Date/Author: 2026-11-28, planning agent.
+- D1. Decision: the materialization that must be removed is the
+  *contract-forced* copy: a payload-sized buffer allocated and filled only
+  because `Serializer::serialize` must return an owned `Vec<u8>`, even when the
+  message already holds its encoded bytes in a shareable buffer.
+  - Required of `11.1.2`, for a serializer that returns a shared buffer: the
+    frame's payload has the same address and content, no crate-owned site
+    records serializer bytes, and no payload-sized allocation is made.
+  - Not removed: an *encoding* serializer such as Bincode still writes `P`
+    bytes once. That encode is inherent, not a materialization. It is bounded
+    by a no-regression guard: at most one payload-sized buffer, an
+    allocation-operation count independent of payload class, and no extra
+    copied bytes.
+  - Who benefits: forwarding, proxying, and pre-encoded payloads. Default
+    Bincode users get no copy or allocation reduction from `11.1.2`, and ADR
+    0018 says so plainly.
+  - Anchor: accepted ADR 008, which requires output "without materializing a
+    fresh `Vec<u8>`" (lines 85–86 and 160–162). The draft #538 plan is not the
+    anchor.
+  - Rejected alternative: one payload copy per message on the Bincode default
+    path. That needs serialization directly into the transport write buffer,
+    either by fusing serializer and encoder or by vectored writes that bypass
+    `Framed`. It crosses ADR 010's accepted frame boundary and is outside
+    `11.1.2`'s scope. A future item could pursue it under its own ADR.
+  - Acceptance: the user at plan approval, and the reviewer through ADR 0018
+    in `EP-M4`.
+  - Date/Author: 2026-11-28, planning agent; revised after design review.
+- D2. Decision: the witness is test-private, in
+  `wireframe_testing/tests/witness/shared_payload.rs`, a directory without
+  `main.rs` and therefore not a test target. Both `copied_bytes` and
+  `pipeline_allocation_invariants` include it with `#[path]`.
+  - Rationale: `wireframe_testing` is published, and `11.1.2` must rewrite the
+    witness. A public module would be published API built to break. The
+    benchmark harness's `PayloadMessage` is not reused, because changing it
+    would invalidate C4 and C5.
+  - Date/Author: 2026-11-28, planning agent; revised after design review.
+- D3. Decision: this plan does not change production counting. Item `11.1.2`
+  must move `record_serialized` from the seam (`encode_message_frame` and
+  `send_pipeline`) to the sites that actually build a buffer:
+  `PayloadBytes::from_vec` and the crate-private Bincode `BytesMut` writer. It
+  must also delete the harness's explicit `record_serialized` call
+  (`pipeline_outbound.rs`, line 149) to avoid double counting.
+  - That last edit is a counter-only harness change that leaves the timed
+    region unchanged. Copied-byte figures come from deterministic test
+    assertions, not captures, so C4 and C5 timings remain valid.
+  - Moving the counter also covers `send_response_framed`'s serializer seam.
+  - The obligation is written into `docs/roadmap.md` item `11.1.2.1` and into
+    ADR 0018, because the #538 plan may not be edited.
+  - Rejected alternatives:
+    - Counting `send_response_framed` now. That is a production edit
+      superseded by the move.
+    - Redefining `serialized` as "bytes produced at the seam". That would
+      leave `T4` evidenced by addresses alone.
+  - Date/Author: 2026-11-28, planning agent.
+- D4. Decision: make the registers enforce rather than merely list.
+  - One shared parser extracts marker-delimited items and their backtick
+    spans, up to the first em dash. Each register does its own checks.
+  - The inversion register is re-audited against `D1`. Non-flipping entries
+    become guards named in the threshold register.
+  - The witness's `SERIALIZER_OUTPUT` constant is coupled to the `11.1.2`
+    checkbox in `docs/roadmap.md`. A ticked `11.1.2` with the switch still on
+    `Materialized` fails `make test`.
+  - The threshold register names every threshold's tests or procedure. Its
+    identifier set must equal the set of threshold paragraphs in the prose.
+  - Rationale: this closes the pre-mortem in which `11.1.2` merges green while
+    the copy survives.
+  - Date/Author: 2026-11-28, planning agent; revised after design review.
+- D5. Decision: rebuild the timing protocol for a shared host.
+  - `T1` is stated on Criterion's **median** time change. Throughput is
+    derived from it.
+  - The candidate is compared in interleaved rounds. In each of three or more
+    rounds, the prebuilt baseline (A) and candidate (B) bench executables run
+    back to back, workload by workload, sharing one `CRITERION_HOME`.
+  - Per-workload noise term: `N_w = max(1 %, |A₁ − A₂|)`, where `A₁` and `A₂`
+    are baseline runs from adjacent rounds.
+  - A workload is inconclusive, not failed, only when `|A₁ − A₂| ≥ 5 %`
+    (half of `R`). Inconclusive workloads are re-run, never waived.
+  - Benchmark identifiers are frozen with any `_allocs_<n>` suffix stripped.
+    Allocation counts are compared separately under `T3`.
+  - `T2` becomes a tripwire. A breach triggers an interleaved re-run; it never
+    fails a release on its own.
+  - A harness edit that only adapts a signature, leaving the timed region
+    unchanged, does not invalidate the comparison.
+  - The verdict numbers (`R` = 10 %, noise floor 1 %) are unchanged. The 1 %
+    floor matches Criterion 0.8.2's default `noise_threshold`.
+  - Rationale: the measured drift above makes the draft's single-run,
+    mean-based comparison unable to produce a verdict.
+  - Date/Author: 2026-11-28, planning agent; from the performance review.
+- D6. Decision: build no comparator or verdict kernel here. `13.2.1` owns it.
+  This plan records the abstract model and lemma statements.
+  - Recommendation for `13.2.1`: prove refinement and order-independence over
+    arbitrary-length inputs with Verus, because those properties are
+    unbounded. Use Kani or property tests for the decimal-to-basis-point
+    conversion, following `docs/formal-verification-methods-in-wireframe.md`,
+    which starts small concrete logic with Kani.
+  - Rationale: `13.2.1` is the first item with two captures to compare.
+  - Date/Author: 2026-11-28, planning agent.
+- D7. Decision: no `insta`.
+  - Rationale: there is no multivariant rendered output. The outputs are
+    counts, addresses, and parse results, which named assertions state more
+    precisely.
+  - Date/Author: 2026-11-28, planning agent.
+- D8. Decision: record `D1` in a new ADR 0018 ("Removal criteria for the
+  serializer materialization"), status `Proposed` until `EP-M4`. ADR 010 gains
+  an `Amended by ADR-0018` banner and an `## Amendments` section naming the
+  superseded sentence.
+  - Rationale: `D1` changes what Epic #284 delivers on the default path, which
+    is a substantive decision (`AGENTS.md`). The style guide prescribes this
+    form for targeted corrections. The decision concerns the serializer
+    contract (ADR 008's scope), not the frame boundary.
+  - Date/Author: 2026-11-28, planning agent; revised after design review.
+- D9. Decision: acceptance follows the 10.1.x precedent of an ADR status flip.
+  - Before `EP-M4`: the user takes the performance-reviewer role or names a
+    reviewer, recorded in the release plan's "Owners" table.
+  - Acceptance means three things:
+    - ADR 0018 moves to `Accepted` with the reviewer's name and date.
+    - The baselines document's Status table reads "accepted (date)".
+    - A "Threshold review record" lists each threshold's disposition, with
+      the reviewed document's blob identifier.
+  - Delivery is two pull requests:
+    - Pull request A (`EP-M1` to `EP-M3`) merges with thresholds still
+      proposed.
+    - Pull request B (`EP-M4`) is a small acceptance change.
+  - Rationale: a comment by the owner's GitHub login proves nothing when
+    agents push with that login. An ADR status flip is the repository's
+    established, attributable act.
+  - Date/Author: 2026-11-28, planning agent; revised after design review.
+- D10. Decision: add no BDD scenario in this item.
+  - The witness's subject is an internal measurement invariant.
+  - Counters are process-global, and the `bdd` binary runs scenarios on
+    parallel threads, so a counter step would be flaky.
+  - The existing `tests/features/zero_copy_baseline.feature` already covers
+    pass-through behaviour.
+  - A proposed scenario for `11.1.2`'s `serializer_boundaries.feature` is
+    recorded under `Suggested BDD features`.
+  - Date/Author: 2026-11-28, planning agent; from the verification and process
+    reviews.
+- D11. Decision: do not adopt an instruction-count tier (gungraun, the
+  successor of iai-callgrind) here.
+  - It needs a new dependency and Valgrind in the gate.
+  - It is offered to the reviewer as an open question in the decision packet
+    and could become a `13.2.1` option.
+  - Date/Author: 2026-11-28, planning agent.
+- D12. Decision: run an A–A probe in `EP-M3`, interleaving the baseline
+  revision against itself, and publish the per-workload drift.
+  - Rationale: the performance reviewer will not agree to `T1` or `T2`
+    without evidence that the protocol can return a verdict on this host.
+  - Date/Author: 2026-11-28, planning agent.
 
 ## Outcomes & retrospective
 
@@ -357,691 +481,781 @@ that goes through the blanket implementation at lines 145–154, which calls
 
 `src/app/outbound_encoding.rs::encode_message_frame` (lines 22–43) is the seam
 every framed outbound message crosses. It calls `serializer.serialize`, records
-`benchmark_counters::record_serialized(bytes.len())`, and calls
-`codec.wrap_payload(benchmark_counters::bytes_from_vec(bytes))`.
-`benchmark_encode_message_frame` (lines 61–74) is its `test-support` mirror for
-external harnesses. Production callers are `src/app/codec_driver/outbound.rs`
-(`send_envelope`, reached from `ActorFrameSink::send_frame`) and
-`src/app/outbound_response.rs` (`send_response`,
-`send_response_framed_with_codec`).
+`record_serialized(bytes.len())`, and calls
+`codec.wrap_payload(benchmark_counters::bytes_from_vec(bytes))`. Its
+`test-support` mirror, `wireframe::app::benchmark_encode_message_frame` (lines
+61–74), returns the codec frame.
 
-`src/app/outbound_response.rs::send_response_framed` (lines 109–133) is the raw
-length-delimited path. It serializes, converts with `Bytes::from`, and sends
-through `Framed<W, tokio_util::codec::LengthDelimitedCodec>`, which adds the
-length prefix. It deliberately skips `wrap_payload` to avoid double framing,
-and records nothing.
+Callers fall into four groups:
 
-The client path, `src/client/send_pipeline.rs::serialize_and_send` (lines
-20–69), records `record_serialized`, runs `before_send` hooks on the vector,
-and sends `bytes_from_vec(bytes)` to a `LengthDelimitedCodec` sink. It never
-calls `wrap_payload`.
+- Server paths through the seam: `send_envelope` in
+  `src/app/codec_driver/outbound.rs`, reached from
+  `ActorFrameSink::send_frame`; and `send_response` and
+  `send_response_framed_with_codec` in `src/app/outbound_response.rs`.
+  Streaming responses reach the seam the same way.
+- `send_response_framed` (lines 109–133): serializes and sends `Bytes::from`
+  through a caller-supplied `Framed<W, LengthDelimitedCodec>`. It records
+  nothing.
+- The client, `src/client/send_pipeline.rs::serialize_and_send` (lines 20–69):
+  records `record_serialized`, runs `before_send` hooks on the vector, and
+  sends through a `LengthDelimitedCodec` sink without `wrap_payload`.
+- Test helpers outside the threshold scope: `src/testkit/fragment_drive.rs`
+  (line 45), `src/testkit/support.rs` (line 233), and `fragmenter.rs` (line 93).
+
+`FrameCodec` implementations store the handed-in `Bytes` as a plain move
+(`src/codec/mod.rs`, line 377; `src/codec/examples/mod.rs`, line 179).
+`LengthDelimitedEncoder::encode` records `record_framed` (`src/codec/mod.rs`,
+lines 346–350). The default maximum frame length is 1024 (`src/codec/mod.rs`,
+line 140), so 64 KiB tests must raise it.
 
 ### The copy counters
 
-`src/benchmark_counters.rs` (358 lines) is compiled to no-ops unless the
-`benchmark-counters` feature is on. `CopiedBytes` has `serialized`, `handoff`,
-`framed`, and `deserialized`. The recorders are `record_serialized`,
-`record_handoff`, `record_framed`, and `record_deserialized`, alongside
+`src/benchmark_counters.rs` (358 lines) compiles to no-ops unless the
+`benchmark-counters` feature is on. `CopiedBytes` has the fields `serialized`,
+`handoff`, `framed`, and `deserialized`. The recorders are `record_*`, plus
 `snapshot` and `reset`. `bytes_from_vec` compares `as_ptr()` before and after
-`Bytes::from` and records a hand-off only when the pointer moves. Counters are
-process-global, so tests that read them run under `serial_test::serial`.
-`wireframe_testing`'s `pipeline-benchmarks` feature enables
-`wireframe/benchmark-counters`, and the root crate's dev-dependency on
-`wireframe_testing` enables `pipeline-benchmarks`.
+`Bytes::from` and records a hand-off only when the pointer moves.
+
+Counters are process-global. `wireframe_testing`'s `pipeline-benchmarks`
+feature enables `wireframe/benchmark-counters` and `test-support`, and the root
+crate's dev-dependency on `wireframe_testing` enables `pipeline-benchmarks`.
 
 ### The enforcing tests
 
-`wireframe_testing/tests/copied_bytes.rs` (332 lines) contains the per-seam
-assertions, including the exact pre-migration total
-`outbound_path_copies_the_payload_twice_per_message` (`== 2 * P`). It pulls in
-`copied_bytes/properties.rs` (155 lines) and
-`copied_bytes/inversion_register.rs` (227 lines) via `#[path]`.
-`inversion_register_names_real_tests` reads
-`docs/zero-copy-benchmark-baselines.md` with `include_str!`, parses the block
-between `<!-- inversion-register:start -->` and
-`<!-- inversion-register:end -->`, takes the first two backtick spans of each
-item as test name and file, and checks that each file contains `fn <name>(`. It
-also asserts exactly six entries and requires three specific names.
+`wireframe_testing/tests/copied_bytes.rs` (332 lines) holds the per-seam
+assertions, as `#[serial]` rstest tables. It includes three modules via
+`#[path]`:
+
+- `copied_bytes/properties.rs` (155 lines).
+- `copied_bytes/inversion_register.rs` (227 lines). This module reads
+  `docs/zero-copy-benchmark-baselines.md` with `include_str!` and parses the
+  block between `<!-- inversion-register:start -->` and
+  `<!-- inversion-register:end -->`. It takes the first two backtick spans of
+  each `-` item as test name and file. `missing_register_entries` checks for
+  `fn <name>(` only within an explicit `include_str!` list of sources (lines
+  138–145). `inversion_register_names_real_tests` also asserts exactly six
+  entries.
 
 `wireframe_testing/tests/pipeline_allocation_invariants/` is a
-`harness = false` binary (`wireframe_testing/Cargo.toml`, lines 53–57, feature
-`pipeline-benchmarks`) with its own counting global allocator. Checks are
-`(&str, fn())` pairs in `checks/mod.rs` (131 lines). `checks/handoff.rs` (131
-lines) holds `production_outbound_allocates_one_payload`, which asserts
-`P <= bytes < 2P` for Bincode through `benchmark_encode_message_frame`. It
-answers nextest's `--list` with a single unit.
+`harness = false` binary (`wireframe_testing/Cargo.toml`, lines 53–57) with its
+own counting allocator:
 
-`src/codec/tests/mod.rs` (355 lines) holds the codec pointer-identity tests
-`length_delimited_wrap_payload_reuses_bytes`, `wrap_payload_reuses_bytes`, and
-`frame_payload_bytes_reuses_memory`. None crosses the serializer.
+- Checks are `(&str, fn())` pairs in `checks/mod.rs` (131 lines). A function
+  that is not listed never runs.
+- `checks/handoff.rs` (131 lines) holds
+  `production_outbound_allocates_one_payload`, which asserts `P ≤ bytes < 2P`
+  for Bincode through `support.rs::outbound_traffic` (lines 166–175). That
+  helper is length-delimited only.
+- The window charges a reallocation only its growth
+  (`benchmark_alloc_support/traffic.rs`, lines 10–17). The binary avoids
+  absolute counts on purpose (`main.rs`, lines 22–23).
 
-Behavioural tests use `rstest-bdd` 0.6.0. The relevant feature is
-`tests/features/zero_copy_baseline.feature`, with three scenarios. Scenarios
-are bound with `#[scenario(path = ..., name = ...)]` in
-`tests/scenarios/zero_copy_baseline_scenarios.rs`. Steps live in
-`tests/steps/zero_copy_baseline_steps.rs` and the world fixture in
-`tests/fixtures/zero_copy_baseline.rs`. They compile into the `bdd` test target
-(`required-features = ["advanced-tests"]`), which `make test` runs because it
-passes `--all-features`.
+`src/codec/tests/mod.rs` holds codec-only pointer tests. Behavioural tests use
+`rstest-bdd` 0.6.0. The `bdd` target runs scenarios in parallel.
 
-### Benchmarks
+### Benchmarks and Criterion
 
-`make bench-codec` runs `codec_performance`, `codec_performance_alloc`,
-`pipeline_performance`, and `pipeline_performance_alloc` with
+`make bench-codec` runs four bench targets with
 `--features test-support,benchmark-counters` and `RUSTFLAGS="-D warnings"`. No
-CI job runs benchmarks. Captures C4 (`bef53308`) and C5 (`17b74b3f`) are the
-published baselines. Criterion 0.8.2's defaults are `noise_threshold` 0.01,
-`significance_level` 0.05, and `confidence_level` 0.95 (docs.rs, read
-2026-11-28).
+CI job runs benchmarks.
+
+The published captures are C4 (`bef53308`, load 18–22) and C5 (`17b74b3f`, load
+32–57). The timed outbound harness uses `VectorSerializer` over a `Vec`-holding
+`PayloadMessage` (`pipeline_outbound.rs`, lines 45–83). Allocation benchmark
+labels embed counts (`benches/pipeline_performance_alloc.rs`, lines 57–61).
+
+Criterion 0.8.2 defaults (docs.rs, read 2026-11-28): `noise_threshold` 0.01,
+`significance_level` 0.05, `confidence_level` 0.95. A run saves or compares a
+baseline (`--save-baseline`, `--baseline`), but cannot do both in one run. The
+results root follows `CRITERION_HOME` when set (`criterion-0.8.2/src/lib.rs`,
+lines 142–146). Median change appears in `change/estimates.json`.
 
 ### Tooling and gates
 
-`make test` runs `cargo test --workspace --all-targets --all-features`. The
-workspace includes `wireframe_testing`, so `copied_bytes` and
-`pipeline_allocation_invariants` run under `make test`. `make lint` runs
-rustdoc, Clippy with `-D warnings`, Whitaker, and Python doc lint.
-`make check-fmt` runs `cargo fmt --check` and `mdtablefix --check`.
-`make markdownlint` runs the spelling gate first. `make nixie` validates
-Mermaid. Verus and Kani are not wired. `make verus` and `make kani` are stubs
-that print `FORMAL-SKIP` (`Makefile`, lines 301–314), and
-`docs/formal-verification-methods-in-wireframe.md` reserves Verus for crisp
-protocol invariants with proof-only spec types. Root dev-dependencies include
-`rstest` 0.28.0, `rstest-bdd` 0.6.0, `proptest` 1.7.0, `googletest` 0.14.3, and
-`pretty_assertions` 1.4.1. `wireframe_testing` has `rstest`, `proptest` (dev),
-`serial_test`, and `stats_alloc`, but neither `googletest` nor
-`pretty_assertions`.
+- `make test` runs
+  `cargo test --workspace --all-targets --all-features`, which includes
+  `wireframe_testing`.
+- `make test-wireframe-testing` runs `wireframe_testing` alone, with the same
+  development flags. Use it for focused loops; raw `cargo test` omits the
+  `DEV_FAST` configuration and forces a full rebuild.
+- `make lint` runs rustdoc, Clippy with `-D warnings`, Whitaker, and Python
+  doc lint.
+- `make check-fmt` runs `cargo fmt --check` and `mdtablefix --check`.
+- `make markdownlint` runs the spelling gate first.
+- `make nixie` validates Mermaid diagrams.
+- `make test-doc` runs doctests. It is not needed here, because nothing new
+  carries rustdoc examples.
+- Verus and Kani are not wired. `make verus` and `make kani` print
+  `FORMAL-SKIP`.
+
+`wireframe_testing` has `tokio` (with `macros` and `rt`), `futures`,
+`tokio-util/codec`, `rstest`, `proptest` (dev), and `serial_test`. It has
+neither `googletest` nor `pretty_assertions`.
 
 ### Budget survey
 
-Code touched: about 10 lines in `src/app/outbound_response.rs`. New witness
-module of about 120 lines in `wireframe_testing/src/codec_benchmarks/`. About
-200 lines of new `copied_bytes` submodules, about 90 lines of new allocation
-checks, and about 120 lines of BDD feature, steps, fixture, and scenarios. The
-register parser refactor nets about 60 lines, plus about 50 lines of
-threshold-register test. Total: about 650 net lines.
+Code (about 580 net lines):
 
-Documentation: the baselines document's threshold, register, and exception
-sections (about 180 net lines), an ADR 010 addendum (about 40), the benchmark
-plan, dedicated roadmap, and release plan corrections (about 40), the
-developers' guide (about 40), the users' guide `CopiedBytes` note (about 15),
-and `docs/contents.md` (about 5). Total: about 330.
+| Component                                                        | Net lines |
+| ---------------------------------------------------------------- | --------- |
+| Witness module                                                   | 110       |
+| `copied_bytes/shared_payload.rs`                                 | 120       |
+| `checks/shared.rs` plus registration                             | 70        |
+| Parser extraction (`doc_register.rs`)                            | 40        |
+| Inversion-register audit and switch coupling                     | 60        |
+| `threshold_register.rs` with negative controls                   | 140       |
+| Bincode guard, including a codec parameter on `outbound_traffic` | 40        |
 
-Historical evidence. `10-2-1-capture-baselines.md` set 900 code lines and 16
-files, 40 configuration, and 300 documentation; it recorded 2,725 code lines
-across 37 files, 14 configuration, and 377 documentation, with owner decisions
-pending. The causes it records are new harness binaries, module splits for the
-400-line cap, and review-driven additions, which are missed scope rather than
-approved growth. `10-1-2` raised its documentation budget from 500 to 750 net
-lines for an ADR rewrite. `9-6-1` (16 files, 1,000 lines) needed no increase.
-This plan removes the main overrun driver (no new harnesses) and pre-splits
-modules. The limits above add about 40 % code contingency and 50 %
-documentation contingency.
+Configuration (about 3 lines): two dev-dependency lines, plus possibly a
+`Cargo.lock` edge.
+
+Documentation (about 500 net lines):
+
+| Component                                                     | Net lines |
+| ------------------------------------------------------------- | --------- |
+| ADR 0018                                                      | 160       |
+| Baselines document rewrite and A–A evidence                   | 200       |
+| ADR 010 banner and amendments                                 | 20        |
+| Benchmark plan, dedicated roadmap, `roadmap.md`, release plan | 50        |
+| Developers' guide                                             | 40        |
+| Users' guide                                                  | 15        |
+| `docs/contents.md`                                            | 5         |
+
+The work touches about 21 files: 9 code, 2 configuration, and 10 documentation.
+
+Historical evidence:
+
+- `10-2-1-capture-baselines.md` set 900 code lines and 16 files, 40
+  configuration lines, and 300 documentation lines. It finished at 2,725 code
+  lines across 37 files, 14 configuration lines, and 377 documentation lines,
+  with owner decisions pending. Its overrun came from new harness binaries,
+  module splits for the 400-line cap, and review rounds: missed scope rather
+  than approved growth.
+- `10-1-2` raised its documentation budget from 500 to 750 net lines for an
+  ADR rewrite.
+- `9-6-1` needed no increase.
+
+This plan avoids those drivers. The limits add about 38 % contingency for code
+and 30 % for documentation, plus a 40 % checkpoint after `EP-M1`.
 
 ### Signposts
 
-Read before implementing: `docs/zero-copy-benchmark-baselines.md` (the design
-document for thresholds), `docs/zero-copy-benchmark-plan.md`,
-`docs/adrs/adr-0010-transport-frame-boundary-for-the-zero-copy-migration.md`
-(addendum of 2026-11-20),
-`docs/execplans/issue-538-plan-zero-copy-serializer-output-migration.md`,
-`docs/rust-testing-with-rstest-fixtures.md`,
-`docs/reliable-testing-in-rust-via-dependency-injection.md`,
-`docs/rstest-bdd-users-guide.md`, `docs/wireframe-rstest-bdd-users-guide.md`,
-`docs/rust-doctest-dry-guide.md`, `docs/documentation-style-guide.md`, and
-`docs/developers-guide.md` ("Example and benchmark support", from line 2333).
-For context: `docs/generic-message-fragmentation-and-re-assembly-design.md`
-(fragmentation is informational only in these thresholds),
-`docs/multi-packet-and-streaming-responses-design.md` (streamed responses also
-cross `encode_message_frame`, so the witness covers them by construction),
-`docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`,
-and `docs/hardening-wireframe-a-guide-to-production-resilience.md`.
+Read before implementing:
 
-Skills: `rust-router`, then `rust-unit-testing` (rstest, googletest,
+- `docs/zero-copy-benchmark-baselines.md`, the design document for thresholds.
+- `docs/zero-copy-benchmark-plan.md`.
+- ADRs 008, 009, and 010.
+- `docs/execplans/issue-538-plan-zero-copy-serializer-output-migration.md`.
+- `docs/documentation-style-guide.md`: ADR rules at lines 520–620.
+- `docs/rust-testing-with-rstest-fixtures.md`.
+- `docs/reliable-testing-in-rust-via-dependency-injection.md`.
+- `docs/rstest-bdd-users-guide.md`.
+- `docs/rust-doctest-dry-guide.md`.
+- `docs/developers-guide.md`, "Example and benchmark support" (from line
+  2333).
+- `docs/formal-verification-methods-in-wireframe.md`.
+
+For context:
+
+- `docs/generic-message-fragmentation-and-re-assembly-design.md`.
+  Fragmentation is informational only in these thresholds.
+- `docs/multi-packet-and-streaming-responses-design.md`. Streamed responses
+  cross `encode_message_frame`, so the witness covers them by construction.
+- `docs/the-road-to-wireframe-1-0-feature-set-philosophy-and-capability-maturity.md`.
+- `docs/hardening-wireframe-a-guide-to-production-resilience.md`.
+
+Skills: `rust-router`, then `rust-unit-testing` (rstest, googletest, and
 pretty_assertions), `proptest`, `rust-performance-and-layout` (benchmark
-discipline), `rust-verification` and `verus` (for the deferred `13.2.1` kernel),
-`execplans`, `en-gb-oxendict-style`, `commit-message`, and `pr-creation`.
+discipline), `rust-verification`, `kani`, and `verus` (for `13.2.1`), and
+`arch-decision-records` (ADR 0018). Also `execplans`, `en-gb-oxendict-style`,
+`commit-message`, and `pr-creation`.
 
 ## Conformance basis
 
 Upstream artefacts at `fa8ef421`. No terms of reference exist for this
 programme, and none are invented here.
 
-- `docs/roadmap.md` item `10.2.2` (lines 494–500) and item `13.2.1` (line 598).
-- `docs/zero-copy-frame-and-payload-migration-roadmap.md` item `1.2.2`
-  (lines 91–109) and its success criteria (lines 38–43).
-- `docs/zero-copy-benchmark-baselines.md`, "Acceptance thresholds" (lines
-  524–643) and "Inversion register" (lines 460–500).
-- `docs/zero-copy-benchmark-plan.md`, "Acceptance thresholds" (lines 370–384).
-- ADR 008 (accepted; serializer addendum proposed), ADR 009 (accepted;
-  serializer amendment proposed), and ADR 010 (accepted; addendum of
+- `docs/roadmap.md` items `10.2.2` (lines 494–500), `11.1.2` and `11.1.2.1`
+  (lines 520–537), and `13.2.1` (line 598).
+- `docs/zero-copy-frame-and-payload-migration-roadmap.md`: item `1.2.2` (lines
+  91–109) and the success criteria (lines 38–43).
+- `docs/zero-copy-benchmark-baselines.md`: "Status", "Inversion register",
+  and "Acceptance thresholds" (lines 17–25, 460–500, and 524–643).
+- `docs/zero-copy-benchmark-plan.md`: "Acceptance thresholds" and "Gaps" (lines
+  370–400).
+- ADR 008 (accepted; its serializer addendum is proposed), ADR 009 (accepted;
+  its serializer amendment is proposed), and ADR 010 (accepted; addendum of
   2026-11-20).
-- `docs/execplans/issue-538-plan-zero-copy-serializer-output-migration.md`
-  (draft design for `11.1.2`).
-- `docs/zero-copy-release-plan.md`, "Owners" and "Blockers".
+- The #538 plan, a draft design for `11.1.2`.
+- `docs/zero-copy-release-plan.md`: "Owners" and "Blockers".
 
-Requirements derived for this plan:
+Requirements:
 
 - `REQ-define`: the thresholds state precisely which materialization `11.1.2`
-  must remove, consistently with the approved design direction (`D1`).
+  must remove, consistently with ADR 008.
 - `REQ-witness`: a test states the pre-migration materialization through
-  pointer identity, an allocation window, and copied bytes, and is registered
-  to flip when `11.1.2` lands.
+  address identity, an allocation window, and copied bytes. A gate must stop
+  `11.1.2` from being ticked until the witness shows sharing.
 - `REQ-guard`: the default Bincode path has a no-regression guard on
-  allocations and copied bytes that `11.1.2` must keep green.
-- `REQ-coverage`: every outbound serializer path is counted or explicitly
-  excepted.
-- `REQ-trace`: every threshold names its enforcing tests or procedure, and a
-  gate fails when a named test disappears.
-- `REQ-sound`: threshold rules are mathematically and statistically coherent
-  and reproducible on a shared host.
-- `REQ-accept`: a named performance reviewer's agreement is recorded before the
-  thresholds are called accepted and before `10.2.2` is ticked.
+  allocation operations and bytes.
+- `REQ-coverage`: every outbound copy is either counted or named as a
+  justified exception.
+- `REQ-trace`: every threshold names its enforcing tests or procedure, and the
+  gate fails on drift.
+- `REQ-sound`: threshold rules are arithmetically correct, and the protocol
+  can return a verdict on this host.
+- `REQ-accept`: a named reviewer accepts ADR 0018 before `10.2.2` is ticked.
 
-Observed gaps:
+Gaps:
 
-- `GAP-adr010-overclaim`: the ADR 010 addendum claims a default-path copy
-  removal that the #538 design does not deliver.
-- `GAP-no-witness`: no test observes contract-forced materialization.
-- `GAP-raw-path`: `send_response_framed` is uncounted.
-- `GAP-register-flips`: two inversion-register entries will not flip.
-- `GAP-t1-units`: `T1` misstates the latency–throughput equivalence.
-- `GAP-t2-load`: `T2` floors ignore host load.
-- `GAP-stale-wording`: the benchmark plan and dedicated roadmap use superseded
-  wording, and the benchmark plan cites a blocker that does not exist.
+- `GAP-adr010-overclaim`: ADR 010 claims a default-path removal that `11.1.2`
+  does not deliver.
+- `GAP-counter`: the counter cannot observe a removal.
+- `GAP-no-witness`: nothing observes the contract-forced copy.
+- `GAP-register`: the inversion register over-promises and enforces nothing.
+- `GAP-uncounted`: three outbound copies are uncounted.
+- `GAP-t1`: `T1` misstates units and underestimates drift.
+- `GAP-t2`: `T2` ignores load.
+- `GAP-ids`: allocation counts in benchmark identifiers break comparisons.
+- `GAP-stale`: stale wording and a phantom blocker remain in other documents.
 
 Trace links:
 
 ```plaintext
-roadmap-10.2.2 -> REQ-define  -> D1 -> EP-M4 -> ADR-0010 addendum + baselines "Acceptance thresholds" T4/T6
-roadmap-10.2.2 -> REQ-witness -> D2 -> EP-M1 -> copied_bytes::shared_payload::shared_payload_serializer_copies_the_payload
-roadmap-10.2.2 -> REQ-guard   -> D1 -> EP-M3 -> pipeline_allocation_invariants::production_outbound_allocation_count_is_stable
-roadmap-10.2.2 -> REQ-coverage -> D3 -> EP-M2 -> copied_bytes::raw_response::raw_framed_send_records_the_serializer_copy
-roadmap-10.2.2 -> REQ-trace   -> D4 -> EP-M3 -> copied_bytes::threshold_register::threshold_register_names_real_tests
-roadmap-10.2.2 -> REQ-sound   -> D5 -> EP-M4 -> baselines "Comparison protocol", T1, T2
-roadmap-10.2.2 -> REQ-accept  -> D9 -> EP-M5 -> baselines "Threshold review record"
-roadmap-13.2.1 <- D6 (verdict kernel and Verus proof deferred, sketched below)
+roadmap-10.2.2 -> REQ-define   -> D1, D8 -> EP-M3 -> docs/adrs/adr-0018-... + baselines "What the migration must remove"
+roadmap-10.2.2 -> REQ-witness  -> D2, D4 -> EP-M1, EP-M2 -> shared_payload::shared_payload_output_matches_the_switch
+                                                       -> inversion_register::switch_tracks_roadmap_item_11_1_2
+roadmap-10.2.2 -> REQ-guard    -> D1 -> EP-M2 -> checks::guards::bincode_outbound_allocation_ops_are_class_independent
+roadmap-10.2.2 -> REQ-coverage -> D3 -> EP-M3 -> roadmap 11.1.2.1 obligation + baselines T7 exceptions
+roadmap-10.2.2 -> REQ-trace    -> D4 -> EP-M2 -> threshold_register::threshold_register_matches_the_prose
+roadmap-10.2.2 -> REQ-sound    -> D5, D12 -> EP-M3 -> baselines "Comparison protocol" + A–A probe evidence
+roadmap-10.2.2 -> REQ-accept   -> D9 -> EP-M4 -> ADR 0018 Accepted + "Threshold review record"
+roadmap-11.1.2 <- D3 obligations (counter move, switch flip, raw and no-hook client witnesses)
+roadmap-13.2.1 <- D5 protocol, D6 verdict-kernel sketch
 ```
 
 ## Verification plan
 
 ### Abstract model
 
-Model one outbound message as a pair `(m, s)`. `m` is a message whose encoded
-form has `P > 0` bytes, and `s` is a serializer. Messages fall into two classes:
+Model one outbound message as a pair `(m, s)`: a message `m` whose encoded form
+has `P > 0` bytes, and a serializer `s`. Messages fall into two classes:
 
-- *Shared*: `m` holds its encoded bytes as a `Bytes` value `b` with data
-  pointer `p(b)`. Its encoded form is `b` itself.
-- *Encoded*: `m` is a typed value that `s` must encode, for example Bincode
-  over `Envelope`.
+- *Shared*: `m` holds its encoded bytes as a `Bytes` value `b` at address
+  `a(b)`.
+- *Encoded*: `s` must produce the bytes, for example Bincode over a typed
+  value.
 
-The outbound seam `E(s, c, m)` (`encode_message_frame` with codec `c`) yields a
-frame `f` whose payload has pointer `p(f)` and length `P`. It changes the
-counter state by `Δ = (serialized, handoff, framed, deserialized)` and opens an
-allocation window `W = (ops, bytes)`. Framing by `Encoder::encode` is a
-separate step `F(c, f)` that adds `Δ.framed = P`.
+The seam `E(s, c, m)` (`encode_message_frame` with codec `c`) yields a frame
+with payload `f`. It changes the counters by
+`Δ = (serialized, handoff, framed, deserialized)`, and it runs inside an
+allocation window `W = (ops, bytes)`. A control `K(c, b)` wraps `b.clone()`
+directly, with the clone taken outside the window; it runs in window `W_K`. The
+witness switch `σ ∈ {Materialized, Shared}` names the contract in force.
 
-The pre-migration contract (`Vec<u8>` return) forces, for every class:
-`Δ.serialized = P`, `Δ.handoff = 0`, and a fresh payload buffer, so for a
-shared message `p(f) ≠ p(b)` and `W.bytes ≥ P`.
+- `σ = Materialized` (today, and for encoded messages after `11.1.2`): for a
+  shared message, `a(f) ≠ a(b)`, `f = b` byte for byte, `Δ.serialized = P`,
+  `Δ.handoff = 0`, and `P ≤ W.bytes − W_K.bytes < 2P`.
+- `σ = Shared` (required for shared messages after `11.1.2`): `a(f) = a(b)`,
+  `f = b`, `Δ.serialized = 0`, and `W.bytes − W_K.bytes < P`.
+- Encoded messages under Bincode, before and after `11.1.2`:
+  `Δ.serialized = P_enc`, `Δ.handoff = 0`, and `P ≤ W.bytes < 2P`. `W.ops` is
+  equal for 32-byte and 64 KiB payloads, for each in-scope codec.
 
-The post-migration requirement (`D1`) is:
-
-- For a shared message and a serializer that returns `b` without copying:
-  `p(f) = p(b)`, `Δ.serialized = 0`, and `W.bytes < P`. The total with framing
-  is `P`.
-- For an encoded message under Bincode: `Δ.serialized = P` (inherent),
-  `Δ.handoff = 0`, `P ≤ W.bytes < 2P`, and the allocation-operation count is at
-  most the pre-migration count. The total with framing stays `2P`.
-
-Malformed inputs (serializer errors) produce `SendError::Serialize` and record
-no bytes. The rejected-frame test already covers the inbound analogue.
+A serializer error yields `SendError::Serialize`, and the witness reports it as
+a test failure.
 
 ### Invariants and lemmas
 
-- `INV-preforced` (`REQ-witness`): before `11.1.2`, for every non-empty shared
-  payload and every in-scope codec (length-delimited, Hotline), `E` copies:
-  `p(f) ≠ p(b)`, `Δ.serialized = P`, and `W.bytes ≥ P`.
-- `INV-postshared` (`REQ-define`; stated now, executed by `11.1.2`): after
-  `11.1.2`, the same witness gives `p(f) = p(b)`, `Δ.serialized = 0`, and
-  `W.bytes < P`. This is `INV-preforced` inverted. The inversion register binds
-  the two.
-- `INV-guard` (`REQ-guard`): for Bincode, `Δ.handoff = 0` and
-  `P ≤ W.bytes < 2P` (existing), plus a stable allocation-operation count
-  independent of payload class (new).
-- `INV-raw` (`REQ-coverage`): `send_response_framed` records
-  `Δ.serialized = encoded length` and `Δ.handoff = 0`, matching
-  `encode_message_frame` for the same serializer and message.
-- `INV-trace` (`REQ-trace`): every threshold `T1`..`T7` appears exactly once in
-  the threshold register, identifiers are contiguous, every `test`-kind entry
-  names at least one `fn <name>(` that exists in its named file, and every
-  `procedure`-kind entry names a heading that exists in the baselines document.
-- `L-control` (non-vacuity for `INV-preforced` and `INV-postshared`): for the
-  same `b`, `c.wrap_payload(b.clone())` gives `p(f) = p(b)`. If this lemma
-  fails, the pointer comparison itself is broken, and neither invariant's
-  result means anything.
-- `L-register-sound`: the shared parser accepts exactly the marker-delimited
-  `-` items, joins two-space continuation lines, rejects a block without
-  markers or with an item lacking its required spans, and preserves item order.
+- `INV-switch` (`REQ-witness`): for every non-empty length, codec in
+  {length-delimited, Hotline}, and value of `σ`, the witness's observations
+  equal the model's prediction for that `σ`. Today `σ = Materialized` holds;
+  setting `σ = Shared` must fail. That failure is the red evidence that the
+  post-migration statement is falsifiable.
+- `INV-roadmap-coupling` (`REQ-witness`): if `docs/roadmap.md` shows
+  `- [x] 11.1.2.`, then `σ = Shared`.
+- `INV-guard` (`REQ-guard`): the Bincode model above, for both codecs.
+- `INV-trace` (`REQ-trace`): the threshold identifiers in the register equal
+  the set of threshold paragraphs in the "Acceptance thresholds" prose. Each
+  identifier appears once. Every `test` entry names at least one test, each
+  found as `fn <name>(` in a loaded source. Entries in the `harness = false`
+  binary also appear as strings in `checks/mod.rs`. Every `procedure` entry
+  names an existing heading.
+- `INV-inversion` (`REQ-witness`): every inversion-register entry names a
+  roadmap item that will flip it. Every named test exists in a loaded source.
+  The registers name no non-flipping test as inverting.
+- `L-control`: `K` preserves the address (`a(K) = a(b)`), using the same
+  address helper as the witness. If this fails, the address comparison itself
+  is broken, and no `INV-switch` result is meaningful.
+- `L-parser`: the shared parser accepts exactly the marker-delimited `-`
+  items and joins two-space continuation lines. It reads spans only before the
+  first em dash, and preserves item order. It rejects missing markers, empty
+  blocks, and unknown kinds.
 
 ### Axioms (trusted, not verified here)
 
-- `AXIOM-bytes-from-vec`: `bytes` 1.x `From<Vec<u8>> for Bytes` does not copy
-  payload bytes. It is trusted because `bytes_from_vec` checks it at run time
-  and `handoff_preserves_the_payload_pointer` tests it.
-- `AXIOM-bytes-clone`: `Bytes::clone` shares the buffer, so the pointer is
-  equal and no payload bytes are copied (documented `bytes` contract).
-- `AXIOM-allocator-window`: the `stats_alloc`-based window counts every global
-  allocation made by the current thread while open. The existing harness
-  self-checks (`harness_observes_real_traffic`,
-  `idle_windows_report_no_traffic`) exercise this boundary.
-- `AXIOM-criterion`: Criterion 0.8.2 reports change as a confidence interval
-  on the relative change in mean time, with the documented defaults above. Only
-  the procedural thresholds `T1` and `T2` depend on this.
+- `AXIOM-bytes`: `bytes` 1.x `From<Vec<u8>> for Bytes` does not copy payload
+  bytes, and `Bytes::clone` shares the buffer. The first is checked at run time
+  by `bytes_from_vec`; both are documented contracts.
+- `AXIOM-window`: the counting allocator sees every allocation made by the
+  current thread while the window is open, and charges a reallocation only its
+  growth. The harness self-checks `harness_observes_real_traffic`,
+  `idle_windows_report_no_traffic`, and `growing_reallocation_reports_growth`
+  exercise this boundary.
+- `AXIOM-codec-move`: both in-scope `wrap_payload` implementations store the
+  handed-in `Bytes` without copying. The existing `wrap_payload_reuses_bytes`
+  tests this, and `L-control` re-checks it.
+- `AXIOM-criterion`: Criterion 0.8.2 reports relative change in time with the
+  documented defaults, honours `CRITERION_HOME`, and writes median change to
+  `change/estimates.json`. Only the procedural thresholds and the A–A probe
+  depend on this.
 - `AXIOM-bincode-size`: Bincode 2.0.1 `encode_to_vec` allocates once, with
   exact capacity. The existing `default_serializer_leaves_no_spare_capacity`
-  test exercises it.
+  exercises this.
 
 ### Methods per obligation
 
-- Obligation: `INV-preforced`.
-  Method: parameterized `rstest` table over codec × payload class, plus a
-  `proptest` property over lengths. Rationale: the classes form a finite
-  matrix, and the property covers the length range cheaply. Domain:
-  `{LengthDelimited, Hotline} × {32 B, 64 KiB}`, plus generated lengths in
-  `1..=65_536` with explicit edge cases 1, 250, 251, 4,096, and 65,536.
-  Artefacts: `wireframe_testing/tests/copied_bytes/shared_payload.rs`
-  (`shared_payload_serializer_copies_the_payload`,
-  `shared_payload_is_copied_at_any_length`), and
-  `wireframe_testing/tests/pipeline_allocation_invariants/checks/shared.rs`
-  (`shared_payload_outbound_allocates_a_payload_copy`). Evidence: `make test`
-  passes. The red stage is a compile failure on the missing witness module,
-  followed by a deliberately inverted assertion (`p(f) == p(b)`) that must fail
-  before the correct one is committed. Non-vacuity: `L-control` runs in the
-  same module on the same `b`. Lengths start at 1, because empty `Bytes` have
-  no meaningful pointer. Seeded fault: temporarily make the witness serializer
-  return a `Vec` built from `b.to_vec()` *and* compare with `b` itself; the
-  inverted assertion must still fail. Revert the fault before committing.
-  Record the proptest case count (256 by default) and any regression file in
-  `Artefacts and notes`.
-- Obligation: `INV-postshared`.
-  Method: specification only in this plan. It is registered in the inversion
-  register so that `11.1.2` must replace `INV-preforced`'s assertions with it.
-  Rationale: it cannot be executed before the contract changes. Evidence:
-  `inversion_register_names_real_tests` fails if the registered tests vanish
-  without the register being updated. Non-vacuity: the register entry states
-  the exact post-migration values, so a migration that deletes the test instead
-  of inverting it fails the register gate.
+- Obligation: `INV-switch`.
+  - Method: a parameterized `rstest` table plus a lightweight `proptest`
+    property. The table covers the finite codec and length matrix; the property
+    covers the length range cheaply.
+  - Domain: codec in {length-delimited, Hotline}. Lengths in the table are 1,
+    2, 4,096, and 65,536; the property draws from `1..=65_536`. The witness
+    builds a codec with `max_frame_length` raised to at least the payload
+    length.
+  - Artefacts: in `wireframe_testing/tests/copied_bytes/shared_payload.rs`,
+    `shared_payload_output_matches_the_switch`,
+    `shared_payload_output_matches_the_switch_at_any_length`, and
+    `direct_wrap_keeps_the_address` (`L-control`). In
+    `pipeline_allocation_invariants/checks/shared.rs`,
+    `shared_payload_allocation_matches_the_switch`.
+  - Evidence: `make test-wireframe-testing` is green with
+    `σ = Materialized`. The recorded red is a temporary run with
+    `σ = Shared`, which must fail on the address and on `serialized` for every
+    case.
+  - Non-vacuity: lengths start at 1, because an empty `Bytes` has no
+    meaningful address. Content equality is asserted, so a same-length wrong
+    payload fails. Three seeded mutants are mandatory, and each must make the
+    named check fail:
+    - (a) The address helper returns the message's address instead of the
+      frame's. `INV-switch` must fail.
+    - (b) The control wraps `Bytes::copy_from_slice(&b)`. `L-control` must
+      fail.
+    - (c) The witness skips `benchmark_encode_message_frame` and wraps
+      directly. The `serialized` assertion must fail.
+  - Mutant handling: record each failure in `Artefacts and notes`, revert with
+    `git restore`, and delete any regression file a mutant produced.
+  - Proptest settings: the default 256 cases. Commit a regression file only if
+    a genuine failure produced it.
+- Obligation: `INV-roadmap-coupling`.
+  - Method: a named unit test,
+    `inversion_register::switch_tracks_roadmap_item_11_1_2`. It reads
+    `docs/roadmap.md` with `include_str!`, finds the line for `11.1.2.`, and
+    compares its checkbox with the witness constant.
+  - Evidence and non-vacuity: green today. Fixture tests feed a ticked
+    roadmap line with `Materialized`, which must fail, and an absent `11.1.2`
+    line, which must also fail rather than pass silently.
 - Obligation: `INV-guard`.
-  Method: allocator-window check in the `harness = false` binary. Artefact:
-  `checks/handoff.rs`, new `production_outbound_allocation_count_is_stable`.
-  Evidence: the red stage first records the measured operation counts for 32 B
-  and 64 KiB in `Artefacts and notes`. The check asserts equality across
-  payload classes and equality with the recorded count. If the count is not
-  stable across ten runs, fall back to class independence only and record why.
-  Non-vacuity: seeded fault. Temporarily route the check through a serializer
-  that grows a `Vec` from zero capacity by repeated `push`; the check must
-  fail. Revert afterwards.
-- Obligation: `INV-raw`.
-  Method: named `#[serial]` test through a real `Framed` over
-  `tokio::io::duplex`. Artefact:
-  `wireframe_testing/tests/copied_bytes/raw_response.rs`
-  (`raw_framed_send_records_the_serializer_copy`). Evidence: red, the test
-  fails with `serialized: 0`; green after the recorder calls are added.
-  `tests/response/mod.rs::send_response_framed_sends_raw_serialized_payload`
-  must stay green, proving the wire output is unchanged. Non-vacuity: the test
-  also reads the frame from the peer and asserts its length equals the recorded
-  count, so a counter recording the wrong length fails.
-- Obligation: `INV-trace` and `L-register-sound`.
-  Method: unit tests over the parser with fixture strings, plus the live
-  register test over `include_str!` of the baselines document. Artefacts:
-  `wireframe_testing/tests/copied_bytes/doc_register.rs` (shared parser and its
-  tests), `inversion_register.rs` (slimmed), and `threshold_register.rs`.
-  Evidence: `make test`. Negative controls are fixture strings with a missing
-  test, a duplicate `T3`, a gap (`T1`, `T2`, `T4`), and a `procedure` entry
-  naming an absent heading; each must be rejected with a specific error.
-  Non-vacuity: the live test asserts the register has exactly seven entries, so
-  an empty or truncated block cannot pass.
-- Obligation: BDD acceptance of `INV-preforced` and `L-control`.
-  Method: `rstest-bdd` scenarios (below). Artefacts:
-  `tests/features/zero_copy_baseline.feature`, steps, fixture, and scenarios.
-  Evidence: `make test-bdd`; the new scenarios fail before their steps exist,
-  through rstest-bdd's strict compile-time validation, and pass after.
+  - Method: an allocator-window check in the `harness = false` binary,
+    `checks/guards.rs::bincode_outbound_allocation_ops_are_class_independent`.
+    `outbound_traffic` gains a codec parameter.
+  - Evidence: green today. Before writing the assertion, record the measured
+    `ops` values for both classes and both codecs in `Artefacts and notes`.
+  - Non-vacuity: a seeded mutant routes the check through a serializer that
+    grows a `Vec` from zero capacity by repeated `push`. Growth scales with
+    `log P`, so the operation counts differ and the check must fail. Revert
+    afterwards.
+- Obligation: `INV-trace`, `INV-inversion`, and `L-parser`.
+  - Method: parser unit tests with fixture strings, plus live register tests
+    over the real baselines document. Artefacts:
+    - `wireframe_testing/tests/copied_bytes/doc_register.rs`: the shared
+      extraction and its tests.
+    - `inversion_register.rs`: inversion-specific checks and the coupling
+      test.
+    - `threshold_register.rs`: `threshold_register_matches_the_prose`.
+  - Negative controls, each rejected with its own error variant:
+    - a missing test;
+    - a test whose file is not loaded (distinct from a missing test);
+    - a duplicate `T3`;
+    - a prose threshold with no register entry;
+    - a register entry with no prose threshold;
+    - an unknown kind;
+    - a `test` entry with no names;
+    - a `procedure` entry naming an absent heading;
+    - backticked prose after the em dash, which must not be read as a test
+      name.
+  - Non-vacuity: identifiers are derived from the prose, not hard-coded, so
+    adding `T8` without a register entry fails.
+  - Code health: keep each checker's `match` on kind below Whitaker's
+    complexity ceiling, and use iterators rather than indexing.
 
 ### Formal verification decision
 
-This item introduces no algorithm, protocol, or arithmetic kernel. Its
-obligations are facts about concrete executions (pointer identity, byte counts,
-allocations), checked against the real code by tests whose non-vacuity is
-argued above. Verus would add nothing: the properties depend on the behaviour of
-`bytes`, the allocator, and serializers, which are axioms here and not proof
-subjects. Kani is likewise unwarranted: there is no bounded pure function whose
-every path matters more than these concrete witnesses.
+This item adds no algorithm, protocol, or arithmetic kernel. Its obligations
+are facts about concrete executions: addresses, byte counts, and allocation
+operations. Its executable checks are register consistency. Tests check each
+against the real code, with the non-vacuity controls above.
 
-Verus *is* warranted for `13.2.1`'s verdict kernel (`D6`). That kernel will be
-contractual release-gating logic over all integer inputs, and Clippy's
-`float_arithmetic` denial already forces it into integers, which suits Verus.
-The proof sketch below is a hypothesis about its eventual proof structure, not
-a commitment. No `assume`, `admit`, or external body may be used to make it
-compile, and `13.2.1` must add the `make verus` milestone criterion when it
-implements the kernel.
+- Verus would add nothing here. The properties depend on `bytes`, the
+  allocator, and serializers, which are axioms rather than proof subjects.
+- Kani would add nothing either. There is no bounded pure function where every
+  path matters more than the concrete witnesses.
 
-Abstract model for `13.2.1`. Work in basis points (bp; 1 % = 100 bp) of
-relative change in mean time. A workload result is `r = (lo, est, hi)` with
-integers `lo ≤ est ≤ hi`. Parameters are `R = 1000` (10 %) and `N = 100` (1 %).
-Define `regressed(r) ⇔ est > R ∧ lo > N`. A comparison is a finite map `C` from
-workload identifier to `Measured(r)` or `Unmeasured`. Its verdict is `Fail` if
-some workload is `Measured(r)` with `regressed(r)`, otherwise `Unmeasured` if
-some workload is unmeasured, otherwise `Pass`. A `T2` floor check takes
-throughput `x`, floor `F`, and load `ℓ` with band `[ℓ₀, ℓ₁]`: `NotComparable` if
-`ℓ ∉ [ℓ₀, ℓ₁]`, otherwise `Pass` if `x ≥ F`, otherwise `Fail`.
+Formal methods are warranted for `13.2.1`'s verdict kernel (`D6`). That kernel
+is contractual release-gating logic over all integer inputs. Its statements
+below are hypotheses about the eventual proof structure, not commitments. No
+`assume`, `admit`, or external body may be used to make them compile. `13.2.1`
+must add the chosen tool's Make target (`make verus` or `make kani`, once
+wired) as a milestone acceptance criterion.
 
-Lemmas to establish:
+Abstract model for `13.2.1`:
 
-- `L-noise`: `lo ≤ N ⇒ ¬regressed(r)`. A result within noise never fails.
-- `L-monotone`: if `r ≤ r'` componentwise, then
-  `regressed(r) ⇒ regressed(r')`. A worse result never passes where a better
-  one failed.
-- `L-no-offset`: if `regressed(C(w))` for some `w`, then `verdict(C) = Fail`
-  for every assignment of the other workloads. No gain elsewhere offsets a
-  regression; this is `T1`'s "never to an average".
-- `L-unmeasured-not-pass`: if any workload is `Unmeasured`, then
-  `verdict(C) ≠ Pass` (`T7`).
-- `L-units`: for `est > -10000`, the throughput change in bp is
-  `t = -10000·est / (10000 + est)`, and `est > 1000 ⇔ t < -909.09…`. Stated
-  over integers, `est > 1000 ⇔ 10000·est > 1000·(10000 + est)`. This lemma
-  justifies restating `T1` on time.
-- `L-floor-band`: `ℓ ∉ [ℓ₀, ℓ₁] ⇒ floor = NotComparable`. Load outside the
-  band can neither pass nor fail `T2`.
+- Changes are measured in basis points (bp; 1 % = 100 bp) of relative median
+  time change.
+- A frozen identifier set `I` comes from `D5`.
+- A capture is a finite list of `(id, result)` pairs. A result is
+  `Measured(lo, med, hi)` with integers, or `Unmeasured`.
+- Each round also yields a drift `d_w = |A₁ − A₂|` per workload.
+- Parameters: `R = 1000` and `Nmin = 100`.
+- `N_w = max(Nmin, d_w)`.
+- `regressed(w) ⇔ med > R ∧ lo > N_w`.
+- `inconclusive(w) ⇔ d_w ≥ R/2`, compared cross-multiplied as `2·d_w ≥ R`,
+  because `integer_division` is denied.
+- Verdicts are ordered `Pass < Inconclusive < Unmeasured < Fail`.
 
-These statements stay in this plan and in the baselines document's comparison
-protocol until `13.2.1` reaches its proof milestone.
+Lemmas that can actually fail:
+
+- `L-refine`: the executable verdict equals the specification's verdict for
+  every capture. In particular, it is independent of list order, and it rejects
+  duplicate identifiers.
+- `L-missing`: an identifier in `I` absent from the capture is treated as
+  `Unmeasured`, so a renamed benchmark can never be silently dropped.
+- `L-monotone`: worsening any workload's result never improves the overall
+  verdict. This includes a result going from `Measured` to `Unmeasured`, and
+  any rise in `lo` or `med`.
+- `L-malformed`: a result violating `lo ≤ med ≤ hi` never yields `Pass`.
+- `L-precedence`: `inconclusive(w)` never masks a `regressed(w')` on another
+  workload, and the rule for `regressed(w) ∧ inconclusive(w)` is stated
+  explicitly. Proposal: `Fail` when `lo > N_w` holds even with the drift
+  included, otherwise `Inconclusive`.
+- `L-units`: for `med > −10000`, a time regression above 10 % (`med > 1000`)
+  is equivalent to throughput below 10/11 of baseline,
+  `10·(10000 + med) > 110000`. The draft's "10 % lower throughput" corresponds
+  to `9·(10000 + med) > 100000`, that is `med > 1111`. The two rules disagree
+  for `1000 < med ≤ 1111`, which is why `T1` is stated on time.
+- `L-round`: converting Criterion's decimal percentage to basis points rounds
+  towards not failing. For example, 10.004 % becomes 1000 bp, which is not a
+  regression, so conversion can never manufacture a `Fail`.
 
 ### Suggested BDD features
 
-Adopted (`EP-M1`), extending `tests/features/zero_copy_baseline.feature` and
-linked to `REQ-witness`, `INV-preforced`, and `L-control`:
+None are adopted in this item (`D10`). The following scenario is proposed for
+`11.1.2`, at `tests/features/serializer_boundaries.feature`, linked to
+`REQ-witness` and `INV-switch` with `σ = Shared`. It asserts addresses only,
+because counters are unsafe in the parallel `bdd` binary:
 
 ```gherkin
-  Scenario: The serializer copies a shared payload before framing
+Feature: Serializer boundaries and metadata context
+  Scenario: A serializer holding a shared payload hands it over without a copy
     Given a message holding a shared payload of 65536 bytes
     When the message is serialized and wrapped by the length-delimited codec
-    Then the frame payload does not share the message's buffer
-    And the serializer seam records 65536 copied bytes
-
-  Scenario: A shared payload wrapped without serialization keeps its buffer
-    Given a message holding a shared payload of 65536 bytes
-    When the shared payload is wrapped directly by the length-delimited codec
     Then the frame payload shares the message's buffer
-    And the serializer seam records 0 copied bytes
+    And the frame payload equals the message's payload
 ```
-
-The first scenario's binding function,
-`the_serializer_copies_a_shared_payload_before_framing`, is entered in the
-inversion register. Item `11.1.2` must rewrite it to "the frame payload shares
-the message's buffer" with 0 copied bytes. Run with `make test-bdd`.
 
 ## Plan of work
 
-### `EP-M1` shared-payload removal witness
+### `EP-M1` test-private shared-payload witness with its switch
 
-Requirements: `REQ-witness`, `GAP-no-witness`; decisions `D1` and `D2`.
+Requirements: `REQ-witness`, `GAP-no-witness`. Decisions: `D1`, `D2`.
 
-Red. In `wireframe_testing/tests/copied_bytes.rs`, add
-`#[path = "copied_bytes/shared_payload.rs"] mod shared_payload;`, and write
-`shared_payload.rs` against a not-yet-existing
-`wireframe_testing::codec_benchmarks::shared_payload` API. Run
-`make test-wireframe-testing` and expect an unresolved-import error.
+1. Add the two authorized dev-dependencies to `wireframe_testing/Cargo.toml`.
+2. Create `wireframe_testing/tests/witness/shared_payload.rs` (about 110 lines,
+   with a module doc comment). It contains:
+   - `pub(crate) enum SerializerOutput { Materialized, Shared }`.
+   - `pub(crate) const SERIALIZER_OUTPUT: SerializerOutput =
+     SerializerOutput::Materialized;`, whose doc comment names roadmap
+     `11.1.2` and the coupling test.
+   - `SharedPayloadSerializer` and `SharedPayloadMessage { payload: Bytes }`.
+     `encode_with` returns `Ok(self.payload.to_vec())`, the only option under
+     the current contract; its comment says `11.1.2` replaces it with a shared
+     hand-off.
+   - `shared_payload_message(len: NonZeroUsize)`, filling a pattern that does
+     not repeat within 65,536 bytes, for example the little-endian bytes of
+     successive `u32` indices. It does not reuse `payload_for_class`, which
+     supports only two sizes and repeats every 251 bytes.
+   - `encode_through_seam(codec, &message) -> Result<Bytes, String>`. It calls
+     `wireframe::app::benchmark_encode_message_frame` with a codec built with
+     `max_frame_length` raised to at least the payload length, and returns the
+     frame's payload as `Bytes`.
+   - `wrap_directly(codec, &Bytes) -> Bytes`, the control.
+   - `payload_address(&Bytes) -> usize`, the one address helper. It returns
+     `as_ptr() as usize` and is never dereferenced. The witness and the control
+     both use it.
+3. In `wireframe_testing/tests/copied_bytes.rs`, add
+   `#[path = "witness/shared_payload.rs"] mod witness;` and
+   `#[path = "copied_bytes/shared_payload.rs"] mod shared_payload;`. Write the
+   three tests named under `INV-switch`, each `#[serial]`. Each reads
+   `SERIALIZER_OUTPUT` and asserts the model's prediction for it:
+   - googletest `assert_that!` with `eq` or `not(eq)` for addresses and
+     counts;
+   - `pretty_assertions::assert_eq` for whole `CopiedBytes` values and for
+     content.
 
-Green. Create `wireframe_testing/src/codec_benchmarks/shared_payload.rs` (about
-120 lines, `#[cfg(feature = "pipeline-benchmarks")]`, module doc comment). It
-provides:
+   Use no `#[gtest]` attribute (see `rust-unit-testing`).
+4. In `pipeline_allocation_invariants/main.rs`, include the witness with
+   `#[path]`. Add `checks/shared.rs` with
+   `shared_payload_allocation_matches_the_switch`, taking the control window
+   with the clone made outside it, and register the check in `checks::CHECKS`.
+5. Red evidence: temporarily set `SERIALIZER_OUTPUT` to `Shared`, run
+   `make test-wireframe-testing`, and record that every witness case fails on
+   the address and on `serialized: 65536 != 0` (or its length). Restore the
+   constant. Run the three seeded mutants (a), (b), and (c) and record the
+   failures. Restore with `git restore`.
+6. Green: run `make check-fmt`, `make lint`, and `make test` sequentially.
+   Expect the new tests in the `copied_bytes` summary, and the new check name
+   in the `pipeline_allocation_invariants` output.
+7. Code-budget checkpoint: count net code lines. If above 320, stop and
+   re-estimate.
 
-- `SharedPayloadSerializer`, a `Serializer` whose
-  `serialize` returns the message's bytes. Before `11.1.2` this is necessarily
-  `Ok(message.payload.to_vec())`, and the doc comment says so and names
-  `11.1.2`.
-- `SharedPayloadMessage { payload: Bytes }`, with
-  `EncodeWith<SharedPayloadSerializer>` and an accessor `payload()`.
-- `shared_payload_message(len: NonZeroUsize) -> SharedPayloadMessage`,
-  which fills a non-repeating byte pattern.
-- `encode_shared_payload(codec, message)`, returning
-  `Result<SharedPayloadFrame, String>`, which wraps
-  `benchmark_encode_message_frame` and returns the payload pointer and length.
-- `wrap_shared_payload_directly(codec, message) -> SharedPayloadFrame` for
-  `L-control`.
+### `EP-M2` registers, switch–roadmap coupling, and Bincode guard
 
-Re-export the module from `codec_benchmarks/mod.rs`. Then make the tests pass:
-`shared_payload_serializer_copies_the_payload` (rstest over `CodecUnderTest` ×
-payload class), `shared_payload_control_preserves_the_pointer`, and the property
-`shared_payload_is_copied_at_any_length`. Use googletest `assert_that!` with
-`eq` and `not(eq)` matchers for pointer and count assertions, and
-`pretty_assertions::assert_eq` for whole `CopiedBytes` values.
+Requirements: `REQ-trace`, `REQ-guard`, `GAP-register`. Decisions: `D1`, `D4`.
 
-Add `checks/shared.rs` to `pipeline_allocation_invariants` with
-`shared_payload_outbound_allocates_a_payload_copy` (window `bytes ≥ P` for both
-classes) and `shared_payload_direct_wrap_allocates_no_payload` (window
-`bytes < P`, the allocator-level control). Register both in `checks::CHECKS`.
+1. Refactor, with tests green before and after. Move item and span extraction
+   from `copied_bytes/inversion_register.rs` into
+   `copied_bytes/doc_register.rs`, parameterized by marker name. It returns
+   items with spans read only before the first ` — `. The parser unit tests
+   move with it.
 
-Add the two BDD scenarios, their steps in
-`tests/steps/zero_copy_baseline_steps.rs`, world methods in
-`tests/fixtures/zero_copy_baseline.rs`, and bindings in
-`tests/scenarios/zero_copy_baseline_scenarios.rs`.
+   `inversion_register.rs` keeps its layout checks. Its source list gains:
+   - `copied_bytes/shared_payload.rs`;
+   - `witness/shared_payload.rs`;
+   - `pipeline_allocation_invariants/checks/shared.rs`;
+   - `pipeline_allocation_invariants/checks/guards.rs`.
 
-Refactor. Remove duplication between the witness module and existing harness
-helpers where it does not touch harness measurement functions. Run the seeded
-fault described in `Verification plan`, record its output, and revert it.
+   The "file not loaded" error becomes separate from "test missing". Commit the
+   refactor on its own.
+2. Re-audit the inversion register in `docs/zero-copy-benchmark-baselines.md`:
+   - Keep `inbound_decode_copies_the_payload_once` (flips at `11.1.1`).
+   - Retag `seams_charge_one_payload_per_message_at_any_size` to `11.1.1`
+     (inbound half only).
+   - Remove `outbound_path_copies_the_payload_twice_per_message`,
+     `harness_serializer_copies_the_payload_once_at_each_seam`,
+     `default_serializer_and_handoff_copy_the_payload_once`, and
+     `production_outbound_allocates_one_payload`. They become guards under
+     `T3`, `T4`, and `T6` in the threshold register.
+   - Add `shared_payload_output_matches_the_switch`,
+     `shared_payload_output_matches_the_switch_at_any_length`, and
+     `shared_payload_allocation_matches_the_switch` (flip at `11.1.2`, by
+     setting `SERIALIZER_OUTPUT` to `Shared`).
 
-Validation: `make check-fmt`, `make lint`, and `make test`, sequentially, with
-logs. Expected: all pass, the new tests counted in the `copied_bytes` and `bdd`
-summaries, and `pipeline_allocation_invariants` printing the two new check
-names.
+   Replace the hard-coded six-entry count with a check that every entry names a
+   roadmap item.
 
-### `EP-M2` raw length-delimited send path counted
+   Red: before the document is edited, the updated live test fails on the stale
+   entries. Green: after the edit.
+3. Add `switch_tracks_roadmap_item_11_1_2` and its two fixture controls. It
+   reads `docs/roadmap.md` with `include_str!("../../../docs/roadmap.md")`.
+4. Write `copied_bytes/threshold_register.rs` with
+   `threshold_register_matches_the_prose` and the negative-control fixtures
+   listed under `Verification plan`. It derives the prose identifier set from
+   lines matching `T<digits>.` that start a paragraph within the "Acceptance
+   thresholds" section.
 
-Requirements: `REQ-coverage`, `GAP-raw-path`; decision `D3`.
+   Red: fails because the `<!-- threshold-register:start -->` and
+   `<!-- threshold-register:end -->` markers are missing. Then add the register
+   to the baselines document, listing the current `T1` to `T7` with their tests
+   and procedures. Green.
 
-Red. Add `copied_bytes/raw_response.rs` with
-`raw_framed_send_records_the_serializer_copy`. It builds a `WireframeApp` with
-`SharedPayloadSerializer`, sends a witness message through
-`send_response_framed` over `tokio::io::duplex`, reads the frame back with a
-`LengthDelimitedCodec`, and asserts `serialized == P`, `handoff == 0`, and a
-frame length of `P`. Expect a failure at `serialized`: actual 0, expected `P`.
+   Entry format, one per threshold. The spans before the em dash are, in order:
+   identifier, kind, then either the file and its test names (`test`) or a
+   heading (`procedure`).
 
-Green. In `src/app/outbound_response.rs::send_response_framed`, call
-`crate::benchmark_counters::record_serialized(bytes.len())` after
-serialization, and replace `Bytes::from(bytes)` with
-`crate::benchmark_counters::bytes_from_vec(bytes)`. Keep the existing comments
-about double framing and `tokio-util` inference, and add one line naming the
-uncounted `tokio-util` length-prefix copy (`D3`). Register the test in the
-inversion register: after `11.1.2`, `serialized` must be 0 for the witness.
+   ```markdown
+   - `T4` `test` `wireframe_testing/tests/copied_bytes/shared_payload.rs`
+     `shared_payload_output_matches_the_switch` `direct_wrap_keeps_the_address`
+     — removal of the contract-forced copy (ADR 0018).
+   - `T1` `procedure` `Comparison protocol` — interleaved median time change.
+   ```
 
-Validation: the gate trio. `tests/response/mod.rs` must remain green.
+   A threshold enforced in several files gets one entry per file, sharing its
+   identifier. The uniqueness check is on (identifier, file).
+5. Bincode guard:
+   - Give `support.rs::outbound_traffic` a `CodecUnderTest` parameter, and
+     update its existing caller.
+   - Run once to record the measured `ops`.
+   - Add
+     `checks/guards.rs::bincode_outbound_allocation_ops_are_class_independent`
+     and register it.
+   - Run the growth mutant and record its failure.
+6. Validation: `make check-fmt`, `make lint`, `make test`.
 
-### `EP-M3` registers and the Bincode guard
+### `EP-M3` ADR 0018, threshold rewrite, A–A probe, and documents (pull request A)
 
-Requirements: `REQ-trace`, `REQ-guard`, `GAP-register-flips`; decisions `D1` and
-`D4`.
+Requirements: `REQ-define`, `REQ-sound`, `REQ-coverage`. Gaps:
+`GAP-adr010-overclaim`, `GAP-counter`, `GAP-uncounted`, `GAP-t1`, `GAP-t2`,
+`GAP-ids`, `GAP-stale`. Decisions: `D1`, `D3`, `D5`, `D8`, `D11`, `D12`.
+Thresholds stay "proposed" in this milestone.
 
-Refactor first, with tests green before and after. Move the generic parsing in
-`copied_bytes/inversion_register.rs` (`register_items`, `register_entries`,
-`missing_register_entries`, and their unit tests) into
-`copied_bytes/doc_register.rs`, parameterized by marker name and by the number
-of backtick spans required per item. `inversion_register.rs` keeps only its
-live test.
+1. Write
+   `docs/adrs/adr-0018-removal-criteria-for-the-serializer-materialization.md`
+   with status `Proposed`, following the style guide's template:
+   - Context: the ADR 010 overclaim and the counter problem.
+   - Decision drivers.
+   - Options considered: `D1` against serialize-into-transport.
+   - Decision outcome, with the shared and encoded classes and the
+     beneficiaries.
+   - The `11.1.2` obligations (`D3`): move the counter; flip the witness
+     switch; add a raw-path witness for `send_response_framed` and a no-hook
+     client witness, each flipping at `11.1.2`. The client hook path is a
+     mutation path owned by `12.2.1`.
+   - The obligation to keep the Bincode guard green. Stated as an outcome
+     (operations independent of payload class, window below `2P`), not as a
+     pre-sizing mechanism. Note that Bincode's own `encode_to_vec` meets it by
+     running a size pass first.
+   - Known risks.
+   - Outstanding decisions: the reviewer's acceptance and the
+     instruction-count tier (`D11`).
+2. ADR 010: add `Amended by ADR-0018 (2026-11-28)` to its Status section, and
+   an `## Amendments` section that names the superseded sentence ("Item
+   `11.1.2` therefore removes one allocation and one copy on the outbound
+   default path") and points to ADR 0018.
+3. Run the A–A probe (`D12`), described in `Concrete steps`, and record its
+   per-workload drift summary and host-load samples.
+4. Rewrite `docs/zero-copy-benchmark-baselines.md`:
+   - Add "What the migration must remove": `D1`, with per-seam tables for
+     shared and encoded messages after `11.1.2`, and the statement that no
+     Criterion workload evidences the removal.
+   - `T1`: interleaved median time change per `D5`, with throughput derived
+     and `L-units` stated.
+   - `T2`: a tripwire per `D5`, keeping C4's floors and naming the C4 load
+     band (18–22).
+   - `T3`: list which counts are test-enforced
+     (`bincode_outbound_allocation_ops_are_class_independent`,
+     `read_only_middleware_counts_match`, `read_only_hook_counts_match`, and
+     the hand-off checks) and which are benchmark-label procedure. Identifiers
+     are frozen with the `_allocs_<n>` suffix stripped.
+   - `T4`: the witness and `L-control`, and the switch coupling to `11.1.2`.
+   - `T5`: unchanged apart from register linkage.
+   - `T6`: the shared witness falls from `P` to zero serializer bytes. The
+     Bincode and frozen-harness totals stay at `2P`.
+   - `T7`: name the uncounted copies, with reasons:
+     - `send_response_framed`'s serializer seam, until the `11.1.2` counter
+       move;
+     - the `tokio-util` length-prefix copies in `send_response_framed` and
+       the client sink, which happen inside a caller-supplied or third-party
+       encoder that wireframe never calls;
+     - the test helpers `src/testkit/fragment_drive.rs`,
+       `src/testkit/support.rs`, and `fragmenter.rs`, which are out of scope.
+   - "Comparison protocol": the interleaved procedure with exact commands,
+     `CRITERION_HOME`, median, `N_w`, the inconclusive rule, recorded load and
+     pressure stall information (PSI) samples, the signature-only harness-edit
+     rule, and the A–A probe results.
+   - Add the corrected inversion register and the threshold register.
+   - Update the "Status" table, and keep "proposed" wording.
+   - Add an empty "Threshold review record" section.
+5. `docs/zero-copy-benchmark-plan.md`: replace the "between serialization and
+   `wrap_payload`" rule with ADR 0018's wording, and point the sign-off gap row
+   at the review record instead of the phantom blocker.
+6. `docs/zero-copy-frame-and-payload-migration-roadmap.md`: replace the same
+   superseded wording in the success criteria and in `1.2.2`'s sub-bullet. Tick
+   nothing.
+7. `docs/roadmap.md`, item `11.1.2.1`: extend its "Success:" sentence with the
+   ADR 0018 obligations (counter move, switch flip with roadmap coupling, raw
+   and no-hook client witnesses, Bincode guard green), with an inline link to
+   ADR 0018.
+8. `docs/zero-copy-release-plan.md`: the sign-off blocker row now points to
+   ADR 0018 acceptance.
+9. `docs/developers-guide.md`, "Example and benchmark support": document the
+   witness and its switch, the reuse policy, the two registers, and how to
+   change a threshold:
+   - The witness is the only sanctioned shared-payload witness. It is
+     test-private, so harnesses must not grow their own.
+   - A threshold changes only through an ADR 0018 amendment accepted by the
+     reviewer.
+   - Document the interleaved comparison procedure.
+10. `docs/users-guide.md`, `CopiedBytes` section: state which outbound copies
+    the counters do not see (`T7`). No behaviour changes, so no `CHANGELOG.md`
+    entry is needed.
+11. `docs/contents.md`: add ADR 0018 and this ExecPlan.
+12. Validation, in order: `make fmt`, `make check-fmt`, `make markdownlint`,
+    `make nixie`, `make lint`, `make test`. The register tests re-run because
+    both documents are compiled in.
+13. Open pull request A (`EP-M1` to `EP-M3`).
 
-Red. Write `copied_bytes/threshold_register.rs` with
-`threshold_register_names_real_tests` and the negative-control fixture tests.
-Expect failure: the markers `<!-- threshold-register:start -->` and
-`<!-- threshold-register:end -->` do not yet exist in the baselines document.
-Then add the register block to `docs/zero-copy-benchmark-baselines.md`, in the
-"Acceptance thresholds" section, in this format:
+### `EP-M4` acceptance (pull request B)
 
-```markdown
-- `T4` `test` `wireframe_testing/tests/copied_bytes/shared_payload.rs`
-  `shared_payload_serializer_copies_the_payload` — removal of the serializer
-  materialization for shared payloads.
-- `T1` `procedure` `Comparison protocol` — Criterion time-change rule.
-```
+Requirements: `REQ-accept`. Decision: `D9`. This milestone waits for the
+reviewer.
 
-For a `test` entry, the third span is the file and every further span is a test
-name. For a `procedure` entry, the third span is a heading in the baselines
-document. Green when all seven thresholds are listed and every reference
-resolves.
-
-Correct the inversion register. Remove
-`default_serializer_and_handoff_copy_the_payload_once` and
-`production_outbound_allocates_one_payload`; they become `T3`/`T4` guards in
-the threshold register. Add `shared_payload_serializer_copies_the_payload`,
-`shared_payload_is_copied_at_any_length`,
-`shared_payload_outbound_allocates_a_payload_copy`,
-`raw_framed_send_records_the_serializer_copy`, and
-`the_serializer_copies_a_shared_payload_before_framing`. Update the live
-inversion test's expected count and required names to match. The register gate
-accepts entries in any of the named files because it greps for `fn <name>(`;
-this includes the `checks/*.rs` files and the BDD scenarios file.
-
-Add the guard. In `checks/handoff.rs`, red-first record the measured operation
-counts (see `Verification plan`), then add
-`production_outbound_allocation_count_is_stable` and register it. Check the
-file stays under 400 lines; split into `checks/guards.rs` if not.
-
-Validation: the gate trio.
-
-### `EP-M4` threshold text and dependent documents
-
-Requirements: `REQ-define`, `REQ-sound`, `GAP-adr010-overclaim`, `GAP-t1-units`,
-`GAP-t2-load`, `GAP-stale-wording`; decisions `D1`, `D3`, `D5`, and `D8`. This
-milestone is documentation only, and the thresholds stay marked "proposed".
-
-In `docs/zero-copy-benchmark-baselines.md`:
-
-- Add a short "What the migration must remove" subsection that states `D1`
-  with the shared and encoded classes and the expected per-seam table for each
-  after `11.1.2`.
-- Rewrite `T1` on time change only, with throughput derived (`L-units`).
-- Make `T2` conditional on the C4 load band (proposed: 1-minute load average
-  within 15–25 on the 24-thread baseline host) and the `make bench-codec` entry
-  point. Outside the band the result is "not comparable".
-- Restate `T3` so it names which counts are test-enforced and which are
-  benchmark-label procedure, and add the requirement that `11.1.2`'s `BytesMut`
-  writer must pre-size, as Bincode's `encode_to_vec` does.
-- Split `T4` into `T4a` (shared witness: pointer identity, zero serializer
-  bytes, no payload allocation) and `T4b` (Bincode guard), each naming its
-  tests. Keep the identifier `T4` for the register entry and list both tests.
-- Scope `T6` to the shared witness (`P`) and the Bincode guard (`2P`,
-  unchanged).
-- Correct `T7`: name the `tokio-util` length-prefix copy as the one uncounted
-  copy, and say why.
-- Extend the "Comparison protocol" with frozen benchmark identifiers, the
-  A–B–A bracketing rule for `13.2.1`, recorded load, and the rule that drift
-  between the two A runs beyond the noise threshold makes the comparison
-  inconclusive.
-- Add the threshold register and the corrected inversion register.
-- Add an empty "Threshold review record" section stating that no reviewer has
-  agreed yet.
-
-Elsewhere:
-
-- Append a dated addendum to ADR 010 that supersedes the sentence "Item
-  `11.1.2` therefore removes one allocation and one copy on the outbound
-  default path", states `D1`, and links the baselines section.
-- `docs/zero-copy-benchmark-plan.md`: replace the "between serialization and
-  `wrap_payload`" rule with `D1`'s wording and repair the phantom blocker row
-  to point at the review record.
-- `docs/zero-copy-frame-and-payload-migration-roadmap.md`: replace the same
-  superseded wording in the success criteria and in item `1.2.2`'s sub-bullet.
-  Do not tick anything yet.
-- `docs/developers-guide.md` ("Example and benchmark support"): document the
-  witness module and its reuse policy (the only sanctioned shared-payload
-  witness; harnesses must not grow their own), the two registers and how to
-  change a threshold (only with reviewer agreement, recorded in the review
-  record), and the A–B–A procedure.
-- `docs/users-guide.md`: in the `CopiedBytes` section, note that
-  `send_response_framed` now reports its serializer seam under
-  `benchmark-counters`, and that `tokio-util`'s length-prefix copy is not
-  counted.
-- `docs/contents.md`: add this ExecPlan to the execution-plan list.
-
-Validation: `make fmt`, `make check-fmt`, `make markdownlint`, `make nixie`,
-`make lint`, and `make test`. The threshold register test re-runs because the
-baselines document is compiled in with `include_str!`.
-
-### `EP-M5` performance review and acceptance
-
-Requirements: `REQ-accept`; decision `D9`. This milestone is blocked until a
-named reviewer agrees.
-
-Prepare a review packet as a pull-request comment. It summarizes `D1` and its
-rejected alternative first, then each threshold's old and new text, the
-enforcing tests, and the evidence from `EP-M1` to `EP-M3`. Ask the user to name
-the performance reviewer if the user is not acting as reviewer. Set this plan's
-status to `BLOCKED (awaiting performance reviewer)`.
-
-On agreement, fill in the "Threshold review record" with the reviewer's login,
-date, the baselines document's blob identifier
-(`git rev-parse HEAD:docs/zero-copy-benchmark-baselines.md`), and the
-dispositions. Change "proposed" to "accepted" throughout the thresholds section
-and in `docs/contents.md`. Tick `10.2.2` in `docs/roadmap.md` and item `1.2.2`
-with its two open sub-bullets in the dedicated roadmap. Remove the release
-plan's "no performance-reviewer sign-off" blocker row, and mark the benchmark
-plan's sign-off gap row closed. If the reviewer amends a threshold, apply the
-amendment, re-run the gates, and record it in `Decision log` before filling in
-the record. If the reviewer rejects `D1`, set `BLOCKED` and escalate (see
-`Tolerances`).
-
-Validation: the documentation gates plus `make test`, because the registers
-read the document.
+1. Post the decision packet on pull request A. In order:
+   - `D1` with its rejected alternative;
+   - the `11.1.2` obligations;
+   - each threshold's old and new text, with its enforcing tests or
+     procedure;
+   - the A–A probe evidence;
+   - the measured guard counts;
+   - the open question on an instruction-count tier (`D11`).
+2. If the reviewer amends a threshold, apply the amendment on a follow-up
+   commit to pull request A or B, re-run the gates, and record it in
+   `Decision log`. If the reviewer rejects `D1`, set `BLOCKED` and escalate.
+3. On acceptance, on a branch from `main` after pull request A merges:
+   - ADR 0018 becomes `Accepted` with the reviewer's name, the date, and a
+     summary.
+   - Fill in the "Threshold review record" with the reviewer, the date, the
+     blob identifier from
+     `git rev-parse HEAD:docs/zero-copy-benchmark-baselines.md`, and the
+     dispositions.
+   - Change "proposed" to "accepted (date)" in the Status table and threshold
+     text.
+   - Record the reviewer in the release plan's "Owners" table, and remove the
+     sign-off blocker row.
+   - Mark the benchmark plan's sign-off gap closed.
+   - Tick `10.2.2` in `docs/roadmap.md`, and `1.2.2` with its open
+     sub-bullets in the dedicated roadmap.
+   - Update `docs/contents.md`'s description.
+   - Set this plan to `COMPLETE` after reconciling `Outcomes & retrospective`.
+4. Validation: the documentation gates, then `make lint` and `make test`,
+   because the registers read both documents.
 
 ## Milestones and plateaus
 
-- `EP-M1`: shared-payload witness present and green.
+- `EP-M1`: the witness exists and states today's contract.
   - Requirements: `REQ-witness`.
-  - Evidence: `shared_payload_serializer_copies_the_payload`,
-    `shared_payload_control_preserves_the_pointer`,
-    `shared_payload_is_copied_at_any_length`, two allocation checks, and two
-    BDD scenarios.
-  - Conformance: no `wireframe` interface change; no harness change; the
-    witness is feature-gated.
-  - Recovery: revert the milestone commits. Nothing else depends on them yet.
-  - Remaining gaps: not yet registered (`EP-M3`).
+  - Evidence: three `copied_bytes` tests, one allocation check, the recorded
+    `Shared` red, and three mutant failures.
+  - Conformance: no change under `src/` or `wireframe_testing/src/`; no harness
+    change; dev-dependencies as authorized.
+  - Recovery: revert the milestone's commits; nothing depends on them yet.
+  - Remaining gaps: the register and the coupling.
   - Compatibility: none.
-- `EP-M2`: raw path counted.
-  - Requirements: `REQ-coverage`.
-  - Evidence: `raw_framed_send_records_the_serializer_copy` red then green;
-    `send_response_framed_sends_raw_serialized_payload` green.
-  - Conformance: recorder calls only; no signature or wire change.
-  - Recovery: revert the single production edit and its test together.
-  - Compatibility: none.
-- `EP-M3`: registers and guard.
+- `EP-M2`: the registers enforce.
   - Requirements: `REQ-trace`, `REQ-guard`.
-  - Evidence: `threshold_register_names_real_tests`, parser negative
-    controls, the corrected `inversion_register_names_real_tests`, and
-    `production_outbound_allocation_count_is_stable`.
-  - Conformance: tests and documentation markers only.
-  - Recovery: the parser refactor is its own commit and can be reverted
-    independently of the register additions.
+  - Evidence: `threshold_register_matches_the_prose`,
+    `switch_tracks_roadmap_item_11_1_2`, the parser negative controls, and
+    `bincode_outbound_allocation_ops_are_class_independent` with its mutant.
+  - Conformance: test and documentation-marker changes only.
+  - Recovery: the parser refactor is its own commit and reverts independently.
   - Compatibility: none.
-- `EP-M4`: proposed thresholds coherent and documented.
-  - Requirements: `REQ-define`, `REQ-sound`.
-  - Evidence: documentation gates green; the register tests green against the
-    rewritten document.
-  - Conformance: ADR changes are addenda only; thresholds still "proposed".
-  - Recovery: revert documentation commits; the tests from `EP-M1` to `EP-M3`
-    remain valid against the previous wording except the threshold register,
-    which must be reverted with it.
+- `EP-M3`: the proposed thresholds are coherent and documented.
+  - Requirements: `REQ-define`, `REQ-sound`, `REQ-coverage`.
+  - Evidence: green gates, A–A probe results, and ADR 0018 (proposed).
+  - Conformance: ADR 010 changes only through the amendment form.
+  - Recovery: revert the documentation commits together with any
+    register-marker edit that depends on them.
   - Compatibility: none.
-- `EP-M5`: thresholds accepted.
+- `EP-M4`: the thresholds are accepted.
   - Requirements: `REQ-accept`.
-  - Evidence: the review record and the reviewer's pull-request comment.
+  - Evidence: ADR 0018 `Accepted` and the review record.
   - Conformance: roadmap ticks match the record.
-  - Recovery: if acceptance is withdrawn before merge, revert this
-    milestone's single commit.
+  - Recovery: revert pull request B.
   - Compatibility: none.
 
 ## Concrete steps
 
-Run every command from the worktree root. Use the shared Cargo cache. Do not
-bypass `RUSTC_WRAPPER`. Run gates sequentially, never in parallel.
+Run every command from the worktree root. Use the shared Cargo cache. Never
+bypass `RUSTC_WRAPPER`. Run gates sequentially.
 
 ```sh
 set -o pipefail
@@ -1051,7 +1265,7 @@ make lint      2>&1 | tee "/tmp/lint-wireframe-$BR.out"
 make test      2>&1 | tee "/tmp/test-wireframe-$BR.out"
 ```
 
-Documentation milestones add, before the trio:
+Documentation milestones first run:
 
 ```sh
 make fmt          2>&1 | tee "/tmp/fmt-wireframe-$BR.out"
@@ -1059,140 +1273,163 @@ make markdownlint 2>&1 | tee "/tmp/markdownlint-wireframe-$BR.out"
 make nixie        2>&1 | tee "/tmp/nixie-wireframe-$BR.out"
 ```
 
-Focused commands, for faster red/green loops (these use the same flags as
-`make test`):
+Focused loop for `EP-M1` and `EP-M2`:
 
 ```sh
-RUSTFLAGS="-D warnings" cargo test -p wireframe_testing --all-features \
-  --test copied_bytes shared_payload 2>&1 | tee /tmp/red-shared-wireframe-$BR.out
-RUSTFLAGS="-D warnings" cargo test -p wireframe_testing --all-features \
-  --test pipeline_allocation_invariants 2>&1 | tee /tmp/alloc-wireframe-$BR.out
-make test-bdd 2>&1 | tee /tmp/bdd-wireframe-$BR.out
+make test-wireframe-testing 2>&1 | tee "/tmp/test-wt-wireframe-$BR.out"
 ```
 
-Expected transcripts, filled in during implementation:
+A–A probe for `EP-M3`. It runs the same prebuilt bench executables three times,
+saving the first run and comparing the later two against it, all under one
+results root. Build once with the `bench-codec` flags; the bench executables
+print their paths with `--message-format=json`, or can be found under
+`target/release/deps/`:
+
+```sh
+export CRITERION_HOME="$PWD/target/criterion-aa-probe"
+RUSTFLAGS="-D warnings" cargo bench --no-run \
+  --bench codec_performance --bench pipeline_performance \
+  --features test-support,benchmark-counters 2>&1 | tee "/tmp/aa-build-wireframe-$BR.out"
+for round in a1 a2 a3; do
+  cat /proc/loadavg /proc/pressure/cpu | tee -a "/tmp/aa-load-wireframe-$BR.out"
+  if [ "$round" = a1 ]; then flag="--save-baseline a1"; else flag="--baseline a1"; fi
+  for exe in <codec_performance executable> <pipeline_performance executable>; do
+    "$exe" --bench $flag 2>&1 | tee -a "/tmp/aa-$round-wireframe-$BR.out"
+  done
+done
+```
+
+Then extract each workload's median change for rounds a2 and a3 from
+`$CRITERION_HOME/**/change/estimates.json`. Report, per workload, the maximum
+absolute median drift and the fraction of workloads at or above 5 %. Delete
+`target/criterion-aa-probe` afterwards. The probe takes about 40–60 minutes
+under contention.
+
+Expected transcripts (to be filled in):
 
 ```plaintext
-EP-M1 red:   error[E0432]: unresolved import `wireframe_testing::codec_benchmarks::shared_payload`
-EP-M1 green: test shared_payload::shared_payload_serializer_copies_the_payload::case_1 ... ok (4 cases)
-EP-M2 red:   assertion failed: serialized  expected 65536  actual 0
-EP-M2 green: test raw_response::raw_framed_send_records_the_serializer_copy ... ok
-EP-M3 red:   threshold register: missing `<!-- threshold-register:start -->` marker
-EP-M3 green: test threshold_register::threshold_register_names_real_tests ... ok
+EP-M1 red (σ = Shared): shared_payload_output_matches_the_switch::case_1 ... FAILED
+                        expected address equality; serialized: expected 0, actual 1
+EP-M1 green:            shared_payload_output_matches_the_switch ... ok (8 cases)
+EP-M2 red:              threshold register: missing `<!-- threshold-register:start -->` marker
+EP-M2 green:            threshold_register_matches_the_prose ... ok
+EP-M3 probe:            32 workloads; max |drift| = <x> %; <k> workloads ≥ 5 %
 ```
 
 Commit after each green plateau, with gates passing, using imperative subjects.
-Examples: "Add a shared-payload witness for the serializer materialization",
-"Count the raw length-delimited send seam", "Share one parser between the
-benchmark registers", and "Restate the zero-copy acceptance thresholds". No
-benchmark capture is required by this plan, because no harness changes.
+Examples:
+
+- "Add a test-private shared-payload witness"
+- "Share one parser between the benchmark registers"
+- "Couple the witness switch to roadmap item 11.1.2"
+- "Guard Bincode outbound allocation operations"
+- "Propose ADR 0018 for serializer materialization removal"
+- "Restate the zero-copy acceptance thresholds"
 
 ## Validation and acceptance
 
 Quality criteria:
 
-- Tests: `make test` passes. The new tests listed per milestone exist and
-  pass. Each was observed failing for the intended reason first; record those
-  transcripts in `Artefacts and notes`.
-- Verification: `INV-preforced`, `INV-guard`, `INV-raw`, `INV-trace`,
-  `L-control`, and `L-register-sound` are discharged by the named tests with
-  their non-vacuity controls. `INV-postshared` is discharged by registration
-  only; its execution belongs to `11.1.2`. The `13.2.1` lemmas remain
-  statements.
-- Lint and format: `make check-fmt` and `make lint` pass; `make markdownlint`
-  and `make nixie` pass for documentation milestones.
-- Performance: no benchmark is run. Thresholds are *recorded*, not *evaluated*;
-  evaluation is `13.2.1`'s job.
-- Review: `EP-M5`'s review record is filled in by a named reviewer.
+- Tests: `make test` passes. Every new test exists, and the recorded red
+  evidence and mutant failures are in `Artefacts and notes`.
+- Verification:
+  - Discharged by the named tests and their controls: `INV-switch` (for
+    `σ = Materialized`), `INV-roadmap-coupling`, `INV-guard`, `INV-trace`,
+    `INV-inversion`, `L-control`, and `L-parser`.
+  - `INV-switch` for `σ = Shared` is shown falsifiable today. It is discharged
+    by `11.1.2`, which cannot tick its roadmap item without it.
+  - The `13.2.1` lemmas remain statements.
+- Lint and format: `make check-fmt`, `make lint`, `make markdownlint`, and
+  `make nixie` pass.
+- Performance: the A–A probe has been run and its results recorded. No
+  candidate comparison is made; that is `13.2.1`'s job.
+- Review: ADR 0018 is accepted by a named reviewer, and the review record is
+  complete.
 
 Acceptance, phrased as behaviour:
 
-- A reviewer opens `docs/zero-copy-benchmark-baselines.md` and finds each
-  threshold with its enforcing tests or procedure. Deleting any named test makes
-  `make test` fail in `threshold_register_names_real_tests`.
-- Running the `copied_bytes` binary shows that a shared 64 KiB payload is
-  copied today (`serialized: 65536`, pointers differ), while the control keeps
-  the pointer.
-- After `11.1.2` changes the serializer contract, the witness's pre-migration
-  assertions fail, and the inversion register directs the implementer to the
-  post-migration values (`serialized: 0`, equal pointers).
-- `10.2.2` is ticked only after the review record names the reviewer.
+- A reviewer opens `docs/zero-copy-benchmark-baselines.md` and finds every
+  threshold with its tests or procedure. Deleting a named test, or adding a
+  `T8` paragraph without a register entry, makes `make test` fail.
+- On the current code, the witness reports a copied, relocated 64 KiB shared
+  payload, while the control keeps the address. Flipping the witness switch to
+  `Shared` makes `make test` fail.
+- Ticking `11.1.2` in `docs/roadmap.md` while the switch says `Materialized`
+  makes `make test` fail.
+- `10.2.2` is ticked only after ADR 0018 is accepted by a named reviewer.
 
 ## Idempotence and recovery
 
-All test and documentation steps are re-runnable. The seeded faults are
-temporary edits: make each in an uncommitted state, run the single focused
-command, record the failure, and restore with `git restore <file>`; confirm with
-`git status` that nothing remains. Proptest regression files
-(`*.proptest-regressions`) produced by a seeded fault must be deleted, not
-committed. If a gate fails because the disk or `/tmp` fills, stop and report. If
-`make lint` reports missing dylint externs after a full disk, remove
-`target/dylint` and re-run. If compile admission is unhealthy, report the full
-`build-limits-status` output and continue documentation work.
+All steps are re-runnable.
+
+- Seeded mutants and the `Shared` red run are temporary edits. Make each
+  uncommitted, run the focused command, record the result, restore with
+  `git restore <file>`, and confirm with `git status`.
+- Delete any `*.proptest-regressions` file that a mutant produced.
+- The A–A probe writes only under `target/criterion-aa-probe`. Delete that
+  directory afterwards.
+- If the disk or `/tmp` fills, stop and report.
+- If `make lint` reports missing dylint externs after a full disk, remove
+  `target/dylint` and re-run.
+- If compile admission is unhealthy, report the full `build-limits-status`
+  output and continue documentation work.
 
 ## Artefacts and notes
 
-Reconnaissance observations (2026-11-28, `fa8ef421`):
+Reconnaissance (2026-11-28, `fa8ef421`):
 
 ```plaintext
-src/app/outbound_encoding.rs:36  record_serialized(bytes.len())
-src/app/outbound_encoding.rs:41  codec.wrap_payload(bytes_from_vec(bytes))
-src/app/outbound_response.rs:118-132  serialize -> Bytes::from(bytes), no recorder
+src/app/outbound_encoding.rs:32-36  serialize, then record_serialized(bytes.len()) for any output
+src/app/outbound_encoding.rs:41     codec.wrap_payload(bytes_from_vec(bytes))
+src/app/outbound_response.rs:118-132  serialize -> Bytes::from(bytes); no recorder
+src/client/send_pipeline.rs:44      record_serialized(bytes.len())
 wireframe_testing/tests/copied_bytes.rs:147  serialize_and_wrap.total() + framed.total() == 2 * payload_len
-inversion_register.rs:147-152  register must have exactly 6 entries
+inversion_register.rs:138-152       fixed include_str! source list; exactly 6 entries
 ```
 
 Bincode 2.0.1 `encode_to_vec`, quoted from source:
 
 ```rust
-let size = { /* SizeWriter pass */ };
+let size = { /* SizeWriter pass over the value */ };
 let writer = VecWriter::with_capacity(size);
 ```
 
-Implementation transcripts, seeded-fault results, measured allocation counts,
-and proptest case counts are to be added here.
+The design-review panel's verdict and principal findings are summarized in the
+revision note below. Implementation transcripts, mutant results, measured
+operation counts, and A–A probe results are to be added here.
 
 ## Interfaces and dependencies
 
-New module `wireframe_testing::codec_benchmarks::shared_payload`, compiled only
-with the `pipeline-benchmarks` feature:
+No production interface changes.
+
+Test-private module `wireframe_testing/tests/witness/shared_payload.rs`,
+included with `#[path]` by `copied_bytes` and by
+`pipeline_allocation_invariants`:
 
 ```rust
-/// Serializer whose messages already hold their encoded bytes.
-pub struct SharedPayloadSerializer;
+pub(crate) enum SerializerOutput { Materialized, Shared }
+pub(crate) const SERIALIZER_OUTPUT: SerializerOutput = SerializerOutput::Materialized;
 
-/// Message holding its encoded form as a shared buffer.
-pub struct SharedPayloadMessage { payload: Bytes }
+pub(crate) struct SharedPayloadSerializer;
+pub(crate) struct SharedPayloadMessage { payload: Bytes }
 
-impl SharedPayloadMessage {
-    pub fn payload(&self) -> &Bytes { &self.payload }
-}
-
-/// Pointer and length of a frame's payload, for identity assertions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct SharedPayloadFrame { pub payload_ptr: *const u8, pub payload_len: usize }
-
-pub fn shared_payload_message(len: NonZeroUsize) -> SharedPayloadMessage;
-pub fn encode_shared_payload(
+pub(crate) fn shared_payload_message(len: NonZeroUsize) -> SharedPayloadMessage;
+pub(crate) fn encode_through_seam(
     codec: CodecUnderTest,
     message: &SharedPayloadMessage,
-) -> Result<SharedPayloadFrame, String>;
-pub fn wrap_shared_payload_directly(
-    codec: CodecUnderTest,
-    message: &SharedPayloadMessage,
-) -> SharedPayloadFrame;
+) -> Result<Bytes, String>;
+pub(crate) fn wrap_directly(codec: CodecUnderTest, payload: &Bytes) -> Bytes;
+pub(crate) fn payload_address(payload: &Bytes) -> usize;
 ```
 
-The raw pointer in `SharedPayloadFrame` is used only for equality and is never
-dereferenced. If Clippy or Whitaker objects to a raw-pointer field, store
-`usize` from `as_ptr() as usize` (an address only) and document that. The
-witness reuses `CodecUnderTest` and `payload_for_class` from
-`codec_benchmark_support` rather than defining new codec selectors.
+`CodecUnderTest` is reused from
+`wireframe_testing::codec_benchmarks::CodecUnderTest`. The witness builds its
+own codecs with raised frame limits rather than using the harness's defaults.
 
-Reuse policy: this module is the only sanctioned shared-payload witness.
-Harnesses and tests that need one import it. `11.1.2` edits only
-`SharedPayloadSerializer`'s body (to return the shared payload) and the
-registered assertions.
+Reuse policy: this is the only shared-payload witness. Tests that need one
+include it with `#[path]`. `11.1.2` changes `SharedPayloadMessage`'s
+`encode_with` body to a shared hand-off and sets `SERIALIZER_OUTPUT` to
+`Shared`. It changes nothing else in the witness.
 
 Dependencies: add to `wireframe_testing/Cargo.toml` `[dev-dependencies]`:
 
@@ -1206,4 +1443,25 @@ No production dependency changes.
 ## Revision note
 
 - 2026-11-28: initial draft from Wyvern reconnaissance and Firecrawl checks.
-  Awaiting the community-of-experts design review and user approval.
+- 2026-11-28: revised after the four-member design review (verdict: revise).
+  - Counting: added `D3`. The counter cannot show a removal, so moving it is
+    an `11.1.2` obligation written into the roadmap and ADR 0018.
+  - Witness: made test-private, because `wireframe_testing` is published.
+    Added the `SERIALIZER_OUTPUT` switch coupled to the `11.1.2` checkbox,
+    because a register that only checks names forces nothing.
+  - Inversion register: re-audited all six entries; four do not flip.
+  - Scope: dropped the production edit to `send_response_framed`, which
+    `D3`'s counter move supersedes, and the BDD scenarios, which would be
+    flaky on process-global counters.
+  - Decision record: moved `D1` into a proposed ADR 0018, per the style
+    guide's amendment rule.
+  - Timing protocol: rebuilt around interleaved median comparison, a
+    per-workload noise term, a `T2` tripwire, and frozen identifiers, with an
+    A–A probe as evidence.
+  - Corrections: fixed the `L-units` arithmetic; replaced the definitional
+    `13.2.1` lemmas with falsifiable ones; replaced the vacuous seeded fault
+    with three mandatory mutants and a `Shared` red run.
+  - Delivery: split into two pull requests, so acceptance does not leave the
+    plan blocked.
+  - Effect on remaining work: milestones are renumbered to four. The budgets
+    are code 800, configuration 12, documentation 650, and 24 files.
