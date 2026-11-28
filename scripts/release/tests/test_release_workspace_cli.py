@@ -16,6 +16,7 @@ from release_workspace_cli import (
     Registry,
     SurveyError,
     main,
+    observe_state,
     plan_publication,
     plan_rehearsal,
 )
@@ -295,4 +296,48 @@ def test_a_download_without_a_numeric_status_is_refused(
     assert release.verify() == EXIT_REFUSED, "an unreadable status must not verify"
     assert "recorded no HTTP status" in capsys.readouterr().err, (
         "name the unreadable status"
+    )
+
+
+@pytest.mark.parametrize(
+    ("outcome", "reason"),
+    [
+        pytest.param(FakeResponse(200, b"[]"), "unreadable registry answer", id="shape"),
+        pytest.param(
+            urllib.error.URLError("offline"), "registry probe failed", id="offline"
+        ),
+    ],
+)
+def test_observation_returns_its_reason_instead_of_printing_it(
+    release: Release,
+    outcome: FakeResponse | BaseException,
+    reason: str,
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """Only the command boundary writes to standard error."""
+    release.record(TAG)
+    crate = read_candidate(release.candidate).crates[0]
+    _ = capsys.readouterr()
+    registry = Registry(FakeOpener(outcome), lambda _delay: None, FakeClock())
+
+    observed = observe_state(crate, registry)
+
+    assert observed.state is RegistryState.INDETERMINATE, "fail closed"
+    assert reason in observed.reason, "return why the state is unknown"
+    assert "registry answer" not in capsys.readouterr().err, (
+        "observation must not report the reason itself"
+    )
+
+
+def test_the_survey_command_reports_an_unreadable_crate(
+    release: Release, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The survey command prints the reason observation returned."""
+    release.record(TAG)
+
+    result, _ = release.survey(absent(), FakeResponse(200, b"[]"))
+
+    assert result == EXIT_REFUSED, "an unreadable crate refuses the release"
+    assert f"{CRATES[1]}: unreadable registry answer" in capsys.readouterr().err, (
+        "the command boundary must report the observation's reason"
     )

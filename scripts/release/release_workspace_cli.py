@@ -59,11 +59,24 @@ def _live_registry() -> Registry:
     )
 
 
-def observe_state(crate: CrateArchive, registry: Registry) -> RegistryState:
+@dataclasses.dataclass(frozen=True, slots=True)
+class CrateState:
+    """Carry what crates.io holds for one crate, and why when it is unknown.
+
+    ``reason`` is empty unless the registry could not be read; the command
+    boundary reports it, so observation itself writes nothing.
+    """
+
+    state: RegistryState
+    reason: str = ""
+
+
+def observe_state(crate: CrateArchive, registry: Registry) -> CrateState:
     """Classify what crates.io holds for one crate.
 
     An unreachable registry and an unreadable answer are both indeterminate,
-    never absent, so neither can be mistaken for permission to publish.
+    never absent, so neither can be mistaken for permission to publish. The
+    returned reason says which it was.
     """
     with tempfile.TemporaryDirectory() as scratch:
         status_path = pathlib.Path(scratch) / "status"
@@ -74,7 +87,8 @@ def observe_state(crate: CrateArchive, registry: Registry) -> RegistryState:
             )
         )
         if result != crates_io_transport_cli.EXIT_OK:
-            return RegistryState.INDETERMINATE
+            reason = f"the registry probe failed with exit code {result}"
+            return CrateState(RegistryState.INDETERMINATE, reason)
         try:
             observation = release_registry_response.observe_registry_response(
                 int(status_path.read_text(encoding="ascii")),
@@ -84,10 +98,12 @@ def observe_state(crate: CrateArchive, registry: Registry) -> RegistryState:
             UnicodeError,
             release_registry_response.RegistryResponseError,
         ) as error:
-            print(f"{crate.name}: unreadable registry answer: {error}", file=sys.stderr)
-            return RegistryState.INDETERMINATE
-    return release_reconcile_crates.classify_registry_state(
-        observation, version=crate.version, intended_sha256=crate.sha256
+            reason = f"unreadable registry answer: {error}"
+            return CrateState(RegistryState.INDETERMINATE, reason)
+    return CrateState(
+        release_reconcile_crates.classify_registry_state(
+            observation, version=crate.version, intended_sha256=crate.sha256
+        )
     )
 
 
@@ -148,22 +164,15 @@ def plan_rehearsal(states: cabc.Mapping[str, RegistryState]) -> str:
         return SKIP
 
 
-def survey(candidate: Candidate, registry: Registry) -> tuple[str, dict[str, str]]:
-    """Observe every crate and decide what this run should do.
+def survey(candidate: Candidate, registry: Registry) -> dict[str, CrateState]:
+    """Observe what crates.io holds for every crate in the candidate.
 
     Returns
     -------
-    tuple[str, dict[str, str]]
-        The action, and each crate's state for the log.
-
-    Raises
-    ------
-    SurveyError
-        If the run is tagged and the registry does not permit the release.
+    dict[str, CrateState]
+        Each crate's state, and the reason for any that could not be read.
     """
-    states = {crate.name: observe_state(crate, registry) for crate in candidate.crates}
-    plan = plan_publication if candidate.tag else plan_rehearsal
-    return plan(states), {name: state.value for name, state in states.items()}
+    return {crate.name: observe_state(crate, registry) for crate in candidate.crates}
 
 
 def verify_published(candidate: Candidate, registry: Registry) -> None:
@@ -269,12 +278,32 @@ def _run(arguments: argparse.Namespace, registry: Registry) -> None:
             Expectation(arguments.commit, arguments.tag),
         )
     elif arguments.command == "survey":
-        action, states = survey(candidate, registry)
-        print(f"registry states: {states}; action: {action}")
-        with arguments.github_output.open("a", encoding="utf-8") as output:
-            output.write(f"action={action}\nversion={candidate.version}\n")
+        _run_survey(candidate, registry, arguments.github_output)
     else:
         verify_published(candidate, registry)
+
+
+def _run_survey(
+    candidate: Candidate, registry: Registry, github_output: pathlib.Path
+) -> None:
+    """Survey crates.io, report why any crate was unreadable, and plan the run.
+
+    Raises
+    ------
+    SurveyError
+        If the run is tagged and the registry does not permit the release.
+    """
+    observed = survey(candidate, registry)
+    for name, crate_state in observed.items():
+        if crate_state.reason:
+            print(f"{name}: {crate_state.reason}", file=sys.stderr)
+    states = {name: crate_state.state for name, crate_state in observed.items()}
+    plan = plan_publication if candidate.tag else plan_rehearsal
+    action = plan(states)
+    logged = {name: state.value for name, state in states.items()}
+    print(f"registry states: {logged}; action: {action}")
+    with github_output.open("a", encoding="utf-8") as output:
+        output.write(f"action={action}\nversion={candidate.version}\n")
 
 
 def main(argv: list[str] | None = None, *, registry: Registry | None = None) -> int:
