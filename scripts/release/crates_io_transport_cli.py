@@ -165,27 +165,38 @@ def download(request_data: DownloadRequest) -> int:
                 f"crates.io archive download remained unavailable: {result.last_error}",
                 file=sys.stderr,
             )
-        if result.response is None:
-            crates_io_transport_http.save_response(
-                request_data.status_path, request_data.archive_path, 0, b""
-            )
-        else:
-            crates_io_transport_http.save_response(
-                request_data.status_path, request_data.archive_path, *result.response
-            )
+        _record_archive(request_data, result.response)
     finally:
-        if request_data.report_path is not None:
-            elapsed_ms = max(
-                0,
-                (request_data.monotonic_clock_ns() - started_ns) // 1_000_000,
-            )
-            crates_io_transport_http.save_download_report(
-                request_data.report_path,
-                attempts=result.attempts,
-                status_class=result.status_class,
-                elapsed_ms=elapsed_ms,
-            )
+        _record_report(request_data, result, started_ns)
     return EXIT_OK
+
+
+def _record_archive(
+    request_data: DownloadRequest, response: tuple[int, bytes] | None
+) -> None:
+    """Persist the polled response, or the unavailable sentinel without one."""
+    status, body = (0, b"") if response is None else response
+    crates_io_transport_http.save_response(
+        request_data.status_path, request_data.archive_path, status, body
+    )
+
+
+def _record_report(
+    request_data: DownloadRequest,
+    result: crates_io_transport_http.DownloadPollResult,
+    started_ns: int,
+) -> None:
+    """Write polling diagnostics when the caller asked for a report file."""
+    if request_data.report_path is None:
+        return
+    # A clock that steps backwards must not produce a negative duration.
+    elapsed_ms = max(0, (request_data.monotonic_clock_ns() - started_ns) // 1_000_000)
+    crates_io_transport_http.save_download_report(
+        request_data.report_path,
+        attempts=result.attempts,
+        status_class=result.status_class,
+        elapsed_ms=elapsed_ms,
+    )
 
 
 def build_parser() -> argparse.ArgumentParser:
