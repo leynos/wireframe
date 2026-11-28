@@ -51,13 +51,13 @@ version. Read the SHA from the merged pull request, and confirm that it is on
 ```bash
 git fetch origin main
 release_sha=$(gh pr view <release-pr> --json mergeCommit --jq .mergeCommit.oid)
-git merge-base --is-ancestor "$release_sha" origin/main
-git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" "$release_sha"
-git push origin v0.4.0-alpha1
+git merge-base --is-ancestor "$release_sha" origin/main &&
+  git tag -a v0.4.0-alpha1 -m "Wireframe v0.4.0-alpha1" "$release_sha" &&
+  git push origin v0.4.0-alpha1
 ```
 
-`git merge-base --is-ancestor` exits non-zero when the commit is not on `main`;
-stop there rather than tagging it.
+`git merge-base --is-ancestor` exits non-zero when the commit is not on `main`,
+and the `&&` chain then stops before the tag exists, so nothing is pushed.
 
 The `Release` workflow then runs these jobs:
 
