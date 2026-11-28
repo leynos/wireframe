@@ -1,6 +1,9 @@
 """Specify how a release candidate is recorded, checked, and refused."""
 
+import gzip
 import hashlib
+import io
+import tarfile
 import typing as typ
 
 import pytest
@@ -11,11 +14,13 @@ from workspace_candidate import (
     CandidateError,
     CrateArchive,
     Expectation,
+    archive_commit,
     check_candidate,
     publish_order,
     read_candidate,
     record_candidate,
     require_expectation,
+    workspace_version,
     write_candidate,
 )
 from workspace_candidate_support import (
@@ -29,6 +34,7 @@ from workspace_candidate_support import (
 )
 
 if typ.TYPE_CHECKING:
+    import collections.abc as cabc
     import pathlib
 
 TAGGED = Expectation(COMMIT, f"v{VERSION}")
@@ -176,3 +182,82 @@ def test_a_workspace_without_an_order_is_refused(tmp_path: pathlib.Path) -> None
 def test_the_filename_is_the_one_cargo_writes() -> None:
     """The archive name joins the crate and its version."""
     assert CrateArchive("a_b", "1.0.0", "").filename == "a_b-1.0.0.crate"
+
+
+def _non_json_vcs_record(path: pathlib.Path) -> None:
+    """Write an archive whose VCS record is not JSON."""
+    stem = path.name.removesuffix(".crate")
+    member = tarfile.TarInfo(f"{stem}/.cargo_vcs_info.json")
+    contents = b"{not json"
+    member.size = len(contents)
+    with tarfile.open(path, "w:gz") as package:
+        package.addfile(member, io.BytesIO(contents))
+
+
+def _truncated_archive(path: pathlib.Path) -> None:
+    """Cut a valid archive short, as an interrupted copy would."""
+    whole = write_archive(path.parent, CRATES[0], {"sha1": COMMIT}).read_bytes()
+    path.write_bytes(whole[: len(whole) // 2])
+
+
+@pytest.mark.parametrize(
+    "damage",
+    [
+        pytest.param(lambda path: path.write_bytes(b"not an archive"), id="not-gzip"),
+        pytest.param(
+            lambda path: path.write_bytes(gzip.compress(b"not a tarball")),
+            id="not-tar",
+        ),
+        pytest.param(_truncated_archive, id="truncated"),
+        pytest.param(_non_json_vcs_record, id="vcs-record-not-json"),
+    ],
+)
+def test_a_corrupt_archive_is_refused(
+    tmp_path: pathlib.Path, damage: cabc.Callable[[pathlib.Path], object]
+) -> None:
+    """A damaged ``.crate`` is a refused candidate, not a traceback."""
+    archive = tmp_path / f"{CRATES[0]}-{VERSION}.crate"
+    damage(archive)
+
+    with pytest.raises(CandidateError, match="not a readable package archive"):
+        archive_commit(archive)
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        pytest.param("[publish\n", id="invalid-toml"),
+        pytest.param('publish = "wireframe"\n', id="publish-not-a-table"),
+        pytest.param('[publish]\norder = "wireframe"\n', id="order-not-a-list"),
+        pytest.param("[publish]\norder = [1, 2]\n", id="order-not-names"),
+    ],
+)
+def test_a_malformed_lading_manifest_is_refused(
+    tmp_path: pathlib.Path, contents: str
+) -> None:
+    """A manifest lading could not read is never read as a release order."""
+    write_workspace(tmp_path)
+    (tmp_path / "lading.toml").write_text(contents)
+
+    with pytest.raises(CandidateError, match=r"lading\.toml"):
+        publish_order(tmp_path)
+
+
+@pytest.mark.parametrize(
+    "contents",
+    [
+        pytest.param('[package]\nname = "wireframe"\n', id="no-version"),
+        pytest.param('package = "wireframe"\n', id="package-not-a-table"),
+        pytest.param("[workspace]\n", id="no-package"),
+        pytest.param("[package]\nversion = 1\n", id="version-not-text"),
+        pytest.param("[package\n", id="invalid-toml"),
+    ],
+)
+def test_a_manifest_without_a_package_version_is_refused(
+    tmp_path: pathlib.Path, contents: str
+) -> None:
+    """The release version is read from the root package, never guessed."""
+    (tmp_path / "Cargo.toml").write_text(contents)
+
+    with pytest.raises(CandidateError, match=r"Cargo\.toml"):
+        workspace_version(tmp_path)

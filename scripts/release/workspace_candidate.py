@@ -10,6 +10,7 @@ Behavioural coverage lives in
 """
 
 import dataclasses
+import gzip
 import json
 import pathlib
 import re
@@ -17,12 +18,24 @@ import shutil
 import tarfile
 import tomllib
 import typing as typ
+import zlib
 
 import release_digest
 import release_digest_files
 
 _COMMIT = re.compile(r"[0-9a-f]{40}")
 _VCS_INFO = ".cargo_vcs_info.json"
+
+#: What a damaged ``.crate`` can raise while it is opened, decompressed, or its
+#: VCS record decoded. Each becomes a :class:`CandidateError` naming the file.
+_UNREADABLE_ARCHIVE = (
+    tarfile.TarError,
+    gzip.BadGzipFile,
+    zlib.error,
+    EOFError,
+    json.JSONDecodeError,
+    UnicodeError,
+)
 
 
 class CandidateError(ValueError):
@@ -75,22 +88,71 @@ class Expectation:
 
 
 def _load_toml(path: pathlib.Path) -> dict[str, typ.Any]:
-    """Parse one TOML file."""
-    return tomllib.loads(path.read_text(encoding="utf-8"))
+    """Parse one TOML file.
+
+    Raises
+    ------
+    CandidateError
+        If the file is not UTF-8 or not valid TOML.
+    """
+    try:
+        return tomllib.loads(path.read_text(encoding="utf-8"))
+    except (tomllib.TOMLDecodeError, UnicodeError) as error:
+        message = f"{path.name} is not valid TOML: {error}"
+        raise CandidateError(message) from error
 
 
 def publish_order(workspace_root: pathlib.Path) -> tuple[str, ...]:
-    """Return the crates to publish, in the order ``lading.toml`` gives."""
-    order = _load_toml(workspace_root / "lading.toml").get("publish", {}).get("order")
-    if not order:
-        message = "lading.toml must declare publish.order"
+    """Return the crates to publish, in the order ``lading.toml`` gives.
+
+    Raises
+    ------
+    CandidateError
+        If ``lading.toml`` is not valid TOML, or does not declare
+        ``publish.order`` as a non-empty list of crate names.
+    """
+    publish = _load_toml(workspace_root / "lading.toml").get("publish", {})
+    order = publish.get("order") if isinstance(publish, dict) else None
+    if not _is_crate_list(order):
+        message = "lading.toml must declare publish.order as a list of crate names"
         raise CandidateError(message)
     return tuple(order)
 
 
+def _is_crate_list(order: object) -> typ.TypeIs[list[str]]:
+    """Return whether ``order`` is a non-empty list of names.
+
+    Examples
+    --------
+    >>> _is_crate_list(["wireframe"]), _is_crate_list([]), _is_crate_list("a")
+    (True, False, False)
+    """
+    return (
+        isinstance(order, list)
+        and bool(order)
+        and all(isinstance(name, str) for name in order)
+    )
+
+
 def workspace_version(workspace_root: pathlib.Path) -> str:
-    """Return the version the root package declares for the workspace release."""
-    return str(_load_toml(workspace_root / "Cargo.toml")["package"]["version"])
+    """Return the version the root package declares for the workspace release.
+
+    Raises
+    ------
+    CandidateError
+        If ``Cargo.toml`` is not valid TOML, or declares no string
+        ``package.version``.
+    """
+    manifest = _load_toml(workspace_root / "Cargo.toml")
+    try:
+        version = manifest["package"]["version"]
+    except (KeyError, TypeError) as error:
+        message = "Cargo.toml declares no package.version"
+        raise CandidateError(message) from error
+    if not isinstance(version, str):
+        message = "Cargo.toml declares package.version as something other than text"
+        raise CandidateError(message)
+    return version
 
 
 def archive_commit(archive: pathlib.Path) -> str:
@@ -109,8 +171,28 @@ def archive_commit(archive: pathlib.Path) -> str:
     Raises
     ------
     CandidateError
-        If the archive records no commit, or was packaged from a tree with
+        If the archive is not a readable gzipped tarball, records no commit,
+        carries a VCS record that is not JSON, or was packaged from a tree with
         uncommitted changes.
+    """
+    try:
+        git = _recorded_git(archive)
+    except _UNREADABLE_ARCHIVE as error:
+        message = f"{archive.name} is not a readable package archive: {error}"
+        raise CandidateError(message) from error
+    if git.get("dirty"):
+        message = f"{archive.name} was packaged from uncommitted changes"
+        raise CandidateError(message)
+    return str(git.get("sha1", ""))
+
+
+def _recorded_git(archive: pathlib.Path) -> dict[str, typ.Any]:
+    """Return the ``git`` table of an archive's VCS record.
+
+    Raises
+    ------
+    CandidateError
+        If the archive holds no VCS record, or the record has no ``git`` table.
     """
     member = f"{archive.name.removesuffix('.crate')}/{_VCS_INFO}"
     with tarfile.open(archive, "r:gz") as package:
@@ -121,11 +203,12 @@ def archive_commit(archive: pathlib.Path) -> str:
         if recorded is None:
             message = f"{archive.name} records no commit"
             raise CandidateError(message)
-        git = json.load(recorded).get("git", {})
-    if git.get("dirty"):
-        message = f"{archive.name} was packaged from uncommitted changes"
+        record = json.load(recorded)
+    git = record.get("git", {}) if isinstance(record, dict) else None
+    if not isinstance(git, dict):
+        message = f"{archive.name} records no commit"
         raise CandidateError(message)
-    return str(git.get("sha1", ""))
+    return git
 
 
 def require_expectation(expected: Expectation, version: str) -> None:
@@ -171,7 +254,8 @@ def record_candidate(
     Raises
     ------
     CandidateError
-        If an archive is missing, or was packaged from another commit.
+        If a manifest is malformed, or an archive is missing, unreadable, or
+        packaged from another commit.
     """
     version = workspace_version(workspace_root)
     require_expectation(expected, version)
