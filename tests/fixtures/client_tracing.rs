@@ -316,6 +316,38 @@ mod tests {
         drop(probe_runtime);
     }
 
+    /// Starting the echo server twice must leave only the second one running.
+    ///
+    /// Unlike the probe test, this drives the real server: the first listener
+    /// must be closed and its task gone by the time the second start returns.
+    #[test]
+    fn starting_twice_replaces_the_first_server() {
+        let mut world = client_tracing_world();
+        let runtime = world.handle().expect("runtime");
+        let baseline = runtime.metrics().num_alive_tasks();
+
+        runtime
+            .block_on(world.start_echo_server())
+            .expect("first start");
+        let first_addr = world.addr.expect("first server address");
+        runtime
+            .block_on(world.start_echo_server())
+            .expect("second start");
+
+        let first_still_listening = runtime
+            .block_on(tokio::net::TcpStream::connect(first_addr))
+            .is_ok();
+        assert!(
+            !first_still_listening,
+            "the first server must be reaped before the second starts"
+        );
+        assert_eq!(
+            runtime.metrics().num_alive_tasks(),
+            baseline + 1,
+            "only the second server may remain alive"
+        );
+    }
+
     /// Starting a second server must reap the first, not abandon it.
     #[test]
     fn start_echo_server_reaps_the_previous_server() {
