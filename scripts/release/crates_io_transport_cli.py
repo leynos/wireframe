@@ -22,6 +22,9 @@ import release_crates_io_adapter
 EXIT_OK = 0
 EXIT_TRANSPORT_ERROR = 1
 EXIT_USAGE = 64
+#: The registry answered, but the response could not be written locally.
+#: The value is ``EX_IOERR`` from ``sysexits.h``.
+EXIT_RECORD_ERROR = 74
 
 REQUEST_TIMEOUT_SECONDS = 30.0
 DOWNLOAD_ATTEMPTS = 12
@@ -77,6 +80,10 @@ def _probe_url(crate: str, version: str) -> str:
 def probe(request_data: ProbeRequest) -> int:
     """Record one probe and fail closed without an HTTP status.
 
+    A transport failure and a local write failure are reported separately, so
+    a full disk or a bad output path is never mistaken for an unreachable
+    registry.
+
     Parameters
     ----------
     request_data : ProbeRequest
@@ -85,7 +92,8 @@ def probe(request_data: ProbeRequest) -> int:
     Returns
     -------
     int
-        ``EXIT_OK`` or ``EXIT_TRANSPORT_ERROR``.
+        ``EXIT_OK``, ``EXIT_TRANSPORT_ERROR`` when the registry gave no HTTP
+        status, or ``EXIT_RECORD_ERROR`` when the response could not be saved.
     """
     request = crates_io_registry_http.build_request(
         _probe_url(request_data.crate, request_data.version),
@@ -95,12 +103,20 @@ def probe(request_data: ProbeRequest) -> int:
         status, body = crates_io_transport_http.request_bytes(
             request_data.opener, request, timeout=REQUEST_TIMEOUT_SECONDS
         )
-        crates_io_transport_http.save_response(
-            request_data.status_path, request_data.body_path, status, body
-        )
     except (OSError, http.client.HTTPException) as error:
         print(f"crates.io probe returned no HTTP status: {error}", file=sys.stderr)
         return EXIT_TRANSPORT_ERROR
+    try:
+        crates_io_transport_http.save_response(
+            request_data.status_path, request_data.body_path, status, body
+        )
+    except OSError as error:
+        print(
+            f"crates.io probe answered with HTTP {status}, "
+            f"but the response could not be recorded: {error}",
+            file=sys.stderr,
+        )
+        return EXIT_RECORD_ERROR
     return EXIT_OK
 
 
@@ -216,7 +232,8 @@ def main(
     Returns
     -------
     int
-        ``EXIT_OK``, ``EXIT_TRANSPORT_ERROR``, or ``EXIT_USAGE``.
+        ``EXIT_OK``, ``EXIT_TRANSPORT_ERROR``, ``EXIT_RECORD_ERROR``, or
+        ``EXIT_USAGE``.
     """
     try:
         arguments = build_parser().parse_args(argv)

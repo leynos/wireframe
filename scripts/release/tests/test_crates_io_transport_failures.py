@@ -11,11 +11,17 @@ from crates_io_registry_http import RegistryUrlError, _AllowlistedRequestHandler
 from crates_io_transport_cli import (
     DOWNLOAD_ATTEMPTS,
     EXIT_OK,
+    EXIT_RECORD_ERROR,
     EXIT_TRANSPORT_ERROR,
     TransportTiming,
     main,
 )
-from crates_io_transport_support import FakeOpener, download_args, probe_args
+from crates_io_transport_support import (
+    FakeOpener,
+    FakeResponse,
+    download_args,
+    probe_args,
+)
 
 if typ.TYPE_CHECKING:
     import pathlib
@@ -109,3 +115,26 @@ def test_download_retries_incomplete_http_responses_to_its_budget(
     assert diagnostics["attempts"] == DOWNLOAD_ATTEMPTS, "record bounded attempts"
     assert diagnostics["status_class"] == "unknown", "hide absent status details"
     assert diagnostics["elapsed_ms"] >= 0, "record non-negative elapsed time"
+
+
+@pytest.mark.parametrize("unwritable", ["status", "body"])
+def test_probe_reports_a_local_write_failure_apart_from_transport(
+    tmp_path: pathlib.Path,
+    capsys: pytest.CaptureFixture[str],
+    unwritable: str,
+) -> None:
+    """Report an unwritable output path as a recording failure, not as offline."""
+    missing_dir = tmp_path / "missing-directory"
+    paths = {"status": tmp_path / "status", "body": tmp_path / "body"}
+    paths[unwritable] = missing_dir / unwritable
+    opener = FakeOpener(FakeResponse(200, b'{"version":{}}'))
+
+    result = main(probe_args(paths["status"], paths["body"]), opener=opener)
+
+    stderr = capsys.readouterr().err
+    assert result == EXIT_RECORD_ERROR, "a local write failure has its own exit code"
+    assert "could not be recorded" in stderr, "name the local write failure"
+    assert "HTTP 200" in stderr, "report the status the registry did return"
+    assert "returned no HTTP status" not in stderr, (
+        "a write failure must not be reported as a transport failure"
+    )
