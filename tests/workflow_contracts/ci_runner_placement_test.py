@@ -98,7 +98,7 @@ proved by three further mutations, each applied alone and reverted:
   ``test_the_runner_expression_is_exactly_the_reviewed_one`` and, because
   nothing else then uses ``ubicloud-standard-2``,
   ``test_the_actionlint_registry_matches_the_labels_in_use``;
-- removing ``ubicloud-standard-2`` from ``.github/actionlint.yaml`` fails
+- removing the ``ubicloud-*`` entry from ``.github/actionlint.yaml`` fails
   ``test_the_actionlint_registry_matches_the_labels_in_use`` alone;
 - moving ``coverage-upload`` to ``ubicloud-standard-2`` fails
   ``test_the_job_carries_its_reviewed_label`` for that coordinate, so the
@@ -111,6 +111,7 @@ Run via ``make test-workflow-contracts``.
 from __future__ import annotations
 
 import pytest
+from registry_comparison import registry_mismatches
 from runner_placement_policy import (
     CI_UBICLOUD_LABEL,
     DELEGATED_JOBS,
@@ -334,19 +335,21 @@ def test_a_reusable_caller_declares_no_runner(coordinate: tuple[str, str]) -> No
 def test_the_actionlint_registry_matches_the_labels_in_use() -> None:
     """Scenario: the registry and the workflows drift apart.
 
-    Invariant: the registered labels are exactly the non-GitHub-hosted
-    labels in use, compared in both directions. An unregistered label makes
-    actionlint report a lane nobody broke; a registered label no lane uses
-    is worse, because it silently permits a runner family nobody reviewed
-    for whatever lane adopts it next. This is what retires
+    Invariant: every non-GitHub-hosted label in use is covered by an entry,
+    and every entry (an exact label or a trailing ``*``, as the estate's
+    ``ubicloud-*``) covers a label in use, compared in both directions. An
+    unregistered label makes actionlint report a lane nobody broke; an entry
+    no lane uses is worse, because it silently permits a runner family
+    nobody reviewed for whatever lane adopts it next. This is what retires
     ``namespace-profile-default`` rather than leaving it behind.
     """
     needing_registration = labels_in_use() - set(GITHUB_HOSTED_LABELS)
-    registered = registered_labels()
-    assert registered == needing_registration, (
-        "the actionlint runner registry must hold exactly the labels in use; "
-        f"unregistered {sorted(needing_registration - registered)} and stale "
-        f"{sorted(registered - needing_registration)}"
+    unregistered, stale = registry_mismatches(
+        registered_labels(), needing_registration
+    )
+    assert not unregistered and not stale, (
+        "the actionlint runner registry must cover the labels in use and no "
+        f"others; unregistered {unregistered} and stale {stale}"
     )
 
 
