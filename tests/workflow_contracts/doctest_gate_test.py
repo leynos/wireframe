@@ -24,12 +24,14 @@ import stat
 import subprocess
 from pathlib import Path
 
+import pytest
 import yaml
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_PATH = REPOSITORY_ROOT / ".github" / "workflows" / "ci.yml"
 DOCTEST_RUN = "make test-doc"
 COMPANION_TEST_RUN = "make test-wireframe-testing"
+DOCUMENTATION_CONTRACTS_RUN = "make test-documentation-contracts"
 FAILING_EXIT_STATUS = 101
 SCRATCH_MANIFEST = """\
 [package]
@@ -132,22 +134,34 @@ def _run_workflow_step_with_failing_doctest(tmp_path: Path) -> tuple[int, str]:
     return completed.returncode, completed.stdout + completed.stderr
 
 
-def test_build_test_runs_doctests_unconditionally() -> None:
-    """Exactly one step runs doctests, and nothing lets it be skipped or ignored."""
-    steps = _steps_running(DOCTEST_RUN)
-    assert len(steps) == 1, f"build-test must run `{DOCTEST_RUN}` exactly once"
+@pytest.mark.parametrize(
+    "command", [DOCTEST_RUN, COMPANION_TEST_RUN, DOCUMENTATION_CONTRACTS_RUN]
+)
+def test_build_test_runs_each_gate_unconditionally(command: str) -> None:
+    """Exactly one step runs each gate, and nothing lets it be skipped or ignored.
+
+    The gates are the doctests, the companion crate's explicit
+    ``--all-targets --all-features`` run (#578), and the feature-gated
+    documentation contracts.
+    """
+    steps = _steps_running(command)
+    assert len(steps) == 1, f"build-test must run `{command}` exactly once"
     step = steps[0]
-    assert "if" not in step, "the doctest step must run for every event"
-    assert not step.get("continue-on-error"), "a doctest failure must fail the job"
+    assert "if" not in step, f"`{command}` must run for every event"
+    assert not step.get("continue-on-error"), f"a `{command}` failure must fail the job"
 
 
-def test_build_test_runs_the_companion_crate_tests() -> None:
-    """The explicit companion-crate gate runs in the same job (#578)."""
-    steps = _steps_running(COMPANION_TEST_RUN)
-    assert len(steps) == 1, f"build-test must run `{COMPANION_TEST_RUN}` exactly once"
-    step = steps[0]
-    assert "if" not in step, "the companion test step must run for every event"
-    assert not step.get("continue-on-error"), "a companion failure must fail the job"
+def test_documentation_contracts_build_the_examples_they_run() -> None:
+    """The end-to-end contract is feature-gated, so its target must enable it."""
+    dry_run = subprocess.run(
+        ["make", "--no-print-directory", "-n", "test-documentation-contracts"],
+        cwd=REPOSITORY_ROOT,
+        capture_output=True,
+        text=True,
+        check=True,
+    ).stdout
+    assert "build --examples --all-features" in dry_run
+    assert "--test documentation_examples_tests --all-features" in dry_run
 
 
 def test_a_failing_doctest_run_fails_the_make_target(tmp_path: Path) -> None:

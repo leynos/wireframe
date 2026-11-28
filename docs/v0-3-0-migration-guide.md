@@ -180,8 +180,8 @@ Three features are new. One is removed.
 - New feature: `serializer-serde` – Serde bridge for `SerdeMessage` and
   `IntoSerdeMessage`.
 - Removed feature: `test-helpers`. Use `test-support` instead (announced in
-  the [v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md);
-  the deprecated alias is now gone).
+  the [v0.1.0 → v0.2.0 migration guide](v0-2-0-migration-guide.md); the
+  deprecated alias is now gone).
 
 <!-- tested-example: v0-2-0-to-v0-3-0-migration-guide-002 -->
 ```toml
@@ -269,8 +269,8 @@ The most common moves:
 | `wireframe::RequestParts`, `wireframe::RequestBodyStream`                                  | `wireframe::request::{RequestParts, RequestBodyStream}`                   |
 
 The full list of moved types is in the
-[v0.1.0 → v0.2.0 migration guide](v0-1-0-to-v0-2-0-migration-guide.md). That
-list now takes effect.
+[v0.1.0 → v0.2.0 migration guide](v0-2-0-migration-guide.md). That list now
+takes effect.
 
 `wireframe::prelude::*` provides an optional convenience import for
 high-frequency types. It is intentionally small; prefer direct module imports

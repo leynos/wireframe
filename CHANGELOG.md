@@ -61,7 +61,7 @@ All notable changes to this project will be documented in this file.
   implements `MessageAssembler` and install a separate value. The installed
   protocol keeps its `Arc`, because a connection holds exactly one strong
   reference to it. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#application-owned-values-beneath-preparedapp).
   ([#648](https://github.com/leynos/wireframe/issues/648), [#598](https://github.com/leynos/wireframe/issues/598))
 
 - Complete `WireframeProtocol` hook dispatch on prepared server connections.
@@ -83,7 +83,7 @@ All notable changes to this project will be documented in this file.
   `ConnectionInfo`, or `StreamingBody`. Capture an `Arc` in the handler closure
   for shared state and decode envelopes directly; see
   [ADR 017](docs/adrs/adr-0017-remove-route-extractors-and-app-data.md) and the
-  [migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#removed-extractors-and-app_data).
+  [migration guide](docs/v0-4-0-migration-guide.md#removed-extractors-and-app_data).
   ([#877](https://github.com/leynos/wireframe/issues/877))
 
 - Give server connections a push path. `WireframeApp::with_push_queues` stores a
@@ -166,7 +166,7 @@ All notable changes to this project will be documented in this file.
   every packet-oriented outbound path — handler responses, push queues,
   streamed responses, multi-packet channels, and stream-end terminators — runs
   `before_send` exactly once per emitted packet. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hook-ownership-and-dispatch).
   ([#644](https://github.com/leynos/wireframe/issues/644))
 
 - Make `wireframe_testing` compile against `tokio-util` 0.7.20, whose extra
@@ -179,6 +179,17 @@ All notable changes to this project will be documented in this file.
   `main` and every week, with both the committed lock file and freshly resolved
   dependencies, as concordat RT-026 requires, and declare the same minimum on
   `wireframe_testing`.
+
+- Set the workspace version to `0.4.0-alpha1`, and rename the older migration
+  guides to `docs/v0-2-0-migration-guide.md` and
+  `docs/v0-3-0-migration-guide.md`, matching the v0.4.0 guide.
+
+- Audit the README, users' guide, and migration guide against the code for
+  v0.4.0-alpha1, and rewrite them. Rename the migration guide to
+  `docs/v0-4-0-migration-guide.md`, matching other df12 projects. Every Rust
+  example in the three now compiles or runs, and a suite validates their other
+  fences and relative links. The guide previously described a `PayloadBytes`
+  serializer API that does not exist.
 
 - Correct rustdoc that overstated runtime integration: streaming request
   bodies, extractors and `app_data` are not delivered to route handlers, and
@@ -200,7 +211,7 @@ All notable changes to this project will be documented in this file.
   seams rather than three, including the inbound copy that roadmap item
   `11.1.1` removes. A `benchmark-counters` build that constructs `CopiedBytes`
   exhaustively must name the new field; see the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#copied-byte-counters).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#copied-byte-counters).
   The same change adds a buffer-identity and allocation-invariant gate to
   `wireframe_testing`, and a feature-gate probe proving the recorders stay
   inert without the feature.
@@ -210,16 +221,16 @@ All notable changes to this project will be documented in this file.
   hook sees the serialized, codec-wrapped frame before codec encoding and must
   keep it within `FrameCodec::max_frame_length`; the direct `send_response*`
   helpers still bypass it. See the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md#protocol-hooks-on-application-responses).
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md#protocol-hooks-see-handler-responses).
   ([#547](https://github.com/leynos/wireframe/issues/547))
 
 - **Breaking:** Add aggregate limits to `FragmentationConfig` and extend
   `Reassembler::new` with optional partial-count and buffered-byte caps. Update
   downstream struct literals and constructor calls as described in the
-  [v0.3-to-v0.4 migration guide](docs/v0-3-0-to-v0-4-0-migration-guide.md).
-  Default fragmentation now closes connections exceeding either aggregate cap.
-  Retained fragment bytes also count towards connection memory-budget pacing
-  and hard-cap aborts, even when message assembly is disabled. (#543)
+  [v0.3-to-v0.4 migration guide](docs/v0-4-0-migration-guide.md). Default
+  fragmentation now closes connections exceeding either aggregate cap. Retained
+  fragment bytes also count towards connection memory-budget pacing and
+  hard-cap aborts, even when message assembly is disabled. (#543)
 
 - Breaking: `WireframeServer` now bounds the connection preamble read with
   `DEFAULT_PREAMBLE_TIMEOUT` (10 seconds) by default, so an unauthenticated
@@ -228,15 +239,13 @@ All notable changes to this project will be documented in this file.
   `disable_preamble_timeout()` to restore unbounded waiting when a peer
   legitimately needs it. `Duration::ZERO` still clamps to 1 ms. Addresses
   [#546](https://github.com/leynos/wireframe/issues/546) (finding
-  `csf_b9252731043bde37f2f34d2f`). See
-  `docs/v0-3-0-to-v0-4-0-migration-guide.md`.
+  `csf_b9252731043bde37f2f34d2f`). See `docs/v0-4-0-migration-guide.md`.
 
 - Breaking: `WireframeServer::new` now evaluates its `AppFactory` once per
   server run, prepares the result once, and shares that immutable application
   root across connections. Move per-connection state to `on_connection_setup`,
   or use `WireframeServer::from_app(app)` when the application is already
-  built. See `docs/v0-3-0-to-v0-4-0-migration-guide.md` for migration examples.
-  (#642)
+  built. See `docs/v0-4-0-migration-guide.md` for migration examples. (#642)
 
 - Breaking: `MessageAssemblyState` now enforces
   `FirstFrameHeader::total_body_len` as an authoritative declaration. A first
@@ -283,8 +292,8 @@ All notable changes to this project will be documented in this file.
   to align the public API spelling with American English.
 - Breaking: Renamed the cargo feature flag `test-helpers` to
   `test-support`. Enable `test-support` to access exported test helper APIs. See
-  `docs/v0-1-0-to-v0-2-0-migration-guide.md` for the required `Cargo.toml`
-  dependency update.
+  `docs/v0-2-0-migration-guide.md` for the required `Cargo.toml` dependency
+  update.
 - Exposed `MAX_PUSH_RATE` for configuring push queue rate limits.
 - Refactored the application module into the `src/app/` directory
   (13 focused files) to keep module sizes under 400 lines; public API exports

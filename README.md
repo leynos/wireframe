@@ -1,417 +1,280 @@
-# Wireframe
+# 📡 Wireframe
 
-[![Ask DeepWiki](https://deepwiki.com/badge.svg)](
-https://deepwiki.com/leynos/wireframe)
+[![Ask DeepWiki][dw]][deepwiki] [![Crates.io Version][crates]][package]
 
-**Wireframe** is an experimental Rust library that simplifies building servers
-and clients for custom binary protocols. The design borrows heavily from
-[Actix Web](https://actix.rs/) to provide a familiar, declarative API for
-routing and middleware.
+[dw]: https://deepwiki.com/badge.svg
+[deepwiki]: https://deepwiki.com/leynos/wireframe
+[crates]: https://img.shields.io/crates/v/wireframe "crates.io package"
+[package]: https://crates.io/crates/wireframe
 
-## Motivation
+*Route binary protocols in Rust, without writing the plumbing twice.*
 
-Manual handling of binary protocols typically involves verbose serialization
-code, custom frame parsing, and complex dispatch logic. `wireframe` aims to
-reduce this boilerplate through layered abstractions:
+Wireframe is a Tokio library for building servers and clients that speak custom
+binary protocols. You describe your messages, routes, and framing; it handles
+connections, length limits, reassembly, correlation, and shutdown.
 
-- **Transport adapter** built on Tokio I/O
-- **Framing layer** for length‑prefixed or custom frames
-- **Connection preamble** with customizable validation callbacks [^1]
-- Call `with_preamble::<T>()` before registering success or failure callbacks
-- **Serialization engine** using `bincode` or a `wire-rs` wrapper
-- **Routing engine** that dispatches messages by ID
-- **Handler invocation** with access to the routed envelope
-- **Middleware chain** for request/response processing
-- **[Connection lifecycle hooks](#connection-lifecycle)** for per-connection
-  setup and teardown
+Website: <https://df12.studio/wireframe>
 
-These layers correspond to the architecture outlined in the design document[^2].
+______________________________________________________________________
 
-## API overview
+## Why Wireframe?
 
-Applications are configured using a builder pattern similar to Actix Web. A
-`WireframeApp` defines routes and middleware, while `WireframeServer` manages
-connections and runs the Tokio event loop:
+Handwritten protocol servers tend to grow the same tangle of frame parsing,
+dispatch tables, and half-finished limits. Wireframe gives each concern one
+home:
 
+- **Routing by message ID**: Map an identifier to a handler, and let middleware
+  shape requests and replies around it.
+- **Your wire format, not ours**: Use the default length-delimited framing, or
+  describe an existing protocol once with a `FrameCodec`.
+- **One definition for both ends**: The client shares the server's codec,
+  serializer, and envelope, so the two cannot quietly disagree.
+- **Limits by default**: Frame sizes, decode budgets, preamble deadlines, and
+  per-connection memory budgets are on before you configure anything.
+- **Tests at the frame**: Feed your application partial frames, one byte at a
+  time, without opening a socket.
+
+______________________________________________________________________
+
+## Quick start
+
+You will need [Rust](https://rustup.rs/) 1.95 or newer. The program below
+starts a server on a free local port, sends it a message from a client, and
+prints the reply. It takes about two minutes, most of which is the first
+compile.
+
+### Installation
+
+Create a project and add the dependencies:
+
+<!-- tested-example: readme-new-project -->
+```bash
+cargo new hello-wireframe
+cd hello-wireframe
+```
+
+Then add these lines to `Cargo.toml`. Pin the exact version during the alpha,
+because one alpha may change what the last one offered.
+
+<!-- tested-example: readme-dependencies -->
+```toml
+[dependencies]
+wireframe = "=0.4.0-alpha1"
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+bincode = "2"
+async-trait = "0.1"
+```
+
+### Your first server and client
+
+Replace `src/main.rs` with this program:
+
+<!-- tested-example: readme-first-server -->
 ```rust
-use std::sync::{
-    Arc,
-    atomic::{AtomicU64, Ordering},
-};
+use std::{convert::Infallible, error::Error, sync::Arc};
 
+use async_trait::async_trait;
 use wireframe::{
     app::{Envelope, Handler, WireframeApp},
+    client::WireframeClient,
     message::Message,
-    serializer::BincodeSerializer,
+    middleware::{HandlerService, Service, ServiceRequest, ServiceResponse, Transform},
     server::WireframeServer,
 };
 
-const LOGIN: u32 = 1;
+// A message ID selects the route; it travels beside the payload, not inside it.
+const GREET: u32 = 1;
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct LoginRequest {
-    username: String,
+struct Greeting {
+    name: String,
 }
-
-let attempts = Arc::new(AtomicU64::new(0));
-let handler: Handler<Envelope> = {
-    let attempts = Arc::clone(&attempts);
-    Arc::new(move |envelope: &Envelope| {
-        let payload = envelope.payload_bytes().to_vec();
-        let attempts = Arc::clone(&attempts);
-        Box::pin(async move {
-            if let Ok((login, _)) = LoginRequest::from_bytes(&payload) {
-                attempts.fetch_add(1, Ordering::Relaxed);
-                tracing::info!(user = %login.username, "login attempt");
-            }
-        })
-    })
-};
-
-WireframeServer::new(move || {
-    WireframeApp::new()?
-        .serializer(BincodeSerializer)
-        .route(LOGIN, Arc::clone(&handler))
-})
-.bind("127.0.0.1:7878")?
-.run()
-.await
-```
-
-By default, the number of worker tasks equals the number of CPU cores. If the
-CPU count cannot be determined, the server falls back to a single worker.
-
-`Handler<E>` is a shared closure that receives the routed envelope and returns
-a boxed future. There is no type-based parameter resolution step: a route
-handler receives only `&E`, and the base route service echoes the envelope's
-payload after the handler completes. Middleware can modify or replace that
-response before it is written. Shared state reaches a handler by capturing an
-`Arc` in the closure, as the example does, so ownership and lifetime stay
-explicit[^3].
-
-## Example
-
-A minimal echo server routes one message ID and lets the application return the
-envelope unchanged:
-
-```rust
-use std::sync::Arc;
-
-use wireframe::{
-    app::{Envelope, Handler, WireframeApp},
-    serializer::BincodeSerializer,
-    server::WireframeServer,
-};
-
-let handler: Handler<Envelope> = Arc::new(|_: &Envelope| {
-    Box::pin(async {
-        tracing::info!("echo request received");
-        // The base route service echoes the envelope after the handler completes.
-    })
-});
-
-WireframeServer::new(move || {
-    WireframeApp::new()?
-        .serializer(BincodeSerializer)
-        .route(1, Arc::clone(&handler))
-})
-.bind("127.0.0.1:8000")?
-.run()
-.await
-```
-
-This mirrors [`examples/echo.rs`](examples/echo.rs), which shows the complete
-runnable server and its shutdown handling.
-
-## Custom envelopes
-
-`WireframeApp` defaults to a simple `Envelope` containing a message ID and raw
-payload bytes. Applications can supply their own envelope type by calling
-`WireframeApp::<_, _, MyEnv>::new()`. The custom type must implement the
-`Packet` trait:
-
-```rust
-use wireframe::{
-    app::{Packet, PacketParts, WireframeApp},
-    correlation::CorrelatableFrame,
-};
 
 #[derive(bincode::Encode, bincode::BorrowDecode)]
-struct MyEnv { id: u32, correlation_id: Option<u64>, payload: Vec<u8> }
-
-impl CorrelatableFrame for MyEnv {
-    fn correlation_id(&self) -> Option<u64> { self.correlation_id }
-    fn set_correlation_id(&mut self, id: Option<u64>) { self.correlation_id = id; }
+struct Reply {
+    text: String,
 }
 
-impl Packet for MyEnv {
-    fn id(&self) -> u32 { self.id }
-    fn into_parts(self) -> PacketParts {
-        PacketParts::new(self.id, self.correlation_id, self.payload)
-    }
-    fn from_parts(parts: PacketParts) -> Self {
-        let id = parts.id();
-        let correlation_id = parts.correlation_id();
-        let payload = parts.payload();
-        Self { id, correlation_id, payload }
+// Handlers observe a request; middleware like this writes the reply.
+struct Greeter;
+
+struct GreeterService<S> {
+    inner: S,
+}
+
+#[async_trait]
+impl<S> Service for GreeterService<S>
+where
+    S: Service<Error = Infallible> + Send + Sync + 'static,
+{
+    type Error = Infallible;
+
+    async fn call(&self, request: ServiceRequest) -> Result<ServiceResponse, Infallible> {
+        let greeting = Greeting::from_bytes(request.frame()).map(|(greeting, _)| greeting);
+        let mut response = self.inner.call(request).await?;
+        if let Ok(greeting) = greeting {
+            let reply = Reply {
+                text: format!("Hello, {}!", greeting.name),
+            };
+            *response.frame_mut() = reply.to_bytes().expect("a short reply encodes");
+        }
+        Ok(response)
     }
 }
 
-let app = WireframeApp::<_, _, MyEnv>::new()
-    .unwrap()
-    .route(1, std::sync::Arc::new(|env: &MyEnv| Box::pin(async move { /* ... */ })))
-    .unwrap();
-```
+#[async_trait]
+impl Transform<HandlerService<Envelope>> for Greeter {
+    type Output = HandlerService<Envelope>;
 
-A `None` correlation ID denotes an unsolicited event or server-initiated push.
-Use `None` rather than `Some(0)` when a frame lacks a correlation ID. See
-[PacketParts](docs/api.md#packetparts) for field details.
-
-This allows integration with existing packet formats without modifying
-`handle_frame`.
-
-## Response serialization and framing
-
-A route handler returns `()`, and the base route service echoes the routed
-envelope's payload as the reply on a `WireframeServer` connection. Middleware
-can modify or replace that response before it is written.
-
-The direct helpers `send_response` and `send_response_framed` are methods on
-`WireframeApp` for code that drives the connection stream itself, such as a
-test harness or a custom accept loop. Each takes a writer that the caller owns
-and that implements `AsyncWrite + Unpin`. A `WireframeServer` connection moves
-its stream into the frame loop, so route handlers cannot reach that writer, and
-a `Handler<E>` receives only `&E`. A handler on a server-managed connection
-therefore cannot send a correlated custom reply today; server-initiated frames
-travel through the push queues described below. Each helper encodes the value
-with the application's configured serializer and reports serialization or I/O
-failures as `SendError`[^4].
-
-```rust
-use tokio::net::TcpStream;
-use wireframe::app::{SendError, WireframeApp};
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct Ready(u8);
-
-// `server` is a stream the caller drives, not one handed to WireframeServer.
-async fn announce(app: &WireframeApp, server: &mut TcpStream) -> Result<(), SendError> {
-    app.send_response(server, &Ready(1)).await
-}
-```
-
-Frames are length prefixed using `tokio_util::codec::LengthDelimitedCodec`. The
-prefix length and byte order are configurable and default to a 4‑byte
-big‑endian header[^5].
-
-## Push Queues
-
-Push queues buffer frames before they are written to a connection. Configure
-them with capacities, rate limits, and an optional dead-letter queue:
-
-```rust,no_run
-use tokio::sync::mpsc;
-use wireframe::push::PushQueues;
-
-# async fn demo() {
-let (dlq_tx, _dlq_rx) = mpsc::channel(8);
-let (_queues, _handle) = PushQueues::<u8>::builder()
-    .high_capacity(8)
-    .low_capacity(8)
-    .rate(Some(100))
-    .dlq(Some(dlq_tx)) // frames drop if the DLQ is absent or full
-    .build()
-    .expect("failed to build PushQueues");
-# drop((_queues, _handle));
-# }
-```
-
-Disable throttling with the `unlimited` convenience:
-
-```rust,no_run
-use wireframe::push::PushQueues;
-let (_queues, _handle) = PushQueues::<u8>::builder()
-    .high_capacity(8)
-    .low_capacity(8)
-    .unlimited()
-    .build()
-    .expect("failed to build PushQueues");
-```
-
-## Connection Lifecycle
-
-Protocol callbacks are consolidated under the `WireframeProtocol` trait,
-replacing the individual `on_connection_setup`/`on_connection_teardown`
-closures. The trait methods are synchronous so the trait remains object safe,
-but callbacks can spawn asynchronous tasks when needed. A protocol
-implementation registers hooks for connection setup, frame mutation and command
-completion. The associated `ProtocolError` type is used by other parts of the
-API, such as request handling.
-
-```rust
-pub trait WireframeProtocol: Send + Sync + 'static {
-    type Frame: FrameLike;
-    type ProtocolError;
-
-    fn on_connection_setup(
-        &self,
-        handle: PushHandle<Self::Frame>,
-        ctx: &mut ConnectionContext,
-    );
-
-    fn before_send(&self, frame: &mut Self::Frame, ctx: &mut ConnectionContext);
-
-    fn on_command_end(&self, ctx: &mut ConnectionContext);
-}
-
-struct MySqlProtocolImpl;
-
-impl WireframeProtocol for MySqlProtocolImpl {
-    type Frame = Vec<u8>;
-    type ProtocolError = ();
-
-    fn on_connection_setup(
-        &self,
-        handle: PushHandle<Self::Frame>,
-        _ctx: &mut ConnectionContext,
-    ) {
-        // Spawn an async task to send a heartbeat after setup
-        tokio::spawn(async move {
-            let _ = handle.push_high_priority(b"ping".to_vec()).await;
-        });
+    async fn transform(&self, service: HandlerService<Envelope>) -> Self::Output {
+        let id = service.id();
+        HandlerService::from_service(id, GreeterService { inner: service })
     }
-
-    fn before_send(&self, _frame: &mut Self::Frame, _ctx: &mut ConnectionContext) {}
-
-    fn on_command_end(&self, _ctx: &mut ConnectionContext) {}
 }
 
-```
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn Error>> {
+    let handler: Handler<Envelope> = Arc::new(|_envelope: &Envelope| Box::pin(async {}));
+    let app: WireframeApp = WireframeApp::new()?.route(GREET, handler)?.wrap(Greeter)?;
 
-```rust
-let app = WireframeApp::new().with_protocol(MySqlProtocolImpl);
-```
+    // Port 0 asks the operating system for any free port.
+    let server = WireframeServer::from_app(app).bind("127.0.0.1:0".parse()?)?;
+    let address = server.local_addr().expect("a bound server has an address");
+    let shutdown = server.spawn().await?;
 
-## Session registry
+    let mut client = WireframeClient::builder().connect(address).await?;
+    let greeting = Greeting {
+        name: "Wireframe".into(),
+    };
+    let request = Envelope::new(GREET, None, greeting.to_bytes()?);
+    let response: Envelope = client.call_correlated(request).await?;
+    let (reply, _) = Reply::from_bytes(response.payload_bytes())?;
+    println!("{}", reply.text);
 
-The \[`SessionRegistry`\] stores weak references to \[`PushHandle`\]s for
-active connections. Background tasks can look up a handle by \[`ConnectionId`\]
-to send frames asynchronously without keeping the connection alive. Entries are
-pruned on lookup and when calling `active_handles()`. `DashMap::retain` holds
-per-bucket write locks while collecting, so heavy traffic may experience
-contention. Invoke `prune()` from a maintenance task when only removal of dead
-entries is required, without collecting handles.
-
-```rust
-use wireframe::{
-    session::{ConnectionId, SessionRegistry},
-    push::PushHandle,
-    ConnectionContext,
-};
-
-let registry: SessionRegistry<MyFrame> = SessionRegistry::default();
-
-// inside a `WireframeProtocol` implementation
-fn on_connection_setup(&self, handle: PushHandle<MyFrame>, _ctx: &mut ConnectionContext) {
-    let id = ConnectionId::new(42);
-    registry.insert(id, &handle);
+    client.close().await;
+    shutdown.stop();
+    shutdown.drained().await?;
+    Ok(())
 }
 ```
 
-## Decoding requests
+Run it:
 
-Handlers own request decoding. Use `message::Message::from_bytes` for a bincode
-payload, or call the matching serializer when a protocol uses another format.
-Validation that would otherwise repeat across handlers belongs in a plain
-helper function:
-
-```rust
-use wireframe::{app::Envelope, message::Message};
-
-#[derive(bincode::Encode, bincode::BorrowDecode)]
-struct SessionToken(String);
-
-fn parse_token(envelope: &Envelope) -> Option<SessionToken> {
-    let (token, _) = SessionToken::from_bytes(envelope.payload_bytes()).ok()?;
-    (!token.0.is_empty()).then_some(token)
-}
+<!-- tested-example: readme-run-first-server -->
+```bash
+cargo run
 ```
 
-The envelope borrow lasts only while the handler closure runs. `Handler<E>`
-returns a `'static` future, so the async block cannot hold a borrow of the
-envelope: decode synchronously, as `parse_token` does, and move owned data into
-the future.
+You should see `Hello, Wireframe!`. The
+[users' guide walks through this program](docs/users-guide.md#your-first-server)
+a step at a time, including why the reply lives in middleware.
 
-## Middleware
+______________________________________________________________________
 
-Middleware allows inspecting or modifying requests and responses. The `from_fn`
-helper builds middleware from an async function or closure:
+## Features
 
-```rust
-use wireframe::middleware::from_fn;
+Wireframe v0.4.0-alpha1 provides:
 
-let logging = from_fn(|req, next| async move {
-    tracing::info!("received request: {:?}", req);
-    let res = next.call(req).await?;
-    tracing::info!("sending response: {:?}", res);
-    Ok(res)
-});
-```
+- routing by message ID, with custom envelopes through the `Packet` trait and
+  correlation identifiers;
+- middleware through `Transform`, and per-connection setup and teardown hooks;
+- replies of one frame, several, or a stream, written under back-pressure;
+- server pushes with priorities, rate limits, dead-letter queues, and a registry
+  of live connections;
+- length-delimited framing by default, with worked `FrameCodec` implementations
+  for Hotline, MySQL, and RESP in `examples/`;
+- bincode serialization by default, a pluggable `Serializer` trait, and an
+  optional Serde bridge;
+- connection preambles, with a 10-second default deadline on the server;
+- recovery policies for undecodable frames, and protocol hooks for setup, every
+  outbound frame, completed replies, and truncated input;
+- transport fragmentation, protocol message assembly, and per-connection memory
+  budgets with read pacing;
+- a server with configurable workers, readiness signals, graceful shutdown, and
+  accept backoff, which keeps a panicking connection away from the others;
+- a client with correlated calls, request and lifecycle hooks, tracing, streamed
+  replies, outbound streaming sends, and optional connection pools;
+- `metrics` counters, `tracing` and `log` events, and test drivers behind the
+  `testkit` feature and in the `wireframe_testing` crate.
+
+______________________________________________________________________
+
+## Release and development status
+
+Wireframe v0.4.0-alpha1 is an alpha for early adopters: expect interfaces to
+change before 1.0, and pin the version. Upgrading from v0.3.0? The
+[migration guide](docs/v0-4-0-migration-guide.md) lists every change to act on.
+
+A few things are worth knowing before you build on it:
+
+- **Requests arrive whole.** A handler receives one buffered message. Streaming
+  a request body to a handler is
+  [not available yet](docs/users-guide.md#streaming-request-bodies), though
+  streaming a reply is.
+- **One request at a time per connection.** A long streamed reply delays the
+  next request, while server pushes can slip between its frames.
+- **There is no built-in TLS.** Terminate it in front of the server.
+- **Idle connections stay open while the server runs.** `read_timeout_ms` is a
+  housekeeping interval, so bound quiet peers in your protocol. Shutdown ends
+  idle connections, but waits for running handlers.
+
+______________________________________________________________________
 
 ## Examples
 
-Example programs are available in the `examples/` directory:
+The `examples/` directory holds complete programs. To run them, clone the
+repository and start the echo server:
 
-- `echo.rs` — minimal echo server using routing
-- `ping_pong.rs` — showcases serialization and middleware in a ping/pong
-  protocol. See [examples/ping_pong.md](examples/ping_pong.md) for a detailed
-  overview.
-- [`packet_enum.rs`](examples/packet_enum.rs) — shows packet type discrimination
-  with a bincode enum and a frame containing container types like `HashMap` and
-  `Vec`.
-
-Run an example with Cargo:
-
+<!-- tested-example: readme-run-echo-server -->
 ```bash
-cargo run --example echo
+git clone https://github.com/leynos/wireframe.git
+cd wireframe
+cargo run --example echo --features examples
 ```
 
-Try the echo server with netcat:
+Then, in a second terminal in the same directory, log in against it:
 
+<!-- tested-example: readme-run-echo-client -->
 ```bash
-$ cargo run --example echo
-# in another terminal
-$ printf '\x00\x00\x00\x00\x01\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
+cargo run --example client_echo_login --features examples
 ```
 
-Try the ping‑pong server with netcat:
+The other programs run the same way:
 
-```bash
-$ cargo run --example ping_pong
-# in another terminal
-$ printf '\x00\x00\x00\x08\x01\x00\x00\x00\x2a\x00\x00\x00' | nc 127.0.0.1 7878 | xxd
-```
+- `ping_pong`: typed requests and replies through middleware, explained in
+  [its walkthrough](examples/ping_pong.md).
+- `packet_enum`: telling packet types apart with a bincode enum.
+- `metadata_routing`: routing from frame metadata without decoding the payload.
+- `hotline_codec`, `mysql_codec`, `resp_codec`: custom framing for real
+  protocols.
+- `async_stream`, `multi_packet`: building responses with the streaming types,
+  explained in the [stream](examples/async_stream.md) and
+  [channel](examples/multi_packet.md) walkthroughs.
 
-## Current limitations
+______________________________________________________________________
 
-Connection handling now processes frames and routes messages. Although the
-server is still experimental, it now compiles in release mode for evaluation or
-production use.
+## Learn more
 
-## Roadmap
+- [Users' guide](docs/users-guide.md): from a first server to production and
+  custom protocols.
+- [Migration guide](docs/v0-4-0-migration-guide.md): moving from v0.3.0.
+- [API reference](https://docs.rs/wireframe): every public type, on docs.rs.
+- [Design document](docs/rust-binary-router-library-design.md): architecture and
+  rationale.
+- [Developers' guide](docs/developers-guide.md): development workflow and
+  quality gates.
+- [Roadmap](docs/roadmap.md): completed foundations and planned work.
 
-Development priorities are tracked in [docs/roadmap.md](docs/roadmap.md). Key
-tasks include building the Actix‑inspired API, implementing middleware, and
-providing example applications[^6].
+______________________________________________________________________
 
 ## Licence
 
-Wireframe is distributed under the terms of the ISC licence. See
-[LICENSE](LICENSE) for details.
+ISC — see [LICENSE](LICENSE) for details.
 
-[^1]: [docs/preamble-validator.md](docs/preamble-validator.md)
-[^2]: [design §4.2](docs/rust-binary-router-library-design.md#42-high-level-architecture)
-[^3]: [design §5.2](docs/rust-binary-router-library-design.md#52-handler-functions)
-[^4]: [design §4.4](docs/rust-binary-router-library-design.md#44-message-serialization-and-deserialization)
-[^5]: [design §4.3](docs/rust-binary-router-library-design.md#43-frame-definition-and-processing)
-[^6]: [docs/roadmap.md](docs/roadmap.md)
+______________________________________________________________________
+
+## Contributing
+
+Contributions are welcome. Start with the
+[developers' guide](docs/developers-guide.md); automated contributors should
+also follow [AGENTS.md](AGENTS.md).

@@ -1,21 +1,26 @@
 //! Published user-facing guides included in the crate's rustdoc test suite.
 
+#[doc = include_str!("../README.md")]
+pub mod readme {}
+
 #[doc = include_str!("../docs/api.md")]
 pub mod api {}
 
 #[doc = include_str!("../docs/developers-guide.md")]
 pub mod developers_guide {}
 
+// The guide teaches optional features, so its examples need them enabled.
+#[cfg(all(feature = "pool", feature = "testkit", feature = "metrics"))]
 #[doc = include_str!("../docs/users-guide.md")]
 pub mod users_guide {}
 
-#[doc = include_str!("../docs/v0-1-0-to-v0-2-0-migration-guide.md")]
+#[doc = include_str!("../docs/v0-2-0-migration-guide.md")]
 pub mod migration_v0_1_to_v0_2 {}
 
-#[doc = include_str!("../docs/v0-2-0-to-v0-3-0-migration-guide.md")]
+#[doc = include_str!("../docs/v0-3-0-migration-guide.md")]
 pub mod migration_v0_2_to_v0_3 {}
 
-#[doc = include_str!("../docs/v0-3-0-to-v0-4-0-migration-guide.md")]
+#[doc = include_str!("../docs/v0-4-0-migration-guide.md")]
 pub mod migration_v0_3_to_v0_4 {}
 
 #[doc = include_str!("../docs/rstest-bdd-v0-6-0-migration-guide.md")]

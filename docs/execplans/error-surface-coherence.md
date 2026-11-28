@@ -132,7 +132,7 @@ Likely touched files:
 - `src/codec/error.rs`
 - `src/fragment/error.rs`
 - `docs/users-guide.md`
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md`
+- `docs/v0-2-0-migration-guide.md`
 
 ## Plan of work
 

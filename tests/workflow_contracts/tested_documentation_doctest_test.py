@@ -32,7 +32,7 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
 SHARED_TARGET = REPOSITORY_ROOT / "target"
 
 SHIPPED_GUIDE = "docs/users-guide.md"
-SHIPPED_MARKER = "<!-- tested-example: users-guide-001 -->\n"
+SHIPPED_MARKER = "<!-- tested-example: guide-dependencies -->\n"
 
 NON_COMPILING_FENCE = """\
 <!-- tested-example: users-guide-9999 -->

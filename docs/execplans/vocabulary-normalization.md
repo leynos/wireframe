@@ -99,7 +99,7 @@ Completed implementation outcomes:
 - Added a canonical layered glossary to `docs/users-guide.md`.
 - Created `docs/developers-guide.md` to define naming invariants and
   allowed/disallowed term mixing.
-- Updated `docs/v0-1-0-to-v0-2-0-migration-guide.md` with explicit
+- Updated `docs/v0-2-0-migration-guide.md` with explicit
   terminology mapping and a note that no additional public renames were made.
 - Updated terminology wording in public rustdoc and references
   (`src/app/envelope.rs`, `docs/api.md`, `docs/contents.md`).
@@ -136,7 +136,7 @@ Potentially touched files:
 - `README.md`
 - `docs/users-guide.md`
 - `docs/developers-guide.md` (new file expected)
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md`
+- `docs/v0-2-0-migration-guide.md`
 - `src/app/envelope.rs`
 - `docs/api.md`
 - `docs/contents.md`
@@ -194,7 +194,7 @@ Acceptance criteria:
   rules.
 - API naming is consistent within each layer and across shared cross-layer
   concepts.
-- `docs/v0-1-0-to-v0-2-0-migration-guide.md` includes rename mappings.
+- `docs/v0-2-0-migration-guide.md` includes rename mappings.
 - `make check-fmt`, `make lint`, and `make test` pass.
 - `make fmt`, `make markdownlint`, and `make nixie` pass.
 

@@ -25,7 +25,7 @@ use crate::{
 pub type TestResult<T> = Result<T, Box<dyn std::error::Error + Send + Sync>>;
 
 /// Marker removed to make a shipped guide fail the loader gate.
-pub const REMOVED_MARKER: &str = "<!-- tested-example: users-guide-001 -->\n";
+pub const REMOVED_MARKER: &str = "<!-- tested-example: guide-dependencies -->\n";
 
 /// The shipped document whose marker the malformed scenario removes.
 pub const SHIPPED_DOCUMENT: &str = "docs/users-guide.md";
