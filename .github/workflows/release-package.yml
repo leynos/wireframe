@@ -1,0 +1,100 @@
+name: Release package
+
+# Packages one release candidate and rehearses its publication, holding nothing
+# but `contents: read`. `release.yml` calls it for a tag, and
+# `release-dry-run.yml` for a pull request, so a release runs the same packaging
+# steps that every pull request has already exercised.
+#
+# Publication is deliberately not here. This file is reusable, so any caller can
+# reach whatever it does, and crates.io identifies a trusted publisher by the
+# file that declares the job. See ADR 019.
+
+on:
+  workflow_call:
+    inputs:
+      release-tag:
+        description: The version tag being released, or empty to rehearse.
+        required: false
+        type: string
+        default: ""
+    outputs:
+      action:
+        description: "`publish` when a crate is not on crates.io yet, else `skip`."
+        value: ${{ jobs.package.outputs.action }}
+      version:
+        description: The one version every published crate carries.
+        value: ${{ jobs.package.outputs.version }}
+
+permissions: {}
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    outputs:
+      action: ${{ steps.survey.outputs.action }}
+      version: ${{ steps.survey.outputs.version }}
+    env:
+      CARGO_TERM_COLOR: always
+      RELEASE_TAG: ${{ inputs.release-tag }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      # Both published crates must carry the version the tag names. A rehearsal
+      # has no tag to compare.
+      - name: Check the tag against the manifests
+        if: inputs.release-tag != ''
+        uses: leynos/shared-actions/.github/actions/ensure-cargo-version@ab6505246c6b043b742a225e428e00448c0a37af
+        with:
+          manifests: |
+            Cargo.toml
+            wireframe_testing/Cargo.toml
+      - name: Setup Rust
+        uses: leynos/shared-actions/.github/actions/setup-rust@ab6505246c6b043b742a225e428e00448c0a37af
+      - name: Setup uv
+        uses: astral-sh/setup-uv@1db35dd8eee11c5894872e0b383ae6c406cf738d
+        with:
+          python-version: "3.14"
+          enable-cache: false
+      - name: Package the workspace
+        run: make package-crates
+      # Kept outside the checkout, where an untracked file would become part of
+      # the package.
+      - name: Record the candidate
+        run: >-
+          uv run --no-project --python 3.14
+          scripts/release/release_workspace_cli.py record
+          --candidate "$RUNNER_TEMP/release-candidate/candidate.json"
+          --package-directory target/package
+          --commit "$GITHUB_SHA"
+          --tag "$RELEASE_TAG"
+      # Fails a tagged run whose version is already published with other bytes,
+      # before any job holds a credential.
+      - name: Survey crates.io
+        id: survey
+        run: >-
+          uv run --no-project --python 3.14
+          scripts/release/release_workspace_cli.py survey
+          --candidate "$RUNNER_TEMP/release-candidate/candidate.json"
+          --github-output "$GITHUB_OUTPUT"
+      # Skipped while the workspace carries an already published version, which
+      # is most pull requests: Cargo would resolve the sibling crate to that
+      # older release. `make package-crates` above covers packaging regardless.
+      - name: Rehearse the publication with lading
+        if: steps.survey.outputs.action == 'publish'
+        env:
+          # CI runs the suite on this change. A workstation is where the
+          # pre-flight earns its time.
+          LADING_SKIP_PREFLIGHT: "true"
+        run: make publish-check
+      - name: Retain the candidate
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: release-candidate
+          path: ${{ runner.temp }}/release-candidate
+          if-no-files-found: error
+          overwrite: true

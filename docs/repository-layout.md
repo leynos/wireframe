@@ -26,9 +26,9 @@ and shared test support. Its main areas are:
   configuration. The
   [development builds](developers-guide.md#development-builds) section
   documents Make targets and toolchain requirements.
-- `scripts/release/` observes crates.io and verifies what a release published.
-  See [its README](../scripts/release/README.md); `make test-release-scripts`
-  runs its tests.
+- `scripts/release/` records a release candidate and verifies what was
+  published. See [its README](../scripts/release/README.md);
+  `make test-release-scripts` runs its tests.
 - `lading.toml` and `tools/lading/` configure and pin the release tool. The
   [release guide](releasing-crates.md) documents the procedure.
 - `docs/` contains design documents, decisions, guides, and reference material.

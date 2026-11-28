@@ -75,7 +75,10 @@ reference when navigating the project's design and architecture material.
   Proposed workspace lint table, per-root attribute, and enforcement checks.
 - [ADR 017: remove the unwired route extractors and application data API](adrs/adr-0017-remove-route-extractors-and-app-data.md)
   Accepted removal of the extractor module and `app_data` before 1.0.
+- [ADR 019: publish the workspace through Trusted Publishing][adr-019]
+  Accepted release workflow, candidate verification, and credential boundary.
 
+[adr-019]: adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md
 [adr-015]: adrs/adr-0015-declared-total-body-length-is-authoritative.md
 
 ## Execution plans

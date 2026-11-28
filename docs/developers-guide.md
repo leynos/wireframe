@@ -31,12 +31,17 @@ record the consumer evidence, validation profiles, and delivery order.
 Namespace is retired. Each lane now sits where the kind of work decides, rather
 than all four repository-owned lanes sharing one profile.
 
-| Workflow                 | Job               | Trigger            | Runner                  | Ceiling |
-| ------------------------ | ----------------- | ------------------ | ----------------------- | ------- |
-| `ci.yml`                 | `build-test`      | pull request, push | `ubicloud-standard-2`   | 60 min  |
-| `coverage-main.yml`      | `coverage-upload` | push               | `ubicloud-standard-4`   | 20 min  |
-| `advanced-tests.yml`     | `advanced`        | schedule           | `ubuntu-latest`         | 60 min  |
-| `delayed-pr-comment.yml` | `delayed-comment` | dispatch           | callee: `ubuntu-latest` | callee  |
+| Workflow                 | Job                 | Trigger            | Runner                  | Ceiling |
+| ------------------------ | ------------------- | ------------------ | ----------------------- | ------- |
+| `ci.yml`                 | `build-test`        | pull request, push | `ubicloud-standard-2`   | 60 min  |
+| `coverage-main.yml`      | `coverage-upload`   | push               | `ubicloud-standard-4`   | 20 min  |
+| `advanced-tests.yml`     | `advanced`          | schedule           | `ubuntu-latest`         | 60 min  |
+| `delayed-pr-comment.yml` | `delayed-comment`   | dispatch           | callee: `ubuntu-latest` | callee  |
+| `release-package.yml`    | `package`           | pull request, tag  | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `require-main`      | tag                | `ubuntu-latest`         | 5 min   |
+| `release.yml`            | `publish-crates-io` | tag                | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `verify-crates-io`  | tag                | `ubuntu-latest`         | 30 min  |
+| `release.yml`            | `github-release`    | tag                | `ubuntu-latest`         | 10 min  |
 
 *Table 1: Where each repository-owned lane runs, and its ceiling.*
 
@@ -1579,16 +1584,36 @@ Python 3.14 for lading. `tools/lading/pyproject.toml` pins lading to exactly
 `make publish-check` runs the same bytes on every machine. The Makefile runs
 lading with `--locked`, which refuses a lock that no longer matches the pin.
 
-Both targets set `RUSTFLAGS` to `RELEASE_RUSTFLAGS`, a blank but non-empty
-value by default. It displaces the `rustflags` in `.cargo/config.toml`, which
-name a linker that a release runner does not install; the archive bytes do not
-depend on it. Override it only to pass flags a release build genuinely needs.
+`package-crates`, `publish-check` and `publish-crates` all set `RUSTFLAGS` to
+`RELEASE_RUSTFLAGS`, a blank but non-empty value by default. It displaces the
+`rustflags` in `.cargo/config.toml`, which name a linker that a release runner
+does not install; the archive bytes do not depend on it. Override it only to
+pass flags a release build genuinely needs.
+
+Two further targets exist for `release.yml` alone:
+
+- `make install-lading` runs `uv sync --locked` for `tools/lading`, which
+  installs the locked tool without running it. The release workflow runs it
+  before exchanging its identity for a token, so nothing is downloaded while
+  the token exists. A developer has no reason to run it: `make publish-check`
+  installs the tool itself.
+- `make publish-crates` runs that installed tool as
+  `lading publish --live --forbid-dirty --skip-preflight`. `release.yml` calls
+  it as the publishing job's last step, after the token exchange. Never run it
+  by hand: it uploads to crates.io, and an upload cannot be undone.
+
+The two targets reach lading differently. `LADING`, which `publish-check` uses,
+is `uv run --locked`, so it installs the locked tool when it is missing.
+`LADING_INSTALLED`, which `publish-crates` uses, is `uv run --no-sync`, so it
+runs only what `install-lading` installed, and fails rather than downloading
+anything.
 
 lading was chosen because it publishes a workspace's crates in a declared order
 and skips a crate that is already published; `rstest-bdd` releases its
-workspace with it. So far it only rehearses a release, so the choice is
-recorded here rather than in an architectural decision record. It becomes an
-architectural decision once a workflow uploads with it.
+workspace with it.
+[ADR 0019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
+records the decision to publish with it, and the cost of letting Cargo build
+each package while the upload credential is present.
 
 ### CodeScene coverage baseline
 
@@ -1958,6 +1983,59 @@ workflow declaring both since GitHub merges them, and refuses any other shape
 rather than reading it as "no triggers", which would let the workflow escape
 every clause. `workflow_reading_test.py` drives that reading with the shapes
 the repository's own workflows do not use.
+
+## Release workflows
+
+Three workflows cover a release, and their boundary is the point of the split:
+
+- `release-package.yml` is reusable and read-only. It packages the workspace,
+  records the candidate, surveys crates.io, and rehearses with lading.
+- `release-dry-run.yml` calls it for every pull request, on a GitHub-hosted
+  runner. It is not a required check, so nobody waits for it.
+- `release.yml` calls it for a version tag, and is the only workflow that can
+  publish. crates.io identifies a trusted publisher by the file that declares
+  the job, so the publishing job must stay in this file under this name.
+
+The publishing credential exists for one step. Every check, download, and
+installation precedes the exchange, and nothing follows the upload.
+`tests/workflow_contracts/release_workflow_test.py` holds these properties.
+`tests/workflow_contracts/release_steps_test.py` runs the steps themselves: the
+ancestry check against a throwaway repository with commits on and off `main`,
+the consumer smoke build against stand-in `rustup` and `cargo`, and the tool
+installation through `make --dry-run`. `make test-release-scripts` tests the
+scripts behind them.
+[ADR 019](adrs/adr-0019-publish-the-workspace-through-trusted-publishing.md)
+gives the reasons, and [the release guide](releasing-crates.md) gives the
+procedure.
+
+### Release tools
+
+The workflows call four of Wireframe's own tools in `scripts/release`:
+
+- `workspace_candidate.py` is the library behind the command-line tool. It
+  describes the packaged archives as a candidate, stores that record, and
+  checks archives against it.
+- `release_workspace_cli.py` is the command-line tool the jobs run. It has one
+  subcommand per step of the release (Table 1).
+- `consumer-smoke.sh` builds a throwaway crate against the published version,
+  as a user would, in the `verify-crates-io` job.
+- `github-release.sh` creates the GitHub release from the retained archives,
+  in the `github-release` job.
+
+| Subcommand | Job                                   | Step                                              |
+| ---------- | ------------------------------------- | ------------------------------------------------- |
+| `record`   | `package`, in `release-package.yml`   | Describe the packaged archives and retain them    |
+| `survey`   | `package`, in `release-package.yml`   | Decide whether to publish, from crates.io's state |
+| `check`    | `publish-crates-io`, in `release.yml` | Require a rebuilt candidate to match the record   |
+| `verify`   | `verify-crates-io`, in `release.yml`  | Compare the published archives with the record    |
+
+*Table 1: `release_workspace_cli.py` subcommands and the jobs that run them.*
+
+The other modules come from Netsuke;
+[the scripts' README](../scripts/release/README.md) records their provenance
+and the commit they were taken from.
+
+Dependabot does not watch `tools/lading`, so move its pin by hand.
 
 ## Workflow pins and Dependabot
 
